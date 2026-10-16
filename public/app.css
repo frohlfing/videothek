@@ -1,0 +1,499 @@
+/* Kinosaal-Optik: dunkler Hintergrund, warmes Leinwand-/Popcorn-Gold als Akzent. */
+:root{
+  --paper:#16131a;
+  --paper-deep:#221d27;
+  --ink:#f1ebe1;
+  --ink-soft:#a99f93;
+  --rule:#3a3240;
+  --accent:#e2a53a;
+  --accent-ink:#1a1408;
+  --danger:#d9534f;
+  --accent-soft:#2c2618;
+  --card:#1e1a23;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;}
+body{
+  background:var(--paper);
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(241,235,225,0.04) 1px, transparent 0);
+  background-size: 22px 22px;
+  color:var(--ink);
+  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  min-height:100vh;
+}
+a{color:var(--accent);}
+header{
+  padding:2.6rem 1.5rem 1.4rem;
+  text-align:center;
+  border-bottom:1px solid var(--rule);
+  background:
+    radial-gradient(ellipse at 50% -40%, rgba(226,165,58,0.22), transparent 70%),
+    linear-gradient(180deg, #0f0c12, var(--paper));
+}
+header .eyebrow{
+  color:var(--accent);
+  font-size:.8rem;
+  text-transform:uppercase;
+  letter-spacing:.3em;
+}
+header h1{
+  margin:.35rem 0 .3rem;
+  font-family: "Bahnschrift", "Arial Narrow", "Segoe UI", sans-serif;
+  font-size:2.8rem;
+  font-weight:700;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+}
+header p.sub{
+  margin:0;
+  color:var(--ink-soft);
+  font-size:.95rem;
+}
+.controls{
+  max-width:1080px;
+  margin:1.4rem auto 0;
+  padding:0 1.5rem;
+  display:flex;
+  gap:.75rem;
+  flex-wrap:wrap;
+  align-items:center;
+  justify-content:center;
+}
+.controls input[type=search]{
+  flex:1 1 270px;
+  max-width:420px;
+  padding:.6rem .9rem;
+  border:1px solid var(--rule);
+  border-radius:4px;
+  background:var(--card);
+  font-family:inherit;
+  font-size:1rem;
+  color:var(--ink);
+}
+.controls select{
+  padding:.6rem .8rem;
+  border:1px solid var(--rule);
+  border-radius:4px;
+  background:var(--card);
+  font-family:inherit;
+  font-size:.95rem;
+  color:var(--ink);
+}
+.count{
+  text-align:center;
+  color:var(--ink-soft);
+  font-size:.85rem;
+  margin:.6rem 0 0;
+  letter-spacing:.03em;
+}
+.grid{
+  max-width:1180px;
+  margin:1.6rem auto 4rem;
+  padding:0 1.5rem;
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(170px,1fr));
+  gap:1.15rem;
+}
+.card{
+  background:var(--card);
+  border:1px solid var(--rule);
+  border-radius:6px;
+  overflow:hidden;
+  cursor:pointer;
+  transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+  display:flex;
+  flex-direction:column;
+}
+.card:hover{
+  transform:translateY(-3px);
+  border-color:var(--accent);
+  box-shadow:0 10px 24px rgba(0,0,0,0.5);
+}
+.card .thumb{
+  width:100%;
+  padding-top:150%; /* 2:3-Plakatformat via klassischem Padding-Hack - funktioniert ohne CSS aspect-ratio */
+  position:relative;
+  background:var(--paper-deep);
+  display:block;
+  color:var(--ink-soft);
+  font-size:.8rem;
+  overflow:hidden;
+}
+.card .thumb span{
+  position:absolute;
+  inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+}
+.card .thumb img{
+  position:absolute;
+  top:0; left:0;
+  width:100%;height:100%;
+  object-fit:cover;
+  display:block;
+}
+.card .body{padding:.7rem .85rem .9rem;}
+.card h3{
+  margin:0 0 .2rem;
+  font-size:1rem;
+  line-height:1.25;
+}
+.card .meta{
+  color:var(--accent);
+  font-size:.78rem;
+  letter-spacing:.03em;
+}
+.card .cat-tag{
+  display:inline-block;
+  margin-top:.35rem;
+  margin-right:.25rem;
+  font-family: inherit;
+  font-size:.66rem;
+  text-transform:uppercase;
+  letter-spacing:.05em;
+  color:var(--ink-soft);
+  background:var(--paper-deep);
+  border-radius:8px;
+  padding:.1rem .5rem;
+}
+.card .cat-tag.medium-tag{
+  background:none;
+  border:1px solid var(--rule);
+}
+
+/* Detail overlay */
+.overlay{
+  position:fixed;inset:0;
+  background:rgba(5,4,7,0.75);
+  display:none;
+  align-items:flex-start;
+  justify-content:center;
+  padding:3vh 1rem;
+  overflow-y:auto;
+  z-index:50;
+}
+.overlay.open{display:flex;}
+.sheet{
+  background:var(--card);
+  max-width:760px;
+  width:100%;
+  border-radius:6px;
+  border:1px solid var(--rule);
+  padding:1.8rem 1.9rem 2.2rem;
+  position:relative;
+}
+.sheet .close{
+  position:absolute;
+  top:.9rem;right:1rem;
+  background:none;border:none;
+  font-size:1.4rem;
+  color:var(--ink-soft);
+  cursor:pointer;
+  line-height:1;
+}
+.sheet .close:hover{color:var(--accent);}
+.sheet .hero{
+  display:flex;gap:1.4rem;
+  align-items:flex-start;
+  flex-wrap:wrap;
+  margin-bottom:1.1rem;
+}
+.sheet .hero-img{
+  width:200px;max-width:40vw;
+  flex:0 0 auto;
+}
+.sheet .hero-img .ratio-box{
+  width:100%;
+  padding-top:150%; /* 2:3-Box, relativ zur (festen) Breite dieses Wrappers */
+  height:0;
+  position:relative;
+  border-radius:4px;
+  border:1px solid var(--rule);
+  overflow:hidden;
+  background:var(--paper-deep);
+}
+.sheet .hero-img .ratio-box img{
+  position:absolute;
+  top:0; left:0;
+  width:100%; height:100%;
+  object-fit:cover;
+  display:block;
+}
+.sheet .hero .titles{flex:1 1 260px;}
+.sheet h2{margin:.1rem 0 .2rem;font-size:1.9rem;line-height:1.15;}
+.sheet .original-title{
+  color:var(--ink-soft);
+  font-style:italic;
+  margin-bottom:.3rem;
+}
+.sheet .meta-line{
+  color:var(--accent);
+  font-size:1rem;
+  letter-spacing:.03em;
+}
+.sheet .facts{
+  display:grid;
+  grid-template-columns:max-content 1fr;
+  gap:.35rem 1rem;
+  margin:1rem 0 0;
+  font-size:.92rem;
+}
+.sheet .facts dt{
+  color:var(--ink-soft);
+  font-size:.75rem;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  padding-top:.15rem;
+}
+.sheet .facts dd{margin:0;line-height:1.4;}
+.sheet .created-date{
+  margin-top:.8rem;
+  font-size:.78rem;
+  color:var(--ink-soft);
+}
+.sheet h4{
+  margin:1.3rem 0 .5rem;
+  font-size:.8rem;
+  text-transform:uppercase;
+  letter-spacing:.12em;
+  color:var(--ink-soft);
+  border-bottom:1px solid var(--rule);
+  padding-bottom:.25rem;
+}
+.sheet .plot{line-height:1.6;}
+.sheet .plot p{margin:.4rem 0;}
+.sheet .notes{
+  background:var(--accent-soft);
+  border-left:3px solid var(--accent);
+  border-radius:3px;
+  padding:.8rem .95rem;
+  font-size:.92rem;
+  line-height:1.5;
+}
+.sheet .notes p{margin:.3rem 0;}
+.empty{
+  text-align:center;
+  color:var(--ink-soft);
+  padding:3rem 1rem;
+  font-style:italic;
+}
+
+/* Buttons */
+.btn{
+  font-family: inherit;
+  font-size: .95rem;
+  padding:.5rem .95rem;
+  border-radius:4px;
+  border:1px solid var(--rule);
+  background:var(--card);
+  color:var(--ink);
+  cursor:pointer;
+  height: 43px;
+}
+.btn:hover{border-color:var(--accent); color:var(--accent);}
+a.btn{display:inline-flex; align-items:center; text-decoration:none;}
+.btn-primary{background:var(--accent); border-color:var(--accent); color:var(--accent-ink); font-weight:600;}
+.btn-primary:hover{opacity:.88; color:var(--accent-ink);}
+.btn-danger:hover{background:var(--danger); border-color:var(--danger); color:#fff;}
+.btn-row{display:flex; gap:.6rem; flex-wrap:wrap; margin:1rem 0;}
+.sheet .toolbar{margin-bottom:1.1rem;}
+
+/* Formular (Anlegen/Bearbeiten) */
+.form-field{margin-bottom:1rem;}
+.form-row{display:flex; gap:1rem; flex-wrap:wrap;}
+.form-row .form-field{flex:1 1 140px;}
+.form-field label{
+  display:block;
+  font-size:.78rem;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  color:var(--ink-soft);
+  margin-bottom:.3rem;
+}
+.form-field input[type=text], .form-field textarea{
+  width:100%;
+  padding:.55rem .7rem;
+  border:1px solid var(--rule);
+  border-radius:4px;
+  background:var(--paper);
+  font-family:inherit;
+  font-size:.95rem;
+  color:var(--ink);
+  resize:vertical;
+}
+.form-field input[type=file]{color:var(--ink-soft);}
+.form-field textarea{min-height:4.2rem;}
+.form-field textarea#filesInput{min-height:2.6rem;}
+.form-field textarea#castInput{min-height:8rem;}
+.form-field textarea#plotInput{min-height:9rem;}
+.form-field .hint{font-size:.72rem; color:var(--ink-soft); margin-top:.3rem;}
+.form-preview{
+  width:110px;
+  margin-bottom:.6rem;
+}
+.form-preview .ratio-box{
+  width:100%;
+  padding-top:150%;
+  position:relative;
+  border-radius:4px;
+  border:1px solid var(--rule);
+  overflow:hidden;
+  background:var(--paper-deep);
+}
+.form-preview .ratio-box img{
+  position:absolute; top:0; left:0;
+  width:100%; height:100%;
+  object-fit:cover;
+}
+.error-box{
+  background:rgba(217,83,79,0.12);
+  border:1px solid var(--danger);
+  color:#f2a19e;
+  border-radius:4px;
+  padding:.6rem .8rem;
+  font-size:.85rem;
+  margin-bottom:1rem;
+}
+/* Hintergrundbild (fanart) hinter dem Kopf der Detailansicht, nach unten in die Kartenfarbe auslaufend */
+.sheet{overflow:hidden;}
+.sheet .fanart{
+  position:absolute;
+  top:0; left:0; right:0;
+  height:340px;
+  background-size:cover;
+  background-position:center top;
+  opacity:.35;
+  pointer-events:none;
+}
+.sheet .fanart::after{
+  content:"";
+  position:absolute; inset:0;
+  background:linear-gradient(180deg, rgba(30,26,35,0.2) 0%, var(--card) 100%);
+}
+.sheet > *:not(.fanart){position:relative;}
+.sheet .close{position:absolute;}
+
+/* Darsteller: vollständige Liste, scrollt in einem eigenen Bereich (Fotos per loading="lazy") */
+.cast-list{
+  list-style:none;
+  margin:0; padding:.2rem .2rem .6rem;
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(96px,1fr));
+  gap:.9rem .7rem;
+  max-height:126px;
+  overflow-y:auto;
+}
+.cast-list li{text-align:center; font-size:.8rem; line-height:1.25;}
+.cast-list .actor-photo{
+  width:72px; height:72px;
+  margin:0 auto .35rem;
+  border-radius:50%;
+  overflow:hidden;
+  background:var(--paper-deep);
+  border:1px solid var(--rule);
+  display:flex; align-items:center; justify-content:center;
+  color:var(--ink-soft);
+  font-size:1.1rem;
+}
+.cast-list .actor-photo img{width:100%; height:100%; object-fit:cover; display:block;}
+.cast-list .actor-role{color:var(--ink-soft); font-size:.74rem; font-style:italic;}
+
+/* Trailer: am Bildschirm Player, im Druck QR-Code */
+.print-only{display:none;}
+.trailer-player{
+  position:relative;
+  width:100%;
+  padding-top:56.25%; /* 16:9 */
+  border-radius:4px;
+  overflow:hidden;
+  background:#000;
+}
+.trailer-player iframe{position:absolute; inset:0; width:100%; height:100%; border:0;}
+
+/* Formular: Poster (2:3) und Hintergrundbild (16:9) nebeneinander */
+.form-row .image-field{flex:1 1 200px;}
+.fanart-field .form-preview{width:220px;}
+.fanart-field .form-preview .ratio-box{padding-top:56.25%;}
+
+/* Import-Dialog: TMDB-Suche */
+.form-row .search-query{flex:3 1 220px;}
+.form-row .search-year{flex:1 1 100px;}
+.search-results{list-style:none; margin:.4rem 0 0; padding:0;}
+.search-results li{
+  display:flex; gap:.9rem;
+  padding:.7rem;
+  border:1px solid var(--rule);
+  border-radius:4px;
+  margin-bottom:.6rem;
+  cursor:pointer;
+  transition:border-color .15s ease;
+}
+.search-results li:hover{border-color:var(--accent);}
+.search-results li.exists{opacity:.6;}
+.search-results li.importing{border-color:var(--accent); cursor:progress;}
+.search-results .result-poster{
+  flex:0 0 64px; height:96px;
+  border-radius:3px; overflow:hidden;
+  background:var(--paper-deep);
+}
+.search-results .result-poster img{width:100%; height:100%; object-fit:cover; display:block;}
+.search-results .result-body{min-width:0;}
+.search-results .result-title{font-weight:600;}
+.search-results .result-title span{color:var(--ink-soft); font-weight:400;}
+.search-results .result-original{color:var(--ink-soft); font-style:italic; font-size:.85rem;}
+.search-results .result-status{color:var(--accent); font-size:.8rem;}
+.search-results .result-overview{
+  color:var(--ink-soft); font-size:.82rem; line-height:1.4; margin-top:.25rem;
+  display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;
+}
+.tmdb-note{font-size:.75rem; color:var(--ink-soft); margin-top:1.2rem;}
+
+@media (max-width:520px){
+  header h1{font-size:2rem;}
+  .grid{grid-template-columns:repeat(auto-fill, minmax(140px,1fr));}
+  .sheet{padding:1.3rem 1.1rem 1.6rem;}
+  .sheet .hero-img{width:140px;}
+}
+
+/* Druckansicht: nur der offene Film auf einer A4-Seite, hell und tintensparend
+   (Cover oben links, Titel/Eckdaten rechts daneben, Handlung und Notizen darunter). */
+@media print{
+  @page{size:A4; margin:1.5cm;}
+  :root{
+    --paper:#fff;
+    --paper-deep:#f2f2f2;
+    --ink:#111;
+    --ink-soft:#555;
+    --rule:#ccc;
+    --accent:#111;
+    --accent-soft:#f4f4f4;
+    --card:#fff;
+  }
+  header, .controls, .count, .grid{display:none !important;}
+  body{background:none !important;}
+  .overlay.open{
+    position:static !important;
+    display:block !important;
+    background:none !important;
+    padding:0 !important;
+    inset:auto !important;
+  }
+  .sheet{
+    max-width:100% !important;
+    width:auto !important;
+    padding:0 !important;
+    border:none !important;
+    background:#fff !important;
+  }
+  .sheet .close, .sheet .btn-row, .sheet .fanart, .screen-only{display:none !important;}
+  .print-only{display:block;}
+  .trailer-qr{display:flex; align-items:center; gap:1rem; font-size:.85rem; break-inside:avoid;}
+  .trailer-qr svg{width:72px; height:72px; flex:0 0 auto;} /* so groß wie ein Darstellerfoto (.actor-photo) */
+  .trailer-qr .trailer-url{word-break:break-all;}
+  /* Im Ausdruck nur die ersten 6 Darsteller, ohne Scrollbereich */
+  .cast-list{max-height:none; overflow:visible; grid-template-columns:repeat(6, 1fr);}
+  .cast-list li:nth-child(n+7){display:none;}
+  .sheet .hero-img{width:180px;}
+}

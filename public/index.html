@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Videothek</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<header>
+  <div class="eyebrow">Heute ist Filmabend</div>
+  <h1>Die Videothek</h1>
+  <p class="sub" id="subCount">wird geladen &hellip;</p>
+</header>
+
+<div class="controls">
+  <input type="search" id="search" placeholder="Titel, Regie oder Darsteller suchen &hellip;" aria-label="Titel, Regie oder Darsteller suchen">
+  <select id="genreSel" aria-label="Nach Genre filtern"><option value="">Alle Genres</option></select>
+  <select id="mediumSel" aria-label="Nach Medium filtern"><option value="">Alle Medien</option></select>
+  <select id="sortSel" aria-label="Sortierung">
+    <option value="title">Alphabetisch</option>
+    <option value="year-desc">Erscheinungsjahr &darr;</option>
+    <option value="year-asc">Erscheinungsjahr &uarr;</option>
+    <option value="created-desc">Zuletzt hinzugefügt</option>
+    <option value="created-asc">Zuerst hinzugefügt</option>
+  </select>
+  <button class="btn btn-primary" id="newMovieBtn" type="button">+ Neuer Film</button>
+  <button class="btn" id="importMovieBtn" type="button">Importieren</button>
+</div>
+<p class="count" id="resultCount"></p>
+
+<div class="grid" id="grid"></div>
+
+<div class="overlay" id="overlay">
+  <div class="sheet" id="sheet"></div>
+</div>
+
+<script src="vendor/qrcode.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

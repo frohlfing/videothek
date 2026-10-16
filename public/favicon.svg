@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Klappe (aufgeklappt) -->
+  <g transform="rotate(-14 10 34)">
+    <rect x="10" y="20" width="82" height="16" rx="2" fill="#1e1a23" stroke="#e2a53a" stroke-width="2"/>
+    <path d="M22 20 L34 20 L24 36 L12 36 Z M46 20 L58 20 L48 36 L36 36 Z M70 20 L82 20 L72 36 L60 36 Z" fill="#f1ebe1"/>
+  </g>
+  <!-- Leiste unter der Klappe -->
+  <rect x="10" y="38" width="80" height="12" fill="#1e1a23" stroke="#e2a53a" stroke-width="2"/>
+  <path d="M20 38 L32 38 L24 50 L12 50 Z M44 38 L56 38 L48 50 L36 50 Z M68 38 L80 38 L72 50 L60 50 Z" fill="#f1ebe1"/>
+  <!-- Tafel -->
+  <rect x="10" y="50" width="80" height="40" rx="3" fill="#1e1a23" stroke="#e2a53a" stroke-width="2"/>
+  <!-- Abspiel-Dreieck -->
+  <path d="M43 59 L62 70 L43 81 Z" fill="#e2a53a"/>
+  <!-- Scharnier -->
+  <circle cx="14" cy="38" r="4" fill="#e2a53a"/>
+</svg>
