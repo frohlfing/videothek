@@ -125,7 +125,7 @@ einer statischen One-Page-Frontend-App.
 ```
 videothek/                                            # Projektroot
  ├── bin/                                             # Kommandozeilen-Skripte (laufen lokal, nicht auf dem Webserver)
- │    └── check_trailers.php                          # Trailer bei YouTube prüfen, tote durch aktuelle von TMDB ersetzen
+ │    └── check_trailers.php                          # optional: alle Trailer auf einmal prüfen (sonst beim Öffnen)
  ├── data/                                            # Außerhalb des Document Root, kein direkter Browser-Zugriff möglich
  │    └── movies/                                     # Ein Unterordner pro Film
  │         └── <slug>/                                # Ein Ordner pro Film (Slug aus Titel + Jahr, z. B. "die-goonies-1985")
@@ -146,6 +146,7 @@ videothek/                                            # Projektroot
  │    │    │    ├── slug.php                          # slugify() + Eindeutigkeits-Check
  │    │    │    ├── thumbnail.php                     # Thumbnail-Erzeugung per GD (Center-Crop) + Lazy-Fallback
  │    │    │    ├── tmdb.php                          # TMDB-API: Suche, Details, Zuordnung zu movie.json
+ │    │    │    ├── trailer_check.php                 # ensure_trailer(): Trailer prüfen und bei Bedarf ersetzen
  │    │    │    └── youtube.php                       # Verfügbarkeit von YouTube-Videos prüfen (oEmbed)
  │    │    ├── actors.php                             # Darstellerfotos eines Films herunterladen (mehrere Aufrufe)
  │    │    ├── image.php                              # Liefert Poster, Thumbnail, Hintergrundbild, Darstellerfoto
@@ -153,6 +154,7 @@ videothek/                                            # Projektroot
  │    │    ├── movies.php                             # Filme lesen, anlegen, bearbeiten, löschen
  │    │    ├── play.php                               # Play-Button: Wiedergabeliste (.m3u) mit dem lokalen Dateipfad
  │    │    ├── search.php                             # Filmsuche in TMDB (für den Import-Dialog)
+ │    │    ├── trailer.php                            # Trailer beim Öffnen eines Films prüfen/reparieren
  │    │    └── upload.php                             # Poster-/Hintergrundbild-Upload, zum Poster inkl. Thumbnail
  │    ├── dev/                                        # Admin-/Wartungsskripte – NICHT dauerhaft auf dem Produktivserver lassen (siehe unten)
  │    │    └── info.php                               # phpinfo()
@@ -187,20 +189,20 @@ Lesende Endpunkte (`GET`) sind ohne eigenes Token offen — Schutz vor öffentli
 die HTTP Basic Auth vor der gesamten `public/`-Domain (siehe Setup, Schritt 5), die auch die statische `index.html` 
 selbst mit abdeckt.
 
-| Methode | Endpunkt                                         | Beschreibung                                                                                                            |
-|---------|--------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------|
-| GET     | `/api/movies.php`                                | Alle Filme, alphabetisch nach Titel sortiert (das Frontend sortiert clientseitig ggf. um)                               |
-| GET     | `/api/movies.php?slug=xyz`                       | Einzelner Film                                                                                                          |
-| POST    | `/api/movies.php`                                | Neuen Film anlegen (JSON-Body)                                                                                          |
-| PUT     | `/api/movies.php?slug=xyz`                       | Film bearbeiten (JSON-Body). Ändern sich Titel/Jahr so, dass sich der Slug ändert, wird der Filmordner atomar umbenannt. |
-| DELETE  | `/api/movies.php?slug=xyz`                       | Film samt Ordner (Bilder inklusive) löschen                                                                             |
-| POST    | `/api/upload.php`                                | Poster/Hintergrundbild hochladen (`multipart/form-data`: `slug`, `image`, `kind` = `poster`\|`fanart`)                  |
-| GET     | `/api/image.php?slug=xyz&type=poster\|thumb\|fanart` | Poster, Thumbnail bzw. Hintergrundbild ausliefern                                                               |
-| GET     | `/api/image.php?slug=xyz&actor=Sean%20Astin`     | Darstellerfoto ausliefern                                                                                               |
-| GET     | `/api/search.php?query=…&year=…`                 | Filmsuche in TMDB (Titel oder IMDb-ID, Jahr optional), markiert bereits vorhandene Filme                                |
-| POST    | `/api/import.php`                                | Film aus TMDB importieren inkl. Poster und Hintergrundbild (Body: `{"tmdb": 9340}`)                                     |
-| GET     | `/api/play.php?slug=xyz`                         | Wiedergabeliste (`.m3u`) mit USB_ROOT + `files` für den lokalen Player                                                  |
-| POST    | `/api/actors.php`                                | Fehlende Darstellerfotos laden, ~10 s pro Aufruf, bis `remaining` 0 ist (Body: `{"slug": "..."}`)                       |
+| Methode | Endpunkt                                             | Beschreibung                                                                                                             |
+|---------|------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------|
+| GET     | `/api/movies.php`                                    | Alle Filme, alphabetisch nach Titel sortiert (das Frontend sortiert clientseitig ggf. um)                                |
+| GET     | `/api/movies.php?slug=xyz`                           | Einzelner Film                                                                                                           |
+| POST    | `/api/movies.php`                                    | Neuen Film anlegen (JSON-Body)                                                                                           |
+| PUT     | `/api/movies.php?slug=xyz`                           | Film bearbeiten (JSON-Body). Ändern sich Titel/Jahr so, dass sich der Slug ändert, wird der Filmordner atomar umbenannt. |
+| DELETE  | `/api/movies.php?slug=xyz`                           | Film samt Ordner (Bilder inklusive) löschen                                                                              |
+| POST    | `/api/upload.php`                                    | Poster/Hintergrundbild hochladen (`multipart/form-data`: `slug`, `image`, `kind` = `poster`\|`fanart`)                   |
+| GET     | `/api/image.php?slug=xyz&type=poster\|thumb\|fanart` | Poster, Thumbnail bzw. Hintergrundbild ausliefern                                                                        |
+| GET     | `/api/image.php?slug=xyz&actor=Sean%20Astin`         | Darstellerfoto ausliefern                                                                                                |
+| GET     | `/api/search.php?query=…&year=…`                     | Filmsuche in TMDB (Titel oder IMDb-ID, Jahr optional), markiert bereits vorhandene Filme                                 |
+| POST    | `/api/import.php`                                    | Film aus TMDB importieren inkl. Poster und Hintergrundbild (Body: `{"tmdb": 9340}`)                                      |
+| GET     | `/api/play.php?slug=xyz`                             | Wiedergabeliste (`.m3u`) mit USB_ROOT + `files` für den lokalen Player                                                   |
+| POST    | `/api/actors.php`                                    | Fehlende Darstellerfotos laden, ~10 s pro Aufruf, bis `remaining` 0 ist (Body: `{"slug": "..."}`)                        |
 
 `movie.json`-Schema pro Film:
 
@@ -227,7 +229,8 @@ selbst mit abdeckt.
   "notes": null,
   "uniqueids": { "tmdb": "9340", "imdb": "tt0089218" },
   "slug": "die-goonies-1985",
-  "created": "2026-10-16T02:59:11+02:00"
+  "created": "2026-10-16T02:59:11+02:00",
+  "trailerChecked": "2026-10-16"
 }
 ```
 
@@ -378,19 +381,29 @@ als Fallback.
 ### Trailer prüfen
 
 YouTube-Videos verschwinden immer wieder (gelöscht, privat, Einbetten verboten), und TMDB listet oft noch längst
-gelöschte. Deshalb prüft schon der Import jeden Trailer-Kandidaten über YouTubes oEmbed-Endpunkt
-(`api/lib/youtube.php`, ohne API-Key) und nimmt den besten abspielbaren. Für den Bestand gibt es ein
-Wartungsskript, das man gelegentlich laufen lässt:
+gelöschte. Ob ein Video abspielbar ist, verrät YouTubes oEmbed-Endpunkt (`api/lib/youtube.php`, ohne API-Key);
+ein eingebetteter Player verrät es dem Browser dagegen nicht. Geprüft wird an zwei Stellen:
+
+- **Beim Import** nimmt die Videothek von den Trailer-Kandidaten bei TMDB den besten abspielbaren.
+- **Beim Öffnen eines Films** fragt die Detailansicht im Hintergrund `GET /api/trailer.php?slug=…`. Der Server
+  prüft den Trailer und repariert ihn bei Bedarf direkt in `movie.json` (`ensure_trailer()` in
+  `api/lib/trailer_check.php`): Abspielbare Trailer bleiben, tote oder fehlende werden durch den aktuell bei TMDB
+  hinterlegten ersetzt bzw. ergänzt (über `uniqueids.tmdb`), gibt es keinen abspielbaren, wird ein toter entfernt.
+  Hat sich etwas geändert, tauscht die Seite den Player sofort aus. Damit nicht bei jedem Öffnen nachgefragt wird,
+  steht das Prüfdatum in `trailerChecked`; erneut geprüft wird frühestens nach 7 Tagen
+  (`TRAILER_CHECK_MAX_AGE_DAYS`). Ist YouTube oder TMDB nicht erreichbar, bleibt alles unverändert und wird beim
+  nächsten Öffnen erneut versucht. Der Endpunkt braucht kein API-Token (Öffnen eines Films soll nicht danach fragen);
+  er ändert ausschließlich den Trailer, und nur auf einen, den TMDB für genau diesen Film liefert.
+
+Dadurch braucht der Produktivserver kein Wartungsskript. Optional lassen sich lokal alle Trailer auf einmal prüfen
+(wirkt nur auf die `movie.json` des Rechners, auf dem es läuft):
 
 ```
 php bin/check_trailers.php --dry-run   # nur berichten
 php bin/check_trailers.php             # reparieren
 ```
 
-Abspielbare Trailer bleiben. Tote oder fehlende werden durch den aktuell bei TMDB hinterlegten ersetzt bzw. ergänzt
-(über `uniqueids.tmdb`); gibt es keinen abspielbaren, wird ein toter Trailer entfernt. Ist YouTube oder TMDB nicht
-erreichbar, bleibt alles unverändert ("unklar"). Grenze: regionale Sperren ("in deinem Land nicht verfügbar")
-erkennt oEmbed nicht.
+Grenze: Regionale Sperren ("in deinem Land nicht verfügbar") erkennt oEmbed nicht.
 
 ### Druckfunktion
 

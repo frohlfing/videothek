@@ -46,7 +46,7 @@ function read_movie_json(string $slug): ?array
 const MOVIE_FIELD_ORDER = [
     'title', 'originalTitle', 'year', 'runtime', 'fsk', 'genres', 'director', 'medium', 'files',
     'poster', 'thumb', 'fanart', 'plot', 'trailer', 'cast', 'notes',
-    'uniqueids', 'slug', 'created',
+    'uniqueids', 'slug', 'created', 'trailerChecked',
 ];
 
 /**

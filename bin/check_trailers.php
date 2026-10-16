@@ -1,18 +1,12 @@
 <?php
 
 /**
- * Wartungsskript: prüft die Trailer aller Filme bei YouTube (oEmbed, siehe api/lib/youtube.php) und
- * repariert tote Links. YouTube-Videos verschwinden immer wieder – daher gelegentlich laufen lassen.
+ * Wartungsskript (optional, nur lokal): prüft die Trailer ALLER Filme sofort, statt wie die Webseite erst beim
+ * Öffnen eines Films (api/trailer.php). Gleiche Logik, siehe api/lib/trailer_check.php: ensure_trailer().
+ * Wirkt nur auf die movie.json-Dateien des Rechners, auf dem es läuft – für den Produktivserver nicht nötig,
+ * dort repariert die Detailansicht tote Trailer selbst.
  *
  *   php bin/check_trailers.php [--dry-run] [--only=<slug>]
- *
- * Pro Film:
- *   - Trailer vorhanden und abspielbar          -> bleibt
- *   - Trailer nicht abspielbar oder fehlt ganz  -> aktuellen Trailer von TMDB holen (über uniqueids.tmdb),
- *                                                  ebenfalls prüfen und eintragen; gibt es keinen
- *                                                  abspielbaren, wird ein toter Trailer entfernt
- *   - YouTube/TMDB nicht erreichbar             -> nichts ändern, im Bericht als "unklar"
- * Regionale Sperren erkennt oEmbed nicht (siehe youtube.php).
  */
 
 if (PHP_SAPI !== 'cli') {
@@ -21,8 +15,7 @@ if (PHP_SAPI !== 'cli') {
 }
 
 require_once __DIR__ . '/../config.php';
-require_once __DIR__ . '/../public/api/lib/crud.php';
-require_once __DIR__ . '/../public/api/lib/tmdb.php';
+require_once __DIR__ . '/../public/api/lib/trailer_check.php';
 
 $args = array_slice($argv, 1);
 $dryRun = in_array('--dry-run', $args, true);
@@ -33,7 +26,8 @@ foreach ($args as $arg) {
     }
 }
 
-$stats = ['ok' => 0, 'ersetzt' => 0, 'ergänzt' => 0, 'entfernt' => 0, 'weiter ohne' => 0, 'unklar' => 0];
+$labels = ['ok' => 'ok', 'replaced' => 'ersetzt', 'added' => 'ergänzt', 'removed' => 'entfernt', 'none' => 'weiter ohne', 'unknown' => 'unklar'];
+$stats = array_fill_keys(array_values($labels), 0);
 $slugs = array_values(array_filter(list_movie_slugs(), fn($s) => $only === null || $s === $only));
 sort($slugs);
 
@@ -42,49 +36,12 @@ foreach ($slugs as $i => $slug) {
     if ($movie === null) {
         continue;
     }
-    $label = sprintf('[%3d/%d] %s (%s)', $i + 1, count($slugs), $movie['title'], $movie['year'] ?? '-');
-    $old = $movie['trailer'] ?? null;
-
-    if ($old !== null) {
-        $available = youtube_video_available($old);
-        if ($available === true) {
-            $stats['ok']++;
-            continue;
-        }
-        if ($available === null) {
-            $stats['unklar']++;
-            echo "$label: unklar (YouTube nicht erreichbar), unverändert\n";
-            continue;
-        }
-    }
-
-    $tmdbId = $movie['uniqueids']['tmdb'] ?? null;
-    $new = null;
-    if ($tmdbId !== null) {
-        try {
-            $new = tmdb_movie_trailer((int) $tmdbId);
-        } catch (RuntimeException $e) {
-            $stats['unklar']++;
-            echo "$label: unklar (TMDB: {$e->getMessage()}), unverändert\n";
-            continue;
-        }
-    }
-
-    if ($new !== null && $new !== $old) {
-        $key = $old !== null ? 'ersetzt' : 'ergänzt';
-        echo "$label: $key -> $new\n";
-    } elseif ($old !== null) {
-        $key = 'entfernt';
-        echo "$label: toter Trailer entfernt, kein abspielbarer bei TMDB" . ($tmdbId === null ? ' (keine TMDB-ID)' : '') . "\n";
-    } else {
-        $stats['weiter ohne']++;
-        continue; // hatte keinen und bekommt keinen – kein Rauschen im Bericht
-    }
-    $stats[$key]++;
-
-    if (!$dryRun) {
-        $movie['trailer'] = $new;
-        write_movie_json($slug, $movie);
+    $result = ensure_trailer($slug, $movie, 0, !$dryRun);
+    $label = $labels[$result['status']];
+    $stats[$label]++;
+    if (!in_array($result['status'], ['ok', 'none'], true)) {
+        printf("[%3d/%d] %s (%s): %s%s\n", $i + 1, count($slugs), $movie['title'], $movie['year'] ?? '-', $label,
+            $result['movie']['trailer'] && $result['status'] !== 'unknown' ? ' -> ' . $result['movie']['trailer'] : '');
     }
 }
 

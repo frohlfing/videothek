@@ -43,3 +43,4 @@ const TMDB_LANGUAGE = 'de-DE';
 // Film abspielt (nicht auf dem Webserver): Der Play-Button liefert eine Wiedergabeliste (.m3u) mit
 // USB_ROOT + der im Film eingetragenen relativen Datei, die der dort installierte Player öffnet.
 const USB_ROOT = 'D:\videothek';
+

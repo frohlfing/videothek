@@ -53,6 +53,7 @@ const importMovieBtn = document.getElementById('importMovieBtn');
 const TOKEN_KEY = 'videothek_api_token';
 
 // Vorschlagslisten im Formular; freie Eingaben bleiben trotzdem möglich.
+
 const MEDIUM_OPTIONS = ['DVD', 'Blu-ray', 'USB'];
 const FSK_OPTIONS = ['0', '6', '12', '16', '18'];
 
@@ -353,7 +354,7 @@ function printableSheetHtml(m){
       </div>
     </div>
     ${paragraphsHtml('Handlung', m.plot, 'plot')}
-    ${trailerHtml(m)}
+    <div id="trailerSlot">${trailerHtml(m)}</div>
     ${castHtml(m)}
     ${paragraphsHtml('Notizen', m.notes, 'notes')}
   `;
@@ -381,6 +382,33 @@ function openMovie(idx){
   document.getElementById('printBtn').addEventListener('click', () => window.print());
   document.getElementById('editBtn').addEventListener('click', () => openEditForm(m));
   document.getElementById('deleteBtn').addEventListener('click', () => deleteMovieUI(m));
+  void refreshTrailer(m);
+}
+
+/**
+ * Lässt den Server den Trailer prüfen (api/trailer.php: höchstens alle paar Tage wirklich bei YouTube/TMDB)
+ * und tauscht den Player aus, falls ein toter Trailer ersetzt, ergänzt oder entfernt wurde. Ein eingebetteter
+ * YouTube-Player verrät dem Browser nicht, ob das Video fehlt – deshalb die Prüfung auf dem Server.
+ * Fehler bleiben still: Dann bleibt einfach der bisherige Trailer stehen.
+ * @param {Movie} m
+ */
+async function refreshTrailer(m){
+  if(!m.trailer && !(m.uniqueids && m.uniqueids.tmdb)) return; // nichts zu prüfen, nichts nachzuholen
+  let data;
+  try {
+    const res = await fetch(`api/trailer.php?slug=${encodeURIComponent(m.slug)}`);
+    if(!res.ok) return;
+    data = await res.json();
+  } catch(err){
+    return;
+  }
+  if(data.trailer === m.trailer) return;
+  m.trailer = data.trailer;
+  const slot = document.getElementById('trailerSlot');
+  // Nur austauschen, wenn noch dieselbe Detailansicht offen ist (nicht inzwischen Formular oder anderer Film).
+  if(slot && !formIsOpen && document.querySelector('.sheet h2')?.textContent === m.title){
+    slot.innerHTML = trailerHtml(m);
+  }
 }
 
 function closeMovie(){
