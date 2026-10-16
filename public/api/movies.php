@@ -1,17 +1,19 @@
 <?php
 
 /**
- * JSON-API für Filme: Listen/Lesen, Anlegen, Bearbeiten (inkl. Rename bei Titel-/Jahresänderung)
- * und Löschen. Poster- und Hintergrundbild-Upload laufen separat über upload.php.
+ * JSON-API für Filme und Serien (Feld "type": "movie" | "series"): Listen/Lesen, Anlegen, Bearbeiten (inkl.
+ * Rename bei Titel-/Jahresänderung) und Löschen. Poster- und Hintergrundbild-Upload laufen separat über upload.php.
  *
- * GET    /api/movies.php            -> {"movies": [...]}, alle Filme, alphabetisch nach Titel sortiert. Kein Token nötig.
- * GET    /api/movies.php?slug=xyz   -> einzelner Film. Kein Token nötig. 404, falls unbekannt.
- * POST   /api/movies.php            -> legt einen neuen Film an. Body: JSON-Objekt mit title (Pflicht),
- *                                       originalTitle, year, runtime, fsk, genres, director, medium, plot,
- *                                       trailer, cast, notes. Token nötig. 201 bei Erfolg.
- * PUT    /api/movies.php?slug=xyz   -> aktualisiert einen Film (gleicher Body wie POST). Ändert sich der Slug
- *                                       (Titel/Jahr), wird der Ordner umbenannt. Token nötig.
- * DELETE /api/movies.php?slug=xyz   -> löscht den Film samt Ordner (Bilder inklusive). Token nötig.
+ * GET    /api/movies.php            -> {"movies": [...]}, alle Filme und Serien, alphabetisch nach Titel sortiert.
+ *                                       Kein Token nötig.
+ * GET    /api/movies.php?slug=xyz   -> einzelner Eintrag. Kein Token nötig. 404, falls unbekannt.
+ * POST   /api/movies.php            -> legt einen neuen Eintrag an. Body: JSON-Objekt mit title (Pflicht), type,
+ *                                       originalTitle, year, runtime, fsk, genres, plot, trailer, cast, notes;
+ *                                       Filme zusätzlich director, medium, files; Serien yearEnd, creator, seasons.
+ *                                       Token nötig. 201 bei Erfolg.
+ * PUT    /api/movies.php?slug=xyz   -> aktualisiert einen Eintrag (gleicher Body wie POST; ohne `type` bleibt die Art).
+ *                                       Ändert sich der Slug (Titel/Jahr), wird der Ordner umbenannt. Token nötig.
+ * DELETE /api/movies.php?slug=xyz   -> löscht den Eintrag samt Ordner (Bilder inklusive). Token nötig.
  *
  * Token wird per Header X-API-Token erwartet (siehe api/lib/http.php: require_token()).
  * Die eigentliche Lese-/Schreib-/Rename-/Delete-Logik steckt in api/lib/crud.php.

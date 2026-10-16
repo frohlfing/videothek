@@ -1,15 +1,16 @@
 <?php
 
 /**
- * Filmsuche in TMDB für den Import-Dialog (siehe api/lib/tmdb.php: tmdb_search()).
+ * Suche nach Filmen und Serien in TMDB für den Import-Dialog (siehe api/lib/tmdb.php: tmdb_search()).
  *
- * GET /api/search.php?query=Die%20Goonies&year=1985   (year optional)
+ * GET /api/search.php?query=Die%20Goonies&year=1985   (year optional, bei Serien das Jahr der Erstausstrahlung)
  * GET /api/search.php?query=tt0089218                 (IMDb-ID)
- *   -> {"results": [{"tmdb": 9340, "title": ..., "originalTitle": ..., "year": ..., "overview": ..., "poster": ...}],
- *       "existing": {"9340": "die-goonies-1985"}}
- *   "existing" ordnet Treffer, die schon in der Videothek sind, ihrem Slug zu (Schlüssel: TMDB-ID des Treffers),
- *   damit das Frontend sie markieren kann. Erkannt über die TMDB-ID oder – für Filme ohne TMDB-ID, z. B. von Hand
- *   angelegt – über Titel + Jahr, wie bei der Duplikatprüfung in create_movie() (crud.php: title_exists()).
+ *   -> {"results": [{"type": "movie", "tmdb": 9340, "title": ..., "originalTitle": ..., "year": ...,
+ *                    "overview": ..., "poster": ..., "existing": "die-goonies-1985"}, ...]}
+ *   "type" ist "movie" oder "series". "existing" ist der Slug, falls der Treffer schon in der Videothek ist
+ *   (sonst null), damit das Frontend ihn markieren kann. Erkannt über Art + TMDB-ID oder – für Einträge ohne
+ *   TMDB-ID, z. B. von Hand angelegt – über Art + Titel + Jahr, wie bei der Duplikatprüfung in create_movie()
+ *   (crud.php: title_exists()).
  *   Kein Token nötig (rein lesend); Schutz vor öffentlichem Zugriff übernimmt die HTTP Basic Auth.
  */
 
@@ -32,7 +33,7 @@ try {
 
 $byTmdb = [];
 $byTitleYear = [];
-$titleYearKey = fn(string $title, ?int $year) => mb_strtolower(trim($title)) . '|' . ($year ?? '');
+$titleYearKey = fn(string $type, string $title, ?int $year) => $type . '|' . mb_strtolower(trim($title)) . '|' . ($year ?? '');
 foreach (list_movie_slugs() as $slug) {
     $movie = read_movie_json($slug);
     if ($movie === null) {
@@ -40,17 +41,14 @@ foreach (list_movie_slugs() as $slug) {
     }
     $tmdb = $movie['uniqueids']['tmdb'] ?? null;
     if ($tmdb !== null) {
-        $byTmdb[(string) $tmdb] = $slug;
+        $byTmdb[$movie['type'] . '|' . $tmdb] = $slug;
     }
-    $byTitleYear[$titleYearKey((string) $movie['title'], $movie['year'] ?? null)] = $slug;
+    $byTitleYear[$titleYearKey($movie['type'], (string) $movie['title'], $movie['year'] ?? null)] = $slug;
 }
 
-$existing = [];
-foreach ($results as $r) {
-    $slug = $byTmdb[(string) $r['tmdb']] ?? $byTitleYear[$titleYearKey($r['title'], $r['year'])] ?? null;
-    if ($slug !== null) {
-        $existing[(string) $r['tmdb']] = $slug;
-    }
+foreach ($results as &$r) {
+    $r['existing'] = $byTmdb[$r['type'] . '|' . $r['tmdb']] ?? $byTitleYear[$titleYearKey($r['type'], $r['title'], $r['year'])] ?? null;
 }
+unset($r);
 
-json_response(200, ['results' => $results, 'existing' => (object) $existing]);
+json_response(200, ['results' => $results]);

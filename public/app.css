@@ -51,7 +51,7 @@ header p.sub{
   font-size:.95rem;
 }
 .controls{
-  max-width:1080px;
+  max-width:1220px;
   margin:1.4rem auto 0;
   padding:0 1.5rem;
   display:flex;
@@ -162,6 +162,21 @@ header p.sub{
   background:none;
   border:1px solid var(--rule);
 }
+/* Kennzeichnung "Serie" oben links auf dem Plakat */
+.card .type-badge{
+  position:absolute;
+  top:.5rem; left:.5rem;
+  padding:.15rem .5rem;
+  border-radius:3px;
+  background:var(--accent);
+  color:var(--accent-ink);
+  font-size:.66rem;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.08em;
+  box-shadow:0 2px 6px rgba(0,0,0,0.5);
+}
+[hidden]{display:none !important;}
 
 /* Detail overlay */
 .overlay{
@@ -333,7 +348,21 @@ a.btn{display:inline-flex; align-items:center; text-decoration:none;}
   color:var(--ink);
   cursor:pointer;
 }
-.checkbox-row input[type=checkbox]{width:1.15rem; height:1.15rem; accent-color:var(--accent); margin:0;}
+.checkbox-row input[type=checkbox], .checkbox-row input[type=radio]{width:1.15rem; height:1.15rem; accent-color:var(--accent); margin:0;}
+
+/* Formular: Staffeln einer Serie, je ein Block mit Nummer/Bezeichnung/Jahr, Medium, Dateien und Folgen */
+.season-editor{
+  border:1px solid var(--rule);
+  border-radius:4px;
+  padding:.8rem .9rem .2rem;
+  margin-bottom:.8rem;
+  background:var(--paper-deep);
+}
+.season-editor .form-row{align-items:flex-end;}
+.form-row .se-number, .form-row .se-year{flex:0 1 90px;}
+.form-row .se-name{flex:1 1 160px;}
+.season-editor .se-remove{margin-bottom:1rem;}
+.form-field textarea.se-episodes-input{min-height:5rem;}
 .form-field input[type=text], .form-field textarea{
   width:100%;
   padding:.55rem .7rem;
@@ -424,6 +453,55 @@ a.btn{display:inline-flex; align-items:center; text-decoration:none;}
 .cast-list .actor-photo img{width:100%; height:100%; object-fit:cover; display:block;}
 .cast-list .actor-role{color:var(--ink-soft); font-size:.74rem; font-style:italic;}
 
+/* Staffeln einer Serie: aufklappbar, darin die Folgen; nicht im Bestand = abgeblendet */
+.seasons{display:flex; flex-direction:column; gap:.4rem;}
+.season{
+  border:1px solid var(--rule);
+  border-radius:4px;
+  background:var(--paper-deep);
+}
+.season summary{
+  display:flex; flex-wrap:wrap; align-items:baseline; gap:.2rem .8rem;
+  min-height:44px;
+  padding:.65rem .8rem;
+  cursor:pointer;
+  list-style:none;
+}
+.season summary::-webkit-details-marker{display:none;}
+.season summary::before{
+  content:"\25B8"; /* ▸, aufgeklappt ▾ */
+  color:var(--accent);
+  width:.8rem;
+}
+.season[open] summary::before{content:"\25BE";}
+.season .season-name{font-weight:600;}
+.season .season-meta{color:var(--ink-soft); font-size:.85rem;}
+.season .season-media{margin-left:auto; font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--accent);}
+.season.missing{opacity:.55;}
+.season.missing .season-media{color:var(--ink-soft);}
+.season-body{padding:0 .8rem .8rem;}
+.season-body .play-btn{margin:.2rem 0 .7rem;}
+.episodes{list-style:none; margin:0; padding:0;}
+.episodes li{
+  display:flex; gap:.7rem;
+  padding:.45rem 0;
+  border-top:1px solid var(--rule);
+}
+.episodes .ep-no{flex:0 0 1.8rem; text-align:right; color:var(--ink-soft); font-variant-numeric:tabular-nums;}
+.episodes .ep-body{min-width:0; flex:1;}
+.episodes .ep-title{font-weight:600; font-size:.92rem;}
+.episodes .ep-plot{color:var(--ink-soft); font-size:.82rem; line-height:1.45; margin-top:.15rem;}
+.episodes .ep-play{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:32px; height:32px; margin:-.4rem 0 -.4rem .4rem;
+  border-radius:50%;
+  color:var(--accent);
+  text-decoration:none;
+  vertical-align:middle;
+}
+.episodes .ep-play:hover{background:var(--accent-soft);}
+.ep-none{color:var(--ink-soft); font-style:italic; font-size:.85rem; margin:.3rem 0;}
+
 /* Trailer: am Bildschirm Player, im Druck QR-Code */
 .print-only{display:none;}
 .trailer-player{
@@ -466,6 +544,19 @@ a.btn{display:inline-flex; align-items:center; text-decoration:none;}
 .search-results .result-body{min-width:0;}
 .search-results .result-title{font-weight:600;}
 .search-results .result-title span{color:var(--ink-soft); font-weight:400;}
+.search-results .result-title .result-type{
+  display:inline-block;
+  margin-right:.5rem;
+  padding:0 .4rem;
+  border:1px solid var(--rule);
+  border-radius:3px;
+  font-size:.66rem;
+  font-weight:600;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  vertical-align:.12em;
+}
+.search-results .result-title .result-type.series{border-color:var(--accent); color:var(--accent);}
 .search-results .result-original{color:var(--ink-soft); font-style:italic; font-size:.85rem;}
 .search-results .result-status{color:var(--accent); font-size:.8rem;}
 .search-results .result-overview{
@@ -521,4 +612,11 @@ a.btn{display:inline-flex; align-items:center; text-decoration:none;}
   .cast-list{max-height:none; overflow:visible; grid-template-columns:repeat(6, 1fr);}
   .cast-list li:nth-child(n+7){display:none;}
   .sheet .hero-img{width:180px;}
+  /* Staffeln: eine Zeile pro Staffel (zugeklappt), ohne Aufklapp-Pfeil */
+  .seasons{gap:0;}
+  .season{border:none; border-bottom:1px solid var(--rule); border-radius:0; background:none; break-inside:avoid;}
+  .season summary{min-height:0; padding:.25rem 0;}
+  .season summary::before{display:none;}
+  .season.missing{opacity:1;}
+  .season.missing .season-name, .season.missing .season-meta{color:var(--ink-soft);}
 }

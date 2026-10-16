@@ -15,7 +15,10 @@ class ImageValidationException extends RuntimeException
  * $localPath wird dabei nur gelesen (kopiert), nicht verschoben oder gelöscht – Aufräumen bleibt Sache
  * des Aufrufers. Gemeinsam genutzt von upload.php (Browser-Upload) und import.php (TMDB-Download).
  *
+ * @param string $slug Ordnername des Eintrags unter MOVIES_DIR
+ * @param string $localPath Pfad zur bereits auf dem Server liegenden Bilddatei
  * @param 'poster'|'fanart' $kind
+ * @return array Der aktualisierte Eintrag (movie.json) in kanonischer Feldreihenfolge
  * @throws ImageValidationException|NotFoundException
  */
 function store_movie_image(string $slug, string $localPath, string $kind = 'poster'): array

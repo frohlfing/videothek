@@ -1,17 +1,20 @@
 <?php
 
 /**
- * Play-Button für Filme mit Medium "USB": liefert eine Wiedergabeliste (.m3u) mit den vollständigen
- * Pfaden der Filmdatei(en) – USB_ROOT (config.php) + files[] aus movie.json. Der Browser lädt sie
- * herunter und das Betriebssystem öffnet sie mit dem installierten Player (VLC, Windows Media Player, …),
- * mehrteilige Filme (cd1, cd2, …) laufen nacheinander.
+ * Play-Button für Filme und Serien mit Medium "USB": liefert eine Wiedergabeliste (.m3u) mit den vollständigen
+ * Pfaden der Datei(en) – USB_ROOT (config.php) + files[] aus movie.json. Der Browser lädt sie herunter und das
+ * Betriebssystem öffnet sie mit dem installierten Player (VLC, Windows Media Player, …); mehrteilige Filme
+ * (cd1, cd2, …) bzw. alle Folgen einer Staffel laufen nacheinander.
  *
  * Warum kein direkter file:///-Link? Chrome, Edge und Firefox blockieren Links von einer http(s)-Seite
  * auf lokale Dateien kommentarlos ("Not allowed to load local resource"). Eine heruntergeladene
  * Wiedergabeliste ist der einfachste Weg, den lokalen Player zu starten. Tipp: In Chrome/Edge beim
  * ersten Download "Dateien dieses Typs immer öffnen" wählen, dann startet der Film mit einem Klick.
  *
- * GET /api/play.php?slug=xyz -> <slug>.m3u, 404 falls der Film keine Dateien hat.
+ * GET /api/play.php?slug=xyz                       -> Film: <slug>.m3u
+ * GET /api/play.php?slug=xyz&season=1              -> Serie: alle Folgen von Staffel 1 (<slug>-s01.m3u)
+ * GET /api/play.php?slug=xyz&season=1&episode=3    -> Serie: nur Folge 3 (<slug>-s01e03.m3u)
+ *   404, falls keine passende Datei eingetragen ist.
  */
 
 require_once __DIR__ . '/../../config.php';
@@ -19,8 +22,46 @@ require_once __DIR__ . '/lib/http.php';
 require_once __DIR__ . '/lib/crud.php';
 
 $movie = get_movie((string) ($_GET['slug'] ?? ''));
-if ($movie === null || empty($movie['files'])) {
-    json_error(404, 'Für diesen Film ist keine Filmdatei eingetragen');
+if ($movie === null) {
+    json_error(404, 'Eintrag nicht gefunden');
+}
+
+/** @var array<array{0: string, 1: string}> $items [Titel in der Wiedergabeliste, relativer Pfad] */
+$items = [];
+if ($movie['type'] === TYPE_SERIES) {
+    $seasonNo = filter_var($_GET['season'] ?? null, FILTER_VALIDATE_INT);
+    $episodeNo = isset($_GET['episode']) ? filter_var($_GET['episode'], FILTER_VALIDATE_INT) : null;
+    if ($seasonNo === false || $episodeNo === false) {
+        json_error(400, 'season (und optional episode) müssen ganze Zahlen sein');
+    }
+    $season = current(array_filter($movie['seasons'] ?? [], fn($s) => $s['number'] === $seasonNo)) ?: null;
+    if ($season === null) {
+        json_error(404, "Staffel $seasonNo nicht gefunden");
+    }
+    // Ohne Folgenliste zählt jede Datei als eine Folge.
+    $season['episodes'] = $season['episodes'] ?: array_map(fn($i) => ['number' => $i + 1, 'title' => null], array_keys($season['files']));
+    foreach ($season['episodes'] as $e) {
+        if ($episodeNo !== null && $e['number'] !== $episodeNo) {
+            continue;
+        }
+        $files = season_episode_files($season, $e['number']);
+        $code = sprintf('S%02dE%02d', $seasonNo, $e['number']);
+        foreach ($files as $i => $file) {
+            $part = count($files) > 1 ? ' (Teil ' . ($i + 1) . ')' : '';
+            $items[] = [$movie['title'] . " – $code" . ($e['title'] ? ' ' . $e['title'] : '') . $part, $file];
+        }
+    }
+    $name = $movie['slug'] . sprintf('-s%02d', $seasonNo) . ($episodeNo !== null ? sprintf('e%02d', $episodeNo) : '');
+} else {
+    foreach ($movie['files'] ?? [] as $i => $file) {
+        $part = count($movie['files']) > 1 ? ' (Teil ' . ($i + 1) . ')' : '';
+        $items[] = [$movie['title'] . $part, $file];
+    }
+    $name = $movie['slug'];
+}
+
+if (!$items) {
+    json_error(404, 'Dafür ist keine Datei eingetragen');
 }
 
 // Trennzeichen passend zu USB_ROOT: "D:\videothek" -> Windows-Pfade mit "\", sonst "/".
@@ -28,14 +69,13 @@ $sep = str_contains(USB_ROOT, '\\') || preg_match('/^[a-z]:/i', USB_ROOT) ? '\\'
 $root = rtrim(USB_ROOT, '\\/');
 
 $lines = ['#EXTM3U'];
-foreach ($movie['files'] as $i => $file) {
-    $part = count($movie['files']) > 1 ? ' (Teil ' . ($i + 1) . ')' : '';
-    $lines[] = '#EXTINF:-1,' . $movie['title'] . $part;
+foreach ($items as [$title, $file]) {
+    $lines[] = '#EXTINF:-1,' . $title;
     $lines[] = $root . $sep . str_replace('/', $sep, $file);
 }
 
 header('Content-Type: audio/x-mpegurl; charset=utf-8');
-header('Content-Disposition: attachment; filename="' . $movie['slug'] . '.m3u"');
+header('Content-Disposition: attachment; filename="' . $name . '.m3u"');
 header('Cache-Control: no-store');
 // UTF-8-BOM, damit Player unter Windows Umlaute im Pfad nicht als ANSI lesen (VLC wertet sie aus).
 echo "\xEF\xBB\xBF" . implode("\r\n", $lines) . "\r\n";

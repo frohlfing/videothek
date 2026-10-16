@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Videothek</title>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="app.css?v=20261016c">
+<link rel="stylesheet" href="app.css?v=20261016e">
 </head>
 <body>
 
@@ -16,7 +16,12 @@
 </header>
 
 <div class="controls">
-  <input type="search" id="search" placeholder="Titel, Regie oder Darsteller suchen &hellip;" aria-label="Titel, Regie oder Darsteller suchen">
+  <input type="search" id="search" placeholder="Titel, Darsteller, Folge &hellip;" aria-label="Titel, Regie, Darsteller oder Folge suchen">
+  <select id="typeSel" aria-label="Nach Art filtern">
+    <option value="">Filme und Serien</option>
+    <option value="movie">Nur Filme</option>
+    <option value="series">Nur Serien</option>
+  </select>
   <select id="genreSel" aria-label="Nach Genre filtern"><option value="">Alle Genres</option></select>
   <select id="mediumSel" aria-label="Nach Medium filtern"><option value="">Alle Medien</option></select>
   <select id="sortSel" aria-label="Sortierung">
@@ -26,7 +31,7 @@
     <option value="created-desc">Zuletzt hinzugefügt</option>
     <option value="created-asc">Zuerst hinzugefügt</option>
   </select>
-  <button class="btn btn-primary" id="newMovieBtn" type="button">+ Neuer Film</button>
+  <button class="btn btn-primary" id="newMovieBtn" type="button">+ Neu</button>
   <button class="btn" id="importMovieBtn" type="button">Importieren</button>
 </div>
 <p class="count" id="resultCount"></p>
@@ -38,6 +43,6 @@
 </div>
 
 <script src="vendor/qrcode.js"></script>
-<script src="app.js?v=20261016c"></script>
+<script src="app.js?v=20261016e"></script>
 </body>
 </html>

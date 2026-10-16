@@ -1,17 +1,18 @@
 <?php
 
 /**
- * Importiert einen Film aus TMDB (The Movie Database), Ablauf angelehnt an den Kodi-Scraper
- * "The Movie Database Python": Details in TMDB_LANGUAGE (siehe api/lib/tmdb.php), danach Poster
- * und Hintergrundbild (fanart) herunterladen. Gespeichert wird über dieselbe Validierungs-/Anlege-
- * Logik wie POST /api/movies.php (create_movie() aus crud.php). Schlägt nur ein Bild-Download fehl,
- * bleibt der Film trotzdem gespeichert (Antwort enthält dann zusätzlich "import_warning").
- * Die Darstellerfotos lädt das Frontend direkt danach über api/actors.php (mehrere Requests, damit
- * auch Filme mit vielen Darstellern nicht ins PHP-Zeitlimit laufen).
+ * Importiert einen Film oder eine Serie aus TMDB (The Movie Database), Ablauf angelehnt an den Kodi-Scraper
+ * "The Movie Database Python": Details in TMDB_LANGUAGE (siehe api/lib/tmdb.php, bei Serien samt aller Staffeln und
+ * Folgen), danach Poster und Hintergrundbild (fanart) herunterladen. Gespeichert wird über dieselbe
+ * Validierungs-/Anlege-Logik wie POST /api/movies.php (create_movie() aus crud.php). Schlägt nur ein Bild-Download
+ * fehl, bleibt der Eintrag trotzdem gespeichert (Antwort enthält dann zusätzlich "import_warning").
+ * Die Darstellerfotos lädt das Frontend direkt danach über api/actors.php (mehrere Requests, damit auch Einträge mit
+ * vielen Darstellern nicht ins PHP-Zeitlimit laufen).
  *
  * POST /api/import.php
- *   Body: {"tmdb": 9340} (TMDB-Film-ID aus GET /api/search.php). Token nötig (Header X-API-Token).
- *   201 mit dem neu angelegten Film bei Erfolg, 400 wenn er schon vorhanden ist.
+ *   Body: {"tmdb": 9340, "type": "movie"} bzw. {"tmdb": 1396, "type": "series"} (aus GET /api/search.php;
+ *   ohne type: Film). Token nötig (Header X-API-Token).
+ *   201 mit dem neu angelegten Eintrag bei Erfolg, 400, wenn er schon vorhanden ist.
  */
 
 require_once __DIR__ . '/../../config.php';
@@ -21,7 +22,8 @@ require_once __DIR__ . '/lib/image_store.php';
 require_once __DIR__ . '/lib/tmdb.php';
 
 // TMDB kennt das Format des eigenen Exemplars nicht; die meisten Filme der Sammlung sind DVDs.
-// Abweichendes (Blu-ray, ...) nach dem Import im Formular ändern.
+// Abweichendes (Blu-ray, ...) nach dem Import im Formular ändern. Bei Serien bekommen es alle regulären
+// Staffeln (nicht die Specials, Staffel 0); fehlende Staffeln dann im Formular abwählen.
 const IMPORT_DEFAULT_MEDIUM = 'DVD';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -36,18 +38,32 @@ if ($tmdbId === false) {
     json_error(400, 'Gültige TMDB-ID (tmdb) ist erforderlich');
 }
 
-if (($existing = find_slug_by_tmdb_id((string) $tmdbId)) !== null) {
-    json_error(400, "Film bereits vorhanden ($existing)");
+$type = $body['type'] ?? TYPE_MOVIE;
+if (!in_array($type, ENTRY_TYPES, true)) {
+    json_error(400, 'type muss "' . implode('" oder "', ENTRY_TYPES) . '" sein');
+}
+
+if (($existing = find_slug_by_tmdb_id((string) $tmdbId, $type)) !== null) {
+    json_error(400, type_label($type) . " bereits vorhanden ($existing)");
 }
 
 try {
-    $details = tmdb_movie($tmdbId);
+    $details = $type === TYPE_SERIES ? tmdb_series($tmdbId) : tmdb_movie($tmdbId);
 } catch (RuntimeException $e) {
     json_error(422, 'Import fehlgeschlagen: ' . $e->getMessage());
 }
 
+if ($type === TYPE_SERIES) {
+    foreach ($details['seasons'] as &$season) {
+        $season['medium'] = $season['number'] > 0 ? [IMPORT_DEFAULT_MEDIUM] : [];
+    }
+    unset($season);
+} else {
+    $details['medium'] = IMPORT_DEFAULT_MEDIUM;
+}
+
 try {
-    $movie = create_movie(['medium' => IMPORT_DEFAULT_MEDIUM] + $details, $details['uniqueids']);
+    $movie = create_movie($details, $details['uniqueids']);
 } catch (ValidationException $e) {
     json_response(400, ['error' => 'Validierung fehlgeschlagen', 'details' => $e->errors]);
 }
@@ -69,5 +85,5 @@ foreach (['poster' => 'Poster', 'fanart' => 'Hintergrundbild'] as $kind => $labe
 }
 
 json_response(201, $warnings
-    ? array_merge($movie, ['import_warning' => 'Film importiert, aber: ' . implode('; ', $warnings)])
+    ? array_merge($movie, ['import_warning' => type_label($type) . ' importiert, aber: ' . implode('; ', $warnings)])
     : $movie);

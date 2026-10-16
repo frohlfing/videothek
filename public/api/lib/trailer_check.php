@@ -7,14 +7,15 @@ require_once __DIR__ . '/tmdb.php';
 const TRAILER_CHECK_MAX_AGE_DAYS = 7;
 
 /**
- * Stellt sicher, dass der Trailer eines Films abspielbar ist, und repariert ihn bei Bedarf "on the fly":
+ * Stellt sicher, dass der Trailer eines Films bzw. einer Serie abspielbar ist, und repariert ihn bei Bedarf "on the fly":
  *   - zuletzt vor weniger als $maxAgeDays geprüft          -> nichts tun
- *   - Trailer vorhanden und laut YouTube abspielbar         -> nur Prüfdatum setzen
- *   - Trailer tot oder fehlt, Film hat eine TMDB-ID         -> aktuellen abspielbaren Trailer von TMDB eintragen
- *                                                              (gibt es keinen, wird ein toter entfernt)
+ *   - Trailer vorhanden und laut YouTube abspielbar        -> nur Prüfdatum setzen
+ *   - Trailer tot oder fehlt, Film hat eine TMDB-ID        -> aktuellen abspielbaren Trailer von TMDB eintragen
+ *                                                             (gibt es keinen, wird ein toter entfernt)
  *   - YouTube/TMDB nicht erreichbar                        -> nichts ändern, beim nächsten Mal erneut versuchen
+ *
  * Das Prüfdatum steht als "trailerChecked" (YYYY-MM-DD) in movie.json. $maxAgeDays = 0 erzwingt die Prüfung,
- * $write = false prüft nur (Probelauf von bin/check_trailers.php).
+ * $write = false prüft nur (Probelauf von `bin/check_trailers.php`).
  *
  * @return array{movie: array, status: string} status: fresh|ok|replaced|added|removed|none|unknown
  */
@@ -40,7 +41,7 @@ function ensure_trailer(string $slug, array $movie, int $maxAgeDays = TRAILER_CH
     $tmdbId = $movie['uniqueids']['tmdb'] ?? null;
     if ($tmdbId !== null) {
         try {
-            $new = tmdb_movie_trailer((int) $tmdbId);
+            $new = tmdb_movie_trailer((int) $tmdbId, $movie['type'] ?? TYPE_MOVIE);
         } catch (RuntimeException $e) {
             // 404: TMDB kennt die ID nicht (mehr) – endgültig, also wie "kein Trailer" behandeln, damit nicht bei
             // jedem Öffnen erneut nachgefragt wird. Alles andere (Netz, Drosselung) gilt als vorübergehend.

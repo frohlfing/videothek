@@ -79,6 +79,24 @@ Blu-rays und Filme auf einer USB-Platte (Medium "USB").
   HTML5-Player) wurde daraufhin **komplett verworfen und zurückgebaut**. Für Abspielen im Browser/auf dem Fernseher
   wäre Jellyfin die naheliegende Lösung (nur besprochen, nicht umgesetzt).
 
+### Mehrere Medien und Serien (16.10.2026, nach der ersten Übergabe)
+
+- **`medium` ist eine Liste** (`["DVD", "USB"]`), im Formular Checkboxen. Ältere Dateien mit `"medium": "USB"`
+  wandelt `read_movie_json()` beim Lesen um; eine Datenmigration war deshalb nicht nötig (auch nicht auf Hetzner).
+- **Serien als ein Eintrag mit Staffeln**, nicht als ein Eintrag pro Staffel oder Folge: Feld `type`
+  (`movie`/`series`, fehlt = Film), bei Serien `creator`, `yearEnd`, `seasons[]` mit Folgen (Titel, Handlung),
+  Medium und Dateien **pro Staffel**. Vom Nutzer ausdrücklich "ohne Kompromisse" gewünscht.
+- **Speicherort und API bleiben** (`data/movies/<slug>/movie.json`, `api/movies.php`), damit weder Daten noch Pfade
+  auf Hetzner migriert werden müssen. Die Namen im Code (`movie`, `MOVIES`) meinen deshalb Filme und Serien.
+- **Dateien einer Serie:** `<slug>/S01/E01.<ext>`, Zuordnung zur Folge über die Nummer im Dateinamen (sonst Position),
+  gleiche Regel in PHP (`season_episode_files()`) und JS (`episodeFiles()`). Abspielen pro Staffel und pro Folge.
+- **TMDB:** Suche über Filme und Serien zugleich; TMDB nummeriert beide getrennt, daher Duplikatprüfung über Art +
+  TMDB-ID. Serien-Darsteller auf 50 begrenzt (lange Serien haben Hunderte Gastdarsteller). Fehlende Übersetzungen
+  einzelner Folgen ("Folge 3") werden durch die englischen ersetzt.
+- **Formular:** Datei-Vorschläge beim Anhaken von USB (`<slug>/movie.` bzw. eine Zeile pro Folge); die Endung der
+  ersten Zeile wird auf die anderen übertragen. Eine fehlende Endung blockiert das Speichern.
+- **Nicht umgesetzt** (nicht gefragt): "gesehen"-Markierung pro Folge.
+
 ### Darstellung
 
 - Dunkles Kino-Farbschema, Druck hell und tintensparend; im Druck nur die ersten 6 Darsteller.
@@ -109,8 +127,11 @@ Film ist aktuell nicht in der Videothek.
       Medium "USB", `files`, reparierte Trailer, Genre-Korrektur) liegen bisher nur lokal in `data/movies`. Ob und
       wie sie auf Hetzner übertragen werden (Upload von `data/movies`?), ist noch nicht festgelegt. Achtung:
       `data/` ist gitignored, kommt also nicht über Git auf den Server.
-- [ ] **Code committen und deployen:** Nach "first commit" sind noch Änderungen offen (u. a. Trailer-Reparatur beim
-      Öffnen: `api/trailer.php`, `api/lib/trailer_check.php`).
+- [ ] **Code committen und deployen:** Mehrere Medien und Serien betreffen fast alle Dateien unter `public/`
+      (`index.html`, `app.js`, `app.css`, `api/*.php`, `api/lib/crud.php`, `tmdb.php`, `trailer_check.php`); sie
+      gehören zusammen auf Hetzner, sonst passen Frontend und API nicht zueinander.
+- [ ] **Serien im echten Browser prüfen** (bisher mit jsdom und Headless-Chrome-Screenshots getestet), vor allem
+      Abspielen einer Staffel/Folge mit VLC und die Druckansicht einer Serie.
 - [ ] **`D:\Filme` löschen** (nur noch Kodi-Metadaten, 382 MB; die Videothek hat eigene Kopien).
 - [ ] **"Der Fall Barschel" (2015):** TMDB kennt die gespeicherte TMDB-ID nicht mehr (HTTP 404) – ggf. per Import neu
       zuordnen; aktuell ohne Trailer.

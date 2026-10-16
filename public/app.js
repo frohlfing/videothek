@@ -7,18 +7,40 @@
  */
 
 /**
+ * @typedef {Object} Episode
+ * @property {number} number
+ * @property {?string} title
+ * @property {?string} plot
+ */
+
+/**
+ * @typedef {Object} Season
+ * @property {number} number     0 = Specials
+ * @property {?string} name      z. B. "Staffel 1" (TMDB); leer -> seasonLabel()
+ * @property {?number} year
+ * @property {Episode[]} episodes
+ * @property {string[]} medium   leer = Staffel ist nicht im eigenen Bestand
+ * @property {string[]} files    nur bei Medium USB: Folgendateien relativ zu USB_ROOT, üblich <slug>/S01/E01.<ext>
+ */
+
+/**
+ * Ein Film oder eine Serie (type). Filme haben director/medium/files, Serien creator/yearEnd/seasons.
  * @typedef {Object} Movie
+ * @property {'movie'|'series'} type
  * @property {string} slug
  * @property {string} title
  * @property {?string} originalTitle
- * @property {?number} year
+ * @property {?number} year      bei Serien das Jahr der Erstausstrahlung
+ * @property {?number} [yearEnd] nur Serien: letztes Jahr, falls abgeschlossen
  * @property {string[]} genres
- * @property {?number} runtime   Laufzeit in Minuten
+ * @property {?number} runtime   Laufzeit in Minuten (bei Serien pro Folge)
  * @property {?string} fsk       "0", "6", "12", "16" oder "18"
- * @property {?string} director
+ * @property {?string} [director] nur Filme
+ * @property {?string} [creator]  nur Serien ("Idee")
  * @property {CastMember[]} cast
- * @property {string[]} medium  z. B. ["DVD"] oder ["DVD", "USB"], wenn der Film mehrfach vorhanden ist
- * @property {string[]} [files]  nur bei Medium USB: Filmdatei(en) relativ zu USB_ROOT (config.php)
+ * @property {string[]} [medium]  nur Filme, z. B. ["DVD"] oder ["DVD", "USB"], wenn der Film mehrfach vorhanden ist
+ * @property {string[]} [files]   nur Filme mit Medium USB: Filmdatei(en) relativ zu USB_ROOT (config.php)
+ * @property {Season[]} [seasons] nur Serien
  * @property {?string} trailer  YouTube-URL
  * @property {?string} plot
  * @property {?string} notes
@@ -30,7 +52,29 @@
  * @property {string} [import_warning]
  */
 
-/** @type {Movie[]} */
+/**
+ * Ein Treffer von api/search.php.
+ * @typedef {Object} SearchResult
+ * @property {'movie'|'series'} type
+ * @property {number} tmdb
+ * @property {string} title
+ * @property {?string} originalTitle
+ * @property {?number} year
+ * @property {?string} overview
+ * @property {?string} poster    Plakat-URL bei TMDB
+ * @property {?string} existing  Slug, falls schon in der Videothek
+ */
+
+/**
+ * Antwort von api/actors.php.
+ * @typedef {Object} ActorsResult
+ * @property {Movie} movie
+ * @property {number} loaded
+ * @property {number} failed
+ * @property {number} remaining
+ */
+
+/** @type {Movie[]} Filme und Serien */
 let MOVIES = [];
 // `true`, während openEditForm()/openImportForm() offen ist (ungespeicherte Eingaben sind möglich).
 // Verhindert, dass ein Klick neben das Formular oder Escape die Eingaben versehentlich verwirft
@@ -43,6 +87,7 @@ const overlay = document.getElementById('overlay');
 const sheet = document.getElementById('sheet');
 const searchInput = document.getElementById('search');
 const sortSel = document.getElementById('sortSel');
+const typeSel = document.getElementById('typeSel');
 const genreSel = document.getElementById('genreSel');
 const mediumSel = document.getElementById('mediumSel');
 const resultCount = document.getElementById('resultCount');
@@ -71,12 +116,102 @@ function slugify(title){
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
-// PHP liefert die Filmliste über die JSON-API (api/movies.php).
+/** @param {Movie} m */
+function isSeries(m){
+  return m.type === 'series';
+}
+
+/** "Film" / "Serie" (für Überschriften und Meldungen). @param {'movie'|'series'} type */
+function typeLabel(type){
+  return type === 'series' ? 'Serie' : 'Film';
+}
+
+/** "1 Film" / "3 Filme", "1 Serie" / "2 Serien" usw. */
+function countLabel(n, singular, plural){
+  return `${n} ${n === 1 ? singular : plural}`;
+}
+
+/**
+ * Medien eines Eintrags: beim Film sein Medium, bei einer Serie alle Medien ihrer Staffeln (für Karte, Filter, Suche).
+ * @param {Movie} m
+ * @returns {string[]}
+ */
+function mediaOf(m){
+  return isSeries(m) ? [...new Set(m.seasons.flatMap(s => s.medium))] : m.medium;
+}
+
+/** Reguläre Staffeln (ohne Specials, Staffel 0). @param {Movie} m */
+function regularSeasons(m){
+  return m.seasons.filter(s => s.number > 0);
+}
+
+/** @param {Season} s */
+function seasonLabel(s){
+  return s.name || (s.number === 0 ? 'Specials' : `Staffel ${s.number}`);
+}
+
+/** "2008", bei abgeschlossenen Serien "2008–2013". @param {Movie} m */
+function yearsText(m){
+  return isSeries(m) && m.year && m.yearEnd && m.yearEnd !== m.year ? `${m.year}–${m.yearEnd}` : m.year;
+}
+
+/** Zweistellig mit führender Null (Staffel-/Folgennummern in Dateinamen: S01E03). */
+function pad2(n){
+  return String(n).padStart(2, '0');
+}
+
+/**
+ * Dateien einer Folge innerhalb von season.files – wie season_episode_files() in api/lib/crud.php: Zuordnung über
+ * die Folgennummer im Dateinamen ("E03", "S01E03", "e3", mehrteilig "E03-cd1", "E03-cd2"); trägt keine Datei der
+ * Staffel eine solche Nummer, zählt die Position (1. Datei = 1. Folge der Liste).
+ * @param {Season} season
+ * @param {number} episode
+ * @returns {string[]}
+ */
+function episodeFiles(season, episode){
+  const pattern = /(?:^|[^a-z0-9])(?:s\d+)?e0*(\d+)(?!\d)/i;
+  const numbered = season.files
+    .map(f => [f.split('/').pop().match(pattern), f])
+    .filter(([match]) => match);
+  if(numbered.length){
+    return numbered.filter(([match]) => parseInt(match[1], 10) === episode).map(([, f]) => f);
+  }
+  const pos = season.episodes.findIndex(e => e.number === episode);
+  return pos >= 0 && season.files[pos] ? [season.files[pos]] : [];
+}
+
+/** @param {Season} season */
+function seasonPlayable(season){
+  return season.medium.includes('USB') && season.files.length > 0;
+}
+
+/**
+ * Ergänzt Felder, die ältere movie.json-Dateien (vor Serien bzw. Dateien) noch nicht haben, damit der übrige Code
+ * sich auf die Listen verlassen kann. Für jede Antwort des Servers, die in MOVIES landet.
+ * @param {Movie} m
+ * @returns {Movie}
+ */
+function withDefaults(m){
+  m.type = m.type === 'series' ? 'series' : 'movie';
+  m.genres = m.genres || [];
+  m.cast = m.cast || [];
+  if(isSeries(m)){
+    m.seasons = (m.seasons || []).map(/** @param {Season} s @returns {Season} */ s => ({
+      ...s, episodes: s.episodes || [], medium: s.medium || [], files: s.files || [],
+    }));
+  } else {
+    m.medium = m.medium || [];
+    m.files = m.files || [];
+  }
+  return m;
+}
+
+// PHP liefert die Liste der Filme und Serien über die JSON-API (api/movies.php).
 /** @returns {Promise<Movie[]>} */
 async function loadMovies(){
   /** @type {{movies: Movie[]}} */
   const data = await fetch('api/movies.php').then(res => res.json());
-  return data.movies;
+  return data.movies.map(withDefaults);
 }
 
 function getStoredToken(){
@@ -151,8 +286,24 @@ function youtubeId(url){
   return match ? match[1] : null;
 }
 
-/** "1985 · 114 Min. · FSK 12" — leere Angaben fallen weg. @param {Movie} m */
-function metaLine(m){
+/**
+ * Film: "1985 · 114 Min. · FSK 12", Serie: "2008–2013 · 5 Staffeln · 48 Min./Folge · FSK 16" (mit $long zusätzlich
+ * die Zahl der Folgen) — leere Angaben fallen weg.
+ * @param {Movie} m
+ * @param {boolean} [long]
+ */
+function metaLine(m, long = false){
+  if(isSeries(m)){
+    const seasons = regularSeasons(m);
+    const episodes = seasons.reduce((sum, s) => sum + s.episodes.length, 0);
+    return [
+      yearsText(m),
+      seasons.length ? countLabel(seasons.length, 'Staffel', 'Staffeln') : null,
+      long && episodes ? countLabel(episodes, 'Folge', 'Folgen') : null,
+      m.runtime ? `${m.runtime} Min./Folge` : null,
+      m.fsk ? `FSK ${m.fsk}` : null,
+    ].filter(Boolean).join(' · ');
+  }
   return [
     m.year,
     m.runtime ? `${m.runtime} Min.` : null,
@@ -168,19 +319,22 @@ function cardHtml(m, idx){
   const src = thumbSrc(m);
   const img = src ? `<img src="${escapeHtml(src)}" alt="${escapeHtml(m.title)}" loading="lazy">` : '<span>kein Cover</span>';
   return `<div class="card" data-idx="${idx}">
-    <div class="thumb">${img}</div>
+    <div class="thumb">${img}${isSeries(m) ? '<div class="type-badge">Serie</div>' : ''}</div>
     <div class="body">
       <h3>${escapeHtml(m.title)}</h3>
       <div class="meta">${escapeHtml(metaLine(m))}</div>
       ${m.genres.slice(0, 2).map(g => `<div class="cat-tag">${escapeHtml(g)}</div>`).join('')}
-      ${m.medium.map(md => `<div class="cat-tag medium-tag">${escapeHtml(md)}</div>`).join('')}
+      ${mediaOf(m).map(md => `<div class="cat-tag medium-tag">${escapeHtml(md)}</div>`).join('')}
     </div>
   </div>`;
 }
 
-/** Alle bereits verwendeten Werte eines Feldes (aus dem aktuellen MOVIES-Stand; Listenfelder wie genres werden aufgefaltet), alphabetisch, ohne Duplikate. */
-function knownValues(field){
-  return [...new Set(MOVIES.flatMap(m => m[field]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'de'));
+/**
+ * Alle bereits verwendeten Werte (aus dem aktuellen MOVIES-Stand), alphabetisch, ohne Duplikate.
+ * @param {function(Movie): (string[]|string|null)} valuesOf  z. B. m => m.genres oder mediaOf
+ */
+function knownValues(valuesOf){
+  return [...new Set(MOVIES.flatMap(valuesOf).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'de'));
 }
 
 /**
@@ -196,19 +350,23 @@ function knownValues(field){
  * https://learn.microsoft.com/en-us/answers/questions/5583325/datalist-tag-not-properly-rendered-on-microsoft-ed
  */
 function refreshFilters(){
-  const fill = (select, field, allLabel) => {
-    const values = knownValues(field);
+  const fill = (select, valuesOf, allLabel) => {
+    const values = knownValues(valuesOf);
     const current = select.value;
     select.innerHTML = `<option value="">${allLabel}</option>` + values.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
     select.value = values.includes(current) ? current : '';
   };
-  fill(genreSel, 'genres', 'Alle Genres');
-  fill(mediumSel, 'medium', 'Alle Medien');
+  fill(genreSel, m => m.genres, 'Alle Genres');
+  fill(mediumSel, mediaOf, 'Alle Medien');
 }
 
 /** Aktualisiert die Gesamtanzahl im Header (nötig nach jedem Anlegen/Löschen/Import). */
 function updateHeaderCount(){
-  subCount.textContent = `${MOVIES.length} ${MOVIES.length === 1 ? 'Film' : 'Filme'}`;
+  const series = MOVIES.filter(isSeries).length;
+  const movies = MOVIES.length - series;
+  subCount.textContent = series
+    ? `${countLabel(movies, 'Film', 'Filme')} · ${countLabel(series, 'Serie', 'Serien')}`
+    : countLabel(movies, 'Film', 'Filme');
 }
 
 /**
@@ -220,7 +378,7 @@ function createdTime(m){
   return isNaN(t) ? 0 : t;
 }
 
-/** Sortiert Filme ohne Wert für `key` ans Ende, sonst nach `compare`, bei Gleichstand alphabetisch nach Titel. */
+/** Sortiert Einträge ohne Wert für `key` ans Ende, sonst nach `compare`, bei Gleichstand alphabetisch nach Titel. */
 function sortWithMissingLast(items, key, compare){
   items.sort((a, b) => {
     const va = a.m[key], vb = b.m[key];
@@ -234,20 +392,26 @@ function sortWithMissingLast(items, key, compare){
 
 function renderGrid(){
   const q = searchInput.value.trim().toLowerCase();
+  const type = typeSel.value;
   const genre = genreSel.value;
   const medium = mediumSel.value;
   let items = MOVIES.map((m, i) => ({m, i}));
 
+  if(type){
+    items = items.filter(({m}) => m.type === type);
+  }
   if(genre){
     items = items.filter(({m}) => m.genres.includes(genre));
   }
   if(medium){
-    items = items.filter(({m}) => m.medium.includes(medium));
+    items = items.filter(({m}) => mediaOf(m).includes(medium));
   }
 
   if(q){
+    // Bei Serien zählen auch die Folgentitel ("Felina" findet Breaking Bad).
+    const episodeTitles = m => isSeries(m) ? m.seasons.flatMap(s => s.episodes.map(e => e.title)) : [];
     items = items.filter(({m}) =>
-      [m.title, m.originalTitle, m.director, m.plot, m.year && String(m.year), ...m.genres, ...m.medium]
+      [m.title, m.originalTitle, m.director, m.creator, m.plot, m.year && String(m.year), ...m.genres, ...mediaOf(m), ...episodeTitles(m)]
         .some(v => (v || '').toLowerCase().includes(q))
       || m.cast.some(c => c.name.toLowerCase().includes(q) || (c.role || '').toLowerCase().includes(q))
     );
@@ -272,10 +436,10 @@ function renderGrid(){
       break;
   }
 
-  resultCount.textContent = `${items.length} von ${MOVIES.length} Filmen`;
+  resultCount.textContent = `${items.length} von ${MOVIES.length} ${MOVIES.length === 1 ? 'Titel' : 'Titeln'}`;
   grid.innerHTML = items.length
     ? items.map(({m,i}) => cardHtml(m, i)).join('')
-    : '<p class="empty">Keine Filme gefunden.</p>';
+    : '<p class="empty">Nichts gefunden.</p>';
 }
 
 /** Textblock mit Überschrift; jede Zeile wird ein eigener Absatz. Leer -> ''. */
@@ -306,7 +470,7 @@ function castHtml(m){
 
 /**
  * Trailer: am Bildschirm als eingebetteter Player (youtube-nocookie.com), im Ausdruck stattdessen als
- * QR-Code zum Abscannen mit dem Handy (public/vendor/qrcode.js). Keine YouTube-URL -> nur der QR-Code.
+ * QR-Code zum Abscannen mit dem Handy (`public/vendor/qrcode.js`). Keine YouTube-URL -> nur der QR-Code.
  * @param {Movie} m
  */
 function trailerHtml(m){
@@ -340,8 +504,8 @@ function printableSheetHtml(m){
 
   const facts = [
     ['Genre', m.genres.join(', ')],
-    ['Regie', m.director],
-    ['Medium', m.medium.join(', ')],
+    isSeries(m) ? ['Idee', m.creator] : ['Regie', m.director],
+    ['Medium', mediaOf(m).join(', ')],
   ].filter(([, v]) => v);
   const factsHtml = facts.length
     ? `<dl class="facts">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${escapeHtml(v)}</dd>`).join('')}</dl>`
@@ -358,16 +522,57 @@ function printableSheetHtml(m){
       <div class="titles">
         <h2>${escapeHtml(m.title)}</h2>
         ${m.originalTitle ? `<div class="original-title">${escapeHtml(m.originalTitle)}</div>` : ''}
-        <div class="meta-line">${escapeHtml(metaLine(m))}</div>
+        <div class="meta-line">${escapeHtml(metaLine(m, true))}</div>
         ${factsHtml}
         ${createdHtml}
       </div>
     </div>
     ${paragraphsHtml('Handlung', m.plot, 'plot')}
+    ${isSeries(m) ? seasonsHtml(m) : ''}
     <div id="trailerSlot">${trailerHtml(m)}</div>
     ${castHtml(m)}
     ${paragraphsHtml('Notizen', m.notes, 'notes')}
   `;
+}
+
+/**
+ * Staffeln einer Serie, jede aufklappbar mit ihren Folgen (Titel, Handlung). Im Bestand: Medium der Staffel und –
+ * bei USB mit Dateien – Buttons zum Abspielen der ganzen Staffel bzw. einzelner Folgen. Nicht im Bestand: abgeblendet.
+ * Im Ausdruck erscheint nur die zugeklappte Übersicht (eine Zeile pro Staffel).
+ * @param {Movie} m
+ */
+function seasonsHtml(m){
+  if(!m.seasons.length) return '';
+  const owned = m.seasons.filter(s => s.medium.length).length;
+  const playUrl = (s, e) => `api/play.php?slug=${encodeURIComponent(m.slug)}&season=${s.number}${e != null ? `&episode=${e}` : ''}`;
+  const items = m.seasons.map(s => {
+    const playable = seasonPlayable(s);
+    const episodes = s.episodes.map(e => {
+      const play = playable && episodeFiles(s, e.number).length
+        ? `<a class="ep-play screen-only" href="${playUrl(s, e.number)}" title="Folge abspielen" aria-label="Folge ${e.number} abspielen">&#9654;</a>`
+        : '';
+      return `<li>
+        <span class="ep-no">${e.number}</span>
+        <div class="ep-body">
+          <div class="ep-title">${escapeHtml(e.title || `Folge ${e.number}`)}${play}</div>
+          ${e.plot ? `<div class="ep-plot">${escapeHtml(e.plot)}</div>` : ''}
+        </div>
+      </li>`;
+    }).join('');
+    const meta = [s.year, s.episodes.length ? countLabel(s.episodes.length, 'Folge', 'Folgen') : null].filter(Boolean).join(' · ');
+    return `<details class="season${s.medium.length ? '' : ' missing'}">
+      <summary>
+        <span class="season-name">${escapeHtml(seasonLabel(s))}</span>
+        <span class="season-meta">${escapeHtml(meta)}</span>
+        <span class="season-media">${s.medium.length ? escapeHtml(s.medium.join(', ')) : 'nicht vorhanden'}</span>
+      </summary>
+      <div class="season-body">
+        ${playable ? `<a class="btn btn-primary play-btn screen-only" href="${playUrl(s)}" title="Öffnet alle Folgen der Staffel im installierten Player">&#9654; ${escapeHtml(seasonLabel(s))} abspielen</a>` : ''}
+        ${episodes ? `<ol class="episodes">${episodes}</ol>` : '<p class="ep-none">Keine Folgen eingetragen.</p>'}
+      </div>
+    </details>`;
+  }).join('');
+  return `<h4>Staffeln (${owned} von ${m.seasons.length} im Bestand)</h4><div class="seasons">${items}</div>`;
 }
 
 function openMovie(idx){
@@ -380,7 +585,7 @@ function openMovie(idx){
     ${fanart ? `<div class="fanart" style="background-image:url('${escapeHtml(fanart)}')"></div>` : ''}
     <button class="close" id="closeBtn" aria-label="Schließen">&times;</button>
     <div class="btn-row toolbar">
-      ${m.medium.includes('USB') && (m.files || []).length ? `<a class="btn btn-primary play-btn" href="api/play.php?slug=${encodeURIComponent(m.slug)}" title="Öffnet die Filmdatei im installierten Player">&#9654; Abspielen</a>` : ''}
+      ${!isSeries(m) && m.medium.includes('USB') && m.files.length ? `<a class="btn btn-primary play-btn" href="api/play.php?slug=${encodeURIComponent(m.slug)}" title="Öffnet die Filmdatei im installierten Player">&#9654; Abspielen</a>` : ''}
       <button class="btn" id="printBtn" type="button">Drucken</button>
       <button class="btn" id="editBtn" type="button">Bearbeiten</button>
       <button class="btn btn-danger" id="deleteBtn" type="button">Löschen</button>
@@ -428,19 +633,25 @@ function closeMovie(){
 }
 
 /**
- * Zeigt das Anlege-/Bearbeitungsformular. m === null bedeutet: neuer Film.
+ * Zeigt das Anlege-/Bearbeitungsformular für Filme und Serien. m === null bedeutet: neuer Eintrag (zunächst Film,
+ * die Art lässt sich oben umschalten). Felder, die nur eine Art haben, stehen in .movie-only bzw. .series-only und
+ * werden je nach gewählter Art ein- oder ausgeblendet; ihre Eingaben bleiben beim Umschalten erhalten, gespeichert
+ * werden nur die der gewählten Art.
  * @param {?Movie} m
  */
 function openEditForm(m){
   formIsOpen = true;
   const isEdit = m !== null;
+  const type = isEdit ? m.type : 'movie';
   const val = field => isEdit ? escapeHtml(m[field] ?? '') : '';
   // Feste Medien plus alle schon verwendeten (frühere Freitexte bleiben so auswählbar).
-  const mediumChoices = [...new Set([...MEDIUM_OPTIONS, ...knownValues('medium')])];
+  const mediumChoices = [...new Set([...MEDIUM_OPTIONS, ...knownValues(mediaOf)])];
   const castText = isEdit ? m.cast.map(c => c.role ? `${c.name} | ${c.role}` : c.name).join('\n') : '';
   /**
    * Bildfeld mit Vorschau (vorhandenes Bild bzw. nach Dateiauswahl die neue Datei).
    * @param {'poster'|'fanart'} kind
+   * @param {string} label  Feldbeschriftung (HTML)
+   * @param {string} hint   Hinweis unter dem Feld (HTML)
    */
   const imageFieldHtml = (kind, label, hint) => {
     const src = isEdit ? movieImageSrc(m, kind) : null;
@@ -451,11 +662,20 @@ function openEditForm(m){
       <div class="hint">${hint}</div>
     </div>`;
   };
+  const seasons = isEdit && isSeries(m) ? m.seasons : [];
 
   sheet.innerHTML = `
     <button class="close" id="closeBtn" aria-label="Schließen">&times;</button>
-    <h2>${isEdit ? 'Film bearbeiten' : 'Neuer Film'}</h2>
+    <div id="editForm">
+    <h2 id="formTitle"></h2>
     <div id="formError"></div>
+    <div class="form-field">
+      <span class="label">Art</span>
+      <div class="checkbox-row" id="typeInputs">
+        <label><input type="radio" name="type" value="movie"${type === 'movie' ? ' checked' : ''}> Film</label>
+        <label><input type="radio" name="type" value="series"${type === 'series' ? ' checked' : ''}> Serie</label>
+      </div>
+    </div>
     <div class="form-field">
       <label for="titleInput">Titel</label>
       <input type="text" id="titleInput" value="${val('title')}">
@@ -466,11 +686,15 @@ function openEditForm(m){
     </div>
     <div class="form-row">
       <div class="form-field">
-        <label for="yearInput">Jahr</label>
+        <label for="yearInput" id="yearLabel">Jahr</label>
         <input type="text" id="yearInput" inputmode="numeric" value="${val('year')}" placeholder="z. B. 1985">
       </div>
+      <div class="form-field series-only">
+        <label for="yearEndInput">Bis (Jahr)</label>
+        <input type="text" id="yearEndInput" inputmode="numeric" value="${val('yearEnd')}" placeholder="leer, falls sie noch läuft">
+      </div>
       <div class="form-field">
-        <label for="runtimeInput">Laufzeit (Min.)</label>
+        <label for="runtimeInput" id="runtimeLabel">Laufzeit (Min.)</label>
         <input type="text" id="runtimeInput" inputmode="numeric" value="${val('runtime')}">
       </div>
       <div class="form-field">
@@ -484,22 +708,31 @@ function openEditForm(m){
         <label for="genresInput">Genres</label>
         <input type="text" id="genresInput" value="${isEdit ? escapeHtml(m.genres.join(', ')) : ''}" placeholder="z. B. Abenteuer, Komödie">
       </div>
-      <div class="form-field">
+      <div class="form-field movie-only">
         <label for="directorInput">Regie</label>
         <input type="text" id="directorInput" value="${val('director')}">
       </div>
-    </div>
-    <div class="form-field">
-      <span class="label">Medium</span>
-      <div class="checkbox-row" id="mediumInputs">
-        ${mediumChoices.map(md => `<label><input type="checkbox" name="medium" value="${escapeHtml(md)}"${isEdit && m.medium.includes(md) ? ' checked' : ''}> ${escapeHtml(md)}</label>`).join('')}
+      <div class="form-field series-only">
+        <label for="creatorInput">Idee</label>
+        <input type="text" id="creatorInput" value="${val('creator')}">
       </div>
-      <div class="hint">Mehrfachauswahl, wenn der Film z. B. als DVD und auf USB vorhanden ist.</div>
     </div>
-    <div class="form-field" id="filesField">
-      <label for="filesInput">Filmdatei (relativ zum USB-Ordner)</label>
-      <textarea id="filesInput" rows="2" placeholder="z. B. zimmer-1408-2007/movie.avi">${escapeHtml(isEdit ? (m.files || []).join('\n') : '')}</textarea>
-      <div class="hint">Pfad relativ zu USB_ROOT aus config.php, üblich ist &lt;slug&gt;/movie.&lt;Endung&gt; (beim Anhaken von USB vorgeschlagen, Endung ergänzen). Mehrteilige Filme: eine Datei pro Zeile (movie-cd1.avi, movie-cd2.avi, …), in Abspielreihenfolge.</div>
+    <div class="media-block movie-only" id="movieMedia">
+      <div class="form-field">
+        <span class="label">Medium</span>
+        <div class="checkbox-row media-choices">${mediaCheckboxesHtml(mediumChoices, isEdit && !isSeries(m) ? m.medium : [])}</div>
+        <div class="hint">Mehrfachauswahl, wenn der Film z. B. als DVD und auf USB vorhanden ist.</div>
+      </div>
+      <div class="form-field files-field">
+        <label for="filesInput">Filmdatei (relativ zum USB-Ordner)</label>
+        <textarea id="filesInput" class="files-input" rows="2" placeholder="z. B. zimmer-1408-2007/movie.avi">${escapeHtml(isEdit && !isSeries(m) ? m.files.join('\n') : '')}</textarea>
+        <div class="hint">Pfad relativ zu USB_ROOT aus config.php, üblich ist &lt;slug&gt;/movie.&lt;Endung&gt; (beim Anhaken von USB vorgeschlagen, Endung ergänzen). Mehrteilige Filme: eine Datei pro Zeile (movie-cd1.avi, movie-cd2.avi, …), in Abspielreihenfolge.</div>
+      </div>
+    </div>
+    <div class="form-field series-only">
+      <span class="label">Staffeln</span>
+      <div id="seasonEditors">${seasons.map(s => seasonEditorHtml(s, mediumChoices)).join('')}</div>
+      <button class="btn" id="addSeasonBtn" type="button">+ Staffel</button>
     </div>
     <div class="form-row">
       ${imageFieldHtml('poster', 'Poster', 'Hochformat. Wird erst nach dem Speichern hochgeladen und erzeugt automatisch ein Thumbnail.')}
@@ -527,28 +760,54 @@ function openEditForm(m){
       <button class="btn btn-primary" id="saveBtn" type="button">Speichern</button>
       <button class="btn" id="cancelBtn" type="button">Abbrechen</button>
     </div>
+    </div>
   `;
   overlay.classList.add('open');
+
+  const editForm = document.getElementById('editForm');
+  const seasonEditors = document.getElementById('seasonEditors');
+  const addSeason = () => {
+    const numbers = [...seasonEditors.querySelectorAll('.se-number-input')].map(i => parseInt(i.value, 10)).filter(n => !isNaN(n));
+    seasonEditors.insertAdjacentHTML('beforeend', seasonEditorHtml(
+      {number: numbers.length ? Math.max(...numbers) + 1 : 1, name: null, year: null, episodes: [], medium: [], files: []},
+      mediumChoices
+    ));
+    toggleFilesField(seasonEditors.lastElementChild);
+  };
+  // Art umschalten: Felder der anderen Art aus-, eigene einblenden; eine neue Serie beginnt mit Staffel 1.
+  const applyType = () => {
+    const t = formType();
+    editForm.querySelectorAll('.movie-only').forEach(el => { el.hidden = t !== 'movie'; });
+    editForm.querySelectorAll('.series-only').forEach(el => { el.hidden = t !== 'series'; });
+    document.getElementById('formTitle').textContent = isEdit
+      ? `${typeLabel(t)} bearbeiten`
+      : (t === 'series' ? 'Neue Serie' : 'Neuer Film');
+    document.getElementById('yearLabel').textContent = t === 'series' ? 'Von (Jahr)' : 'Jahr';
+    document.getElementById('runtimeLabel').textContent = t === 'series' ? 'Folgenlänge (Min.)' : 'Laufzeit (Min.)';
+    if(t === 'series' && !seasonEditors.children.length) addSeason();
+  };
 
   document.getElementById('closeBtn').addEventListener('click', closeMovie);
   document.getElementById('cancelBtn').addEventListener('click', () => {
     isEdit ? openMovie(MOVIES.indexOf(m)) : closeMovie();
   });
-  // Datei-Feld nur bei Medium USB zeigen (eingetragene Dateien bleiben beim Umschalten erhalten).
-  const toggleFilesField = () => {
-    document.getElementById('filesField').style.display = checkedMedia().includes('USB') ? '' : 'none';
-  };
-  // Beim Anhaken von USB ein leeres Datei-Feld mit dem üblichen Pfad <slug>/movie. vorbelegen (Slug aus dem
-  // aktuellen Titel + Jahr, so wie der Server ihn vergibt); die Endung (avi, mkv, …) ist nicht bekannt.
-  const suggestFile = e => {
-    const filesInput = document.getElementById('filesInput');
-    const title = document.getElementById('titleInput').value.trim();
-    const year = document.getElementById('yearInput').value.trim();
-    if(e.target.value !== 'USB' || !e.target.checked || filesInput.value.trim() || !title) return;
-    filesInput.value = `${slugify(`${title} ${year}`)}/movie.`;
-  };
-  document.getElementById('mediumInputs').addEventListener('change', e => { suggestFile(e); toggleFilesField(); });
-  toggleFilesField();
+  document.getElementById('typeInputs').addEventListener('change', applyType);
+  document.getElementById('addSeasonBtn').addEventListener('click', addSeason);
+  seasonEditors.addEventListener('click', e => {
+    if(e.target.closest('.se-remove')) e.target.closest('.season-editor').remove();
+  });
+  // Medium angehakt/abgewählt (Film oder eine Staffel): Datei-Feld ein-/ausblenden, bei USB Dateien vorschlagen.
+  // Am #editForm statt am dauerhaften #sheet, sonst käme bei jedem Öffnen ein weiterer Listener dazu.
+  editForm.addEventListener('change', e => {
+    const block = e.target.closest('.media-choices') && e.target.closest('.media-block');
+    if(block){
+      if(e.target.value === 'USB' && e.target.checked) suggestFiles(block);
+      toggleFilesField(block);
+    }
+    if(e.target.classList.contains('files-input')) completeExtensions(e.target);
+  });
+  editForm.querySelectorAll('.media-block').forEach(toggleFilesField);
+  applyType();
 
   for(const kind of ['poster', 'fanart']){
     document.getElementById(`${kind}Input`).addEventListener('change', e => {
@@ -565,25 +824,136 @@ function openEditForm(m){
   document.getElementById('saveBtn').addEventListener('click', () => saveMovie(isEdit ? m.slug : null));
 }
 
-/** Liest die Formularfelder aus und baut daraus den API-Payload. */
+/** Im Formular gewählte Art. @returns {'movie'|'series'} */
+function formType(){
+  return document.querySelector('#typeInputs input:checked').value === 'series' ? 'series' : 'movie';
+}
+
+/** Checkboxen für die Medien, die angehakten aus $selected. */
+function mediaCheckboxesHtml(choices, selected){
+  return choices.map(md => `<label><input type="checkbox" value="${escapeHtml(md)}"${selected.includes(md) ? ' checked' : ''}> ${escapeHtml(md)}</label>`).join('');
+}
+
+let seasonEditorSeq = 0; // für eindeutige ids der Eingabefelder (label for=…)
+
+/**
+ * Eingabeblock einer Staffel im Formular. Die Folgen werden als Titel pro Zeile bearbeitet; ihre Nummern
+ * (data-episode-numbers) bleiben beim Speichern über die Position erhalten (siehe parseEpisodes()).
+ * @param {Season} s
+ * @param {string[]} mediumChoices
+ */
+function seasonEditorHtml(s, mediumChoices){
+  const k = ++seasonEditorSeq;
+  const titles = s.episodes.map(e => e.title || '-').join('\n');
+  return `<div class="season-editor media-block" data-episode-numbers="${escapeHtml(JSON.stringify(s.episodes.map(e => e.number)))}">
+    <div class="form-row">
+      <div class="form-field se-number">
+        <label for="se${k}Number">Staffel</label>
+        <input type="text" id="se${k}Number" class="se-number-input" inputmode="numeric" value="${s.number}">
+      </div>
+      <div class="form-field se-name">
+        <label for="se${k}Name">Bezeichnung</label>
+        <input type="text" id="se${k}Name" class="se-name-input" value="${escapeHtml(s.name || '')}" placeholder="${escapeHtml(seasonLabel({...s, name: null}))}">
+      </div>
+      <div class="form-field se-year">
+        <label for="se${k}Year">Jahr</label>
+        <input type="text" id="se${k}Year" class="se-year-input" inputmode="numeric" value="${s.year ?? ''}">
+      </div>
+      <button class="btn se-remove" type="button" title="Staffel aus der Liste entfernen">Entfernen</button>
+    </div>
+    <div class="form-field">
+      <span class="label">Medium</span>
+      <div class="checkbox-row media-choices">${mediaCheckboxesHtml(mediumChoices, s.medium)}</div>
+      <div class="hint">Nichts angehakt = Staffel ist nicht im Bestand.</div>
+    </div>
+    <div class="form-field files-field">
+      <label for="se${k}Files">Dateien (relativ zum USB-Ordner)</label>
+      <textarea id="se${k}Files" class="files-input" rows="3">${escapeHtml(s.files.join('\n'))}</textarea>
+      <div class="hint">Eine Datei pro Folge, üblich &lt;slug&gt;/S01/E01.&lt;Endung&gt; (beim Anhaken von USB vorgeschlagen; die Endung der ersten Zeile wird auf alle ohne Endung übertragen). Zugeordnet wird über die Folgennummer im Dateinamen (E01, S01E01), mehrteilige Folgen als E03-cd1, E03-cd2.</div>
+    </div>
+    <div class="form-field">
+      <label for="se${k}Episodes">Folgen</label>
+      <textarea id="se${k}Episodes" class="se-episodes-input" rows="4">${escapeHtml(titles)}</textarea>
+      <div class="hint">Ein Titel pro Zeile, in der Reihenfolge der Folgen; „-“ für eine Folge ohne Titel.</div>
+    </div>
+  </div>`;
+}
+
+/** Datei-Feld eines Film- bzw. Staffelblocks nur bei Medium USB zeigen (eingetragene Dateien bleiben erhalten). */
+function toggleFilesField(block){
+  block.querySelector('.files-field').hidden = !checkedMedia(block).includes('USB');
+}
+
+/**
+ * Beim Anhaken von USB ein leeres Datei-Feld mit dem üblichen Pfad vorbelegen: Film <slug>/movie., Staffel
+ * <slug>/S01/E01., <slug>/S01/E02., … (eine Zeile pro Folge). Der Slug kommt aus dem aktuellen Titel + Jahr, so
+ * wie der Server ihn vergibt; die Endung (avi, mkv, …) ist nicht bekannt und wird ergänzt (completeExtensions()).
+ */
+function suggestFiles(block){
+  const filesInput = block.querySelector('.files-input');
+  const title = document.getElementById('titleInput').value.trim();
+  const year = document.getElementById('yearInput').value.trim();
+  if(filesInput.value.trim() || !title) return;
+  const slug = slugify(`${title} ${year}`);
+  if(!block.classList.contains('season-editor')){
+    filesInput.value = `${slug}/movie.`;
+    return;
+  }
+  const season = parseInt(block.querySelector('.se-number-input').value, 10) || 1;
+  const episodes = parseEpisodes(block).map(e => e.number);
+  filesInput.value = (episodes.length ? episodes : [1]).map(e => `${slug}/S${pad2(season)}/E${pad2(e)}.`).join('\n');
+}
+
+/** Überträgt die Dateiendung der ersten Zeile mit Endung auf alle Zeilen, die noch auf "." enden (Vorschlag). */
+function completeExtensions(textarea){
+  const lines = textarea.value.split('\n');
+  const ext = lines.map(l => l.trim().match(/\.([a-z0-9]+)$/i)).find(Boolean);
+  if(!ext) return;
+  textarea.value = lines.map(l => l.trim().endsWith('.') ? l.trim() + ext[1] : l).join('\n');
+}
+
+/** Im Film- bzw. Staffelblock angehakte Medien, in der Reihenfolge der Checkboxen. */
+function checkedMedia(block){
+  return [...block.querySelectorAll('.media-choices input:checked')].map(cb => cb.value);
+}
+
+/** Nicht leere Zeilen eines Textfelds, getrimmt. */
+function textLines(value){
+  return value.split('\n').map(s => s.trim()).filter(Boolean);
+}
+
+/**
+ * Folgen eines Staffelblocks aus der Titelliste (eine Zeile pro Folge, "-" = ohne Titel). Die n-te Zeile behält die
+ * Nummer der n-ten bisherigen Folge (data-episode-numbers), weitere Zeilen zählen ab der letzten Nummer weiter.
+ * @returns {{number: number, title: ?string}[]}
+ */
+function parseEpisodes(block){
+  const known = JSON.parse(block.dataset.episodeNumbers || '[]');
+  const lines = block.querySelector('.se-episodes-input').value.split('\n').map(s => s.trim());
+  while(lines.length && !lines[lines.length - 1]) lines.pop();
+  let next = 1;
+  return lines.map((line, i) => {
+    const number = known[i] ?? next;
+    next = number + 1;
+    return {number, title: line && line !== '-' ? line : null};
+  });
+}
+
+/** Liest die Formularfelder aus und baut daraus den API-Payload (je nach gewählter Art). */
 function collectFormData(){
   const text = id => document.getElementById(id).value.trim();
-  const number = id => {
-    const v = text(id);
-    return v === '' ? null : (/^\d+$/.test(v) ? parseInt(v, 10) : v); // Ungültiges lehnt der Server mit Meldung ab
-  };
+  const number = v => v === '' ? null : (/^\d+$/.test(v) ? parseInt(v, 10) : v); // Ungültiges lehnt der Server mit Meldung ab
   const fsk = text('fskInput').replace(/^FSK\s*/i, '');
+  const type = formType();
 
-  return {
+  const common = {
+    type,
     title: text('titleInput'),
     originalTitle: text('originalTitleInput') || null,
-    year: number('yearInput'),
-    runtime: number('runtimeInput'),
+    year: number(text('yearInput')),
+    runtime: number(text('runtimeInput')),
     fsk: fsk || null,
     genres: text('genresInput').split(',').map(g => g.trim()).filter(Boolean),
-    director: text('directorInput') || null,
-    medium: checkedMedia(),
-    files: checkedMedia().includes('USB') ? text('filesInput').split('\n').map(f => f.trim()).filter(Boolean) : [],
     cast: text('castInput').split('\n').map(line => {
       const [name, ...role] = line.split('|');
       return {name: name.trim(), role: role.join('|').trim() || null};
@@ -592,29 +962,67 @@ function collectFormData(){
     plot: text('plotInput') || null,
     notes: text('notesInput') || null,
   };
-}
 
-/** Im Formular angehakte Medien, in der Reihenfolge der Checkboxen. */
-function checkedMedia(){
-  return [...document.querySelectorAll('#mediumInputs input:checked')].map(cb => cb.value);
+  if(type === 'series'){
+    return {
+      ...common,
+      yearEnd: number(text('yearEndInput')),
+      creator: text('creatorInput') || null,
+      seasons: [...document.querySelectorAll('.season-editor')].map(block => {
+        const medium = checkedMedia(block);
+        return {
+          number: number(block.querySelector('.se-number-input').value.trim()),
+          name: block.querySelector('.se-name-input').value.trim() || null,
+          year: number(block.querySelector('.se-year-input').value.trim()),
+          episodes: parseEpisodes(block),
+          medium,
+          files: medium.includes('USB') ? textLines(block.querySelector('.files-input').value) : [],
+        };
+      }),
+    };
+  }
+
+  const movieMedia = document.getElementById('movieMedia');
+  const medium = checkedMedia(movieMedia);
+  return {
+    ...common,
+    director: text('directorInput') || null,
+    medium,
+    files: medium.includes('USB') ? textLines(text('filesInput')) : [],
+  };
 }
 
 async function saveMovie(slug){
   const payload = collectFormData();
   const errorBox = document.getElementById('formError');
   errorBox.innerHTML = '';
+  const showError = msg => {
+    errorBox.innerHTML = `<div class="error-box">${escapeHtml(msg)}</div>`;
+    errorBox.scrollIntoView({block: 'nearest'});
+  };
 
   if(!payload.title){
-    errorBox.innerHTML = '<div class="error-box">Titel ist erforderlich.</div>';
+    showError('Titel ist erforderlich.');
     return;
   }
-  if(payload.medium.includes('USB') && !payload.files.length){
-    errorBox.innerHTML = '<div class="error-box">Bei Medium USB bitte die Filmdatei (relativ zum USB-Ordner) angeben.</div>';
+  if(payload.type === 'series'){
+    if(payload.seasons.some(s => s.number === null)){
+      showError('Jede Staffel braucht eine Nummer (0 für Specials).');
+      return;
+    }
+    const withoutFiles = payload.seasons.filter(s => s.medium.includes('USB') && !s.files.length);
+    if(withoutFiles.length){
+      showError(`Bei Medium USB bitte die Dateien (relativ zum USB-Ordner) angeben: ${withoutFiles.map(seasonLabel).join(', ')}.`);
+      return;
+    }
+  } else if(payload.medium.includes('USB') && !payload.files.length){
+    showError('Bei Medium USB bitte die Filmdatei (relativ zum USB-Ordner) angeben.');
     return;
   }
-  // Fängt den nicht vervollständigten Vorschlag "<slug>/movie." ab.
-  if(payload.files.some(f => !/\.[a-z0-9]+$/i.test(f))){
-    errorBox.innerHTML = '<div class="error-box">Bei der Filmdatei fehlt die Dateiendung (z. B. .avi, .mkv, .mp4).</div>';
+  // Fängt den nicht vervollständigten Vorschlag "<slug>/movie." bzw. "<slug>/S01/E01." ab.
+  const files = payload.type === 'series' ? payload.seasons.flatMap(s => s.files) : payload.files;
+  if(files.some(f => !/\.[a-z0-9]+$/i.test(f))){
+    showError('Bei mindestens einer Datei fehlt die Dateiendung (z. B. .avi, .mkv, .mp4).');
     return;
   }
 
@@ -632,7 +1040,7 @@ async function saveMovie(slug){
       body: JSON.stringify(payload),
     });
   } catch(err){
-    errorBox.innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
+    showError(err.message);
     saveBtn.disabled = false;
     saveBtn.textContent = 'Speichern';
     return;
@@ -655,6 +1063,7 @@ async function saveMovie(slug){
     }
   }
 
+  saved = withDefaults(saved);
   MOVIES = MOVIES.filter(x => x.slug !== slug && x.slug !== saved.slug);
   MOVIES.push(saved);
   refreshFilters();
@@ -662,7 +1071,7 @@ async function saveMovie(slug){
   renderGrid();
   openMovie(MOVIES.indexOf(saved));
   if(imageErrors.length){
-    alert('Film gespeichert, aber Bild-Upload fehlgeschlagen:\n' + imageErrors.join('\n'));
+    alert(`${typeLabel(saved.type)} gespeichert, aber Bild-Upload fehlgeschlagen:\n` + imageErrors.join('\n'));
   }
 }
 
@@ -693,10 +1102,11 @@ document.addEventListener('keydown', e => {
 });
 const VIEW_STATE_KEY = 'videothek_view_state';
 
-/** Speichert Suchbegriff, Genre-Filter und Sortierung, damit sie einen Reload überstehen. */
+/** Speichert Suchbegriff, Filter und Sortierung, damit sie einen Reload überstehen. */
 function saveViewState(){
   localStorage.setItem(VIEW_STATE_KEY, JSON.stringify({
     search: searchInput.value,
+    type: typeSel.value,
     genre: genreSel.value,
     medium: mediumSel.value,
     sort: sortSel.value,
@@ -718,22 +1128,26 @@ function onFilterChange(){
 
 searchInput.addEventListener('input', onFilterChange);
 sortSel.addEventListener('change', onFilterChange);
+typeSel.addEventListener('change', onFilterChange);
 genreSel.addEventListener('change', onFilterChange);
 mediumSel.addEventListener('change', onFilterChange);
 newMovieBtn.addEventListener('click', () => openEditForm(null));
 importMovieBtn.addEventListener('click', () => openImportForm());
 
-/** Zeigt den Import-Dialog: Suche in TMDB nach Titel (+ Jahr) oder IMDb-ID, ein Klick auf einen Treffer importiert ihn. */
+/**
+ * Zeigt den Import-Dialog: Suche in TMDB nach Filmen und Serien per Titel (+ Jahr) oder IMDb-ID, ein Klick auf
+ * einen Treffer importiert ihn.
+ */
 function openImportForm(){
   formIsOpen = true;
   sheet.innerHTML = `
     <button class="close" id="closeBtn" aria-label="Schließen">&times;</button>
-    <h2>Film importieren</h2>
+    <h2>Film oder Serie importieren</h2>
     <div id="formError"></div>
     <div class="form-row">
       <div class="form-field search-query">
         <label for="importQueryInput">Titel oder IMDb-ID</label>
-        <input type="text" id="importQueryInput" placeholder="z. B. Die Goonies oder tt0089218">
+        <input type="text" id="importQueryInput" placeholder="z. B. Die Goonies, Breaking Bad oder tt0089218">
       </div>
       <div class="form-field search-year">
         <label for="importYearInput">Jahr (optional)</label>
@@ -746,8 +1160,9 @@ function openImportForm(){
     </div>
     <div id="searchResults"></div>
     <p class="tmdb-note">
-      Filmdaten und Bilder stammen von <a href="https://www.themoviedb.org" target="_blank" rel="noopener">The Movie Database (TMDB)</a>.
-      Als Medium wird „DVD“ eingetragen; bei Blu-ray o. Ä. danach im Formular ändern.
+      Daten und Bilder stammen von <a href="https://www.themoviedb.org" target="_blank" rel="noopener">The Movie Database (TMDB)</a>.
+      Als Medium wird „DVD“ eingetragen, bei Serien für alle Staffeln (ohne Specials); Blu-ray o. Ä. und fehlende
+      Staffeln danach im Formular ändern.
     </p>
   `;
   overlay.classList.add('open');
@@ -755,7 +1170,9 @@ function openImportForm(){
   document.getElementById('cancelBtn').addEventListener('click', closeMovie);
   document.getElementById('searchBtn').addEventListener('click', runSearch);
   for(const id of ['importQueryInput', 'importYearInput']){
-    document.getElementById(id).addEventListener('keydown', e => { if(e.key === 'Enter') runSearch(); });
+    document.getElementById(id).addEventListener('keydown', e => {
+      if(e.key === 'Enter') document.getElementById('searchBtn').click();
+    });
   }
   document.getElementById('importQueryInput').focus();
 }
@@ -773,16 +1190,21 @@ async function runSearch(){
   }
 
   resultsBox.innerHTML = '<p class="empty">Suche läuft …</p>';
+  /** @type {{results: SearchResult[], error?: string}} */
   let data;
+  let errorMsg = null;
   try {
     const params = new URLSearchParams({query});
     if(year) params.set('year', year);
     const res = await fetch(`api/search.php?${params}`);
     data = await res.json();
-    if(!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    if(!res.ok) errorMsg = data.error || `HTTP ${res.status}`;
   } catch(err){
+    errorMsg = err.message;
+  }
+  if(errorMsg !== null){
     resultsBox.innerHTML = '';
-    errorBox.innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
+    errorBox.innerHTML = `<div class="error-box">${escapeHtml(errorMsg)}</div>`;
     return;
   }
 
@@ -790,42 +1212,43 @@ async function runSearch(){
     resultsBox.innerHTML = '<p class="empty">Keine Treffer.</p>';
     return;
   }
-  resultsBox.innerHTML = `<ul class="search-results">${data.results.map(r => {
-    const existingSlug = data.existing[r.tmdb];
-    return `<li class="${existingSlug ? 'exists' : ''}" data-tmdb="${r.tmdb}" data-slug="${escapeHtml(existingSlug || '')}">
+  resultsBox.innerHTML = `<ul class="search-results">${data.results.map(r => `
+    <li class="${r.existing ? 'exists' : ''}" data-tmdb="${r.tmdb}" data-type="${r.type}" data-slug="${escapeHtml(r.existing || '')}">
       <div class="result-poster">${r.poster ? `<img src="${escapeHtml(r.poster)}" alt="" loading="lazy">` : ''}</div>
       <div class="result-body">
-        <div class="result-title">${escapeHtml(r.title)}${r.year ? ` <span>(${r.year})</span>` : ''}</div>
+        <div class="result-title"><span class="result-type${r.type === 'series' ? ' series' : ''}">${typeLabel(r.type)}</span>${escapeHtml(r.title)}${r.year ? ` <span>(${r.year})</span>` : ''}</div>
         ${r.originalTitle ? `<div class="result-original">${escapeHtml(r.originalTitle)}</div>` : ''}
-        ${existingSlug ? '<div class="result-status">bereits in der Videothek – anklicken zum Öffnen</div>' : '<div class="result-status"></div>'}
+        ${r.existing ? '<div class="result-status">bereits in der Videothek – anklicken zum Öffnen</div>' : '<div class="result-status"></div>'}
         ${r.overview ? `<div class="result-overview">${escapeHtml(r.overview)}</div>` : ''}
       </div>
-    </li>`;
-  }).join('')}</ul>`;
+    </li>`).join('')}</ul>`;
 
   resultsBox.querySelectorAll('li').forEach(li => li.addEventListener('click', () => {
     if(li.dataset.slug){
       const idx = MOVIES.findIndex(m => m.slug === li.dataset.slug);
       if(idx >= 0) openMovie(idx);
     } else {
-      runImport(parseInt(li.dataset.tmdb, 10), li);
+      runImport(parseInt(li.dataset.tmdb, 10), li.dataset.type === 'series' ? 'series' : 'movie', li);
     }
   }));
 }
 
 /**
- * Importiert den Film und lädt danach alle Darstellerfotos über api/actors.php. Jeder Aufruf dort
+ * Importiert den Film bzw. die Serie und lädt danach alle Darstellerfotos über api/actors.php. Jeder Aufruf dort
  * arbeitet nur ~10 s (PHP-Zeitlimit), daher wird wiederholt, bis nichts mehr fehlt.
  * @param {number} tmdb
+ * @param {'movie'|'series'} type
  * @param {HTMLElement} li  angeklickter Treffer (zeigt den Fortschritt)
  */
-async function runImport(tmdb, li){
+async function runImport(tmdb, type, li){
   const errorBox = document.getElementById('formError');
   if(document.querySelector('.search-results li.importing')) return; // kein Doppel-Import
   const status = li.querySelector('.result-status');
   errorBox.innerHTML = '';
   li.classList.add('importing');
-  status.textContent = 'Importiere Film, Poster und Hintergrundbild …';
+  status.textContent = type === 'series'
+    ? 'Importiere Serie mit allen Staffeln und Folgen, Poster und Hintergrundbild …'
+    : 'Importiere Film, Poster und Hintergrundbild …';
 
   /** @type {Movie} */
   let saved;
@@ -833,7 +1256,7 @@ async function runImport(tmdb, li){
     saved = await apiWrite('api/import.php', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({tmdb}),
+      body: JSON.stringify({tmdb, type}),
     });
   } catch(err){
     errorBox.innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
@@ -848,6 +1271,7 @@ async function runImport(tmdb, li){
     let remaining = total;
     while(remaining > 0){
       status.textContent = `Lade Darstellerfotos … ${total - remaining} von ${total}`;
+      /** @type {ActorsResult} */
       const res = await apiWrite('api/actors.php', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -862,6 +1286,7 @@ async function runImport(tmdb, li){
     warnings.push('Darstellerfotos unvollständig: ' + err.message);
   }
 
+  saved = withDefaults(saved);
   MOVIES = MOVIES.filter(x => x.slug !== saved.slug);
   MOVIES.push(saved);
   refreshFilters();
@@ -878,20 +1303,21 @@ async function init(){
     MOVIES = await loadMovies();
   } catch(err) {
     console.error(err);
-    subCount.textContent = 'Filme konnten nicht geladen werden.';
-    grid.innerHTML = '<p class="empty">Fehler beim Laden der Filme.</p>';
+    subCount.textContent = 'Die Videothek konnte nicht geladen werden.';
+    grid.innerHTML = '<p class="empty">Fehler beim Laden der Filme und Serien.</p>';
     return;
   }
 
   refreshFilters();
   updateHeaderCount();
 
-  // Suchbegriff/Filter/Sortierung vom letzten Besuch wiederherstellen. Genre/Medium nur übernehmen,
+  // Suchbegriff/Filter/Sortierung vom letzten Besuch wiederherstellen. Art/Genre/Medium nur übernehmen,
   // wenn es diese Option nach dem Neuaufbau der Listen (refreshFilters) noch gibt — sonst
   // bleibt es bei "Alle ...", statt einen verschwundenen Wert stumm auszuwählen.
   const saved = loadViewState();
   if(saved.search) searchInput.value = saved.search;
   if(saved.sort && [...sortSel.options].some(o => o.value === saved.sort)) sortSel.value = saved.sort;
+  if(saved.type && [...typeSel.options].some(o => o.value === saved.type)) typeSel.value = saved.type;
   if(saved.genre && [...genreSel.options].some(o => o.value === saved.genre)) genreSel.value = saved.genre;
   if(saved.medium && [...mediumSel.options].some(o => o.value === saved.medium)) mediumSel.value = saved.medium;
 

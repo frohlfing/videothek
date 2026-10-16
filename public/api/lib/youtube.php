@@ -7,6 +7,7 @@
  *   403 -> privat/gesperrt
  *   404 -> gelöscht bzw. nicht (mehr) auffindbar
  *   400 -> ungültige Video-ID
+ *
  * Regionale Sperren (z. B. "in deinem Land nicht verfügbar") erkennt oEmbed NICHT – solche Trailer
  * gelten hier als verfügbar.
  */
@@ -14,7 +15,7 @@
 const YOUTUBE_OEMBED_URL = 'https://www.youtube.com/oembed?format=json&url=';
 
 /**
- * true = abspielbar/einbettbar, false = sicher nicht verfügbar, null = unklar (Netzwerkfehler,
+ * `true` = abspielbar/einbettbar, false = sicher nicht verfügbar, null = unklar (Netzwerkfehler,
  * Drosselung o. Ä.) – im Zweifel nichts ändern.
  */
 function youtube_video_available(string $url): ?bool
@@ -36,6 +37,7 @@ function youtube_video_available(string $url): ?bool
  */
 function youtube_first_available(array $urls): ?string
 {
+    /** @noinspection PhpLoopCanBeConvertedToArrayFindInspection */
     foreach ($urls as $url) {
         if (youtube_video_available($url) !== false) {
             return $url;
@@ -45,7 +47,7 @@ function youtube_first_available(array $urls): ?string
 }
 
 /**
- * HTTP-Statuscode einer GET-Anfrage (Body wird verworfen), 0 bei Netzwerkfehler.
+ * HTTP-Statuscode einer GET-Anfrage (Body wird verworfen), 0 bei Netzwerkfehlern.
  * Eigene kleine Funktion statt http_get(), weil dort 4xx als Exception endet und hier gerade
  * der Code interessiert.
  */

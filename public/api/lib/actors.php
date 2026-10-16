@@ -46,7 +46,7 @@ function download_actor_photos(string $slug, float $timeBudget = 10.0): array
                 }
                 file_put_contents($dir . '/' . $fileName, $data);
             } catch (RuntimeException) {
-                // Nicht nochmal versuchen: profile entfernen, sonst bliebe "remaining" ewig > 0.
+                // Nicht nochmal versuchen: `profile` entfernen, sonst bliebe "remaining" ewig > 0.
                 $movie['cast'][$i]['profile'] = null;
                 $failed++;
                 continue;
