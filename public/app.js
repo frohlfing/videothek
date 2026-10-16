@@ -17,7 +17,7 @@
  * @property {?string} fsk       "0", "6", "12", "16" oder "18"
  * @property {?string} director
  * @property {CastMember[]} cast
- * @property {?string} medium    z. B. "DVD", "Blu-ray", "USB"
+ * @property {string[]} medium  z. B. ["DVD"] oder ["DVD", "USB"], wenn der Film mehrfach vorhanden ist
  * @property {string[]} [files]  nur bei Medium USB: Filmdatei(en) relativ zu USB_ROOT (config.php)
  * @property {?string} trailer  YouTube-URL
  * @property {?string} plot
@@ -59,6 +59,16 @@ const FSK_OPTIONS = ['0', '6', '12', '16', '18'];
 
 function escapeHtml(str){
   return String(str ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/**
+ * Wie slugify() in api/lib/slug.php: Umlaute/Akzente umschreiben, kleinschreiben, alles außer a-z0-9 zu "-".
+ * Nur für Vorschläge im Formular; den echten Slug vergibt der Server (ggf. mit -2, -3, … bei Kollision).
+ */
+function slugify(title){
+  const map = {'ä':'ae','ö':'oe','ü':'ue','Ä':'Ae','Ö':'Oe','Ü':'Ue','ß':'ss','é':'e','è':'e','ê':'e','à':'a','â':'a','ô':'o','î':'i','ç':'c','ñ':'n'};
+  return title.trim().replace(/[äöüÄÖÜßéèêàâôîçñ]/g, c => map[c]).toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
 // PHP liefert die Filmliste über die JSON-API (api/movies.php).
@@ -163,7 +173,7 @@ function cardHtml(m, idx){
       <h3>${escapeHtml(m.title)}</h3>
       <div class="meta">${escapeHtml(metaLine(m))}</div>
       ${m.genres.slice(0, 2).map(g => `<div class="cat-tag">${escapeHtml(g)}</div>`).join('')}
-      ${m.medium ? `<div class="cat-tag medium-tag">${escapeHtml(m.medium)}</div>` : ''}
+      ${m.medium.map(md => `<div class="cat-tag medium-tag">${escapeHtml(md)}</div>`).join('')}
     </div>
   </div>`;
 }
@@ -232,12 +242,12 @@ function renderGrid(){
     items = items.filter(({m}) => m.genres.includes(genre));
   }
   if(medium){
-    items = items.filter(({m}) => m.medium === medium);
+    items = items.filter(({m}) => m.medium.includes(medium));
   }
 
   if(q){
     items = items.filter(({m}) =>
-      [m.title, m.originalTitle, m.director, m.plot, m.medium, m.year && String(m.year), ...m.genres]
+      [m.title, m.originalTitle, m.director, m.plot, m.year && String(m.year), ...m.genres, ...m.medium]
         .some(v => (v || '').toLowerCase().includes(q))
       || m.cast.some(c => c.name.toLowerCase().includes(q) || (c.role || '').toLowerCase().includes(q))
     );
@@ -331,7 +341,7 @@ function printableSheetHtml(m){
   const facts = [
     ['Genre', m.genres.join(', ')],
     ['Regie', m.director],
-    ['Medium', m.medium],
+    ['Medium', m.medium.join(', ')],
   ].filter(([, v]) => v);
   const factsHtml = facts.length
     ? `<dl class="facts">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${escapeHtml(v)}</dd>`).join('')}</dl>`
@@ -370,7 +380,7 @@ function openMovie(idx){
     ${fanart ? `<div class="fanart" style="background-image:url('${escapeHtml(fanart)}')"></div>` : ''}
     <button class="close" id="closeBtn" aria-label="Schließen">&times;</button>
     <div class="btn-row toolbar">
-      ${m.medium === 'USB' && (m.files || []).length ? `<a class="btn btn-primary play-btn" href="api/play.php?slug=${encodeURIComponent(m.slug)}" title="Öffnet die Filmdatei im installierten Player">&#9654; Abspielen</a>` : ''}
+      ${m.medium.includes('USB') && (m.files || []).length ? `<a class="btn btn-primary play-btn" href="api/play.php?slug=${encodeURIComponent(m.slug)}" title="Öffnet die Filmdatei im installierten Player">&#9654; Abspielen</a>` : ''}
       <button class="btn" id="printBtn" type="button">Drucken</button>
       <button class="btn" id="editBtn" type="button">Bearbeiten</button>
       <button class="btn btn-danger" id="deleteBtn" type="button">Löschen</button>
@@ -417,12 +427,6 @@ function closeMovie(){
   sheet.innerHTML = '';
 }
 
-/** <datalist> aus festen Vorschlägen plus allen bereits verwendeten Werten. */
-function datalistHtml(id, fixed, field){
-  const values = [...new Set([...fixed, ...knownValues(field)])];
-  return `<datalist id="${id}">${values.map(v => `<option value="${escapeHtml(v)}">`).join('')}</datalist>`;
-}
-
 /**
  * Zeigt das Anlege-/Bearbeitungsformular. m === null bedeutet: neuer Film.
  * @param {?Movie} m
@@ -431,6 +435,8 @@ function openEditForm(m){
   formIsOpen = true;
   const isEdit = m !== null;
   const val = field => isEdit ? escapeHtml(m[field] ?? '') : '';
+  // Feste Medien plus alle schon verwendeten (frühere Freitexte bleiben so auswählbar).
+  const mediumChoices = [...new Set([...MEDIUM_OPTIONS, ...knownValues('medium')])];
   const castText = isEdit ? m.cast.map(c => c.role ? `${c.name} | ${c.role}` : c.name).join('\n') : '';
   /**
    * Bildfeld mit Vorschau (vorhandenes Bild bzw. nach Dateiauswahl die neue Datei).
@@ -484,14 +490,16 @@ function openEditForm(m){
       </div>
     </div>
     <div class="form-field">
-      <label for="mediumInput">Medium</label>
-      <input type="text" id="mediumInput" list="mediumList" autocomplete="off" value="${val('medium')}">
-      ${datalistHtml('mediumList', MEDIUM_OPTIONS, 'medium')}
+      <span class="label">Medium</span>
+      <div class="checkbox-row" id="mediumInputs">
+        ${mediumChoices.map(md => `<label><input type="checkbox" name="medium" value="${escapeHtml(md)}"${isEdit && m.medium.includes(md) ? ' checked' : ''}> ${escapeHtml(md)}</label>`).join('')}
+      </div>
+      <div class="hint">Mehrfachauswahl, wenn der Film z. B. als DVD und auf USB vorhanden ist.</div>
     </div>
     <div class="form-field" id="filesField">
       <label for="filesInput">Filmdatei (relativ zum USB-Ordner)</label>
       <textarea id="filesInput" rows="2" placeholder="z. B. zimmer-1408-2007/movie.avi">${escapeHtml(isEdit ? (m.files || []).join('\n') : '')}</textarea>
-      <div class="hint">Pfad relativ zu USB_ROOT aus config.php. Mehrteilige Filme: eine Datei pro Zeile, in Abspielreihenfolge.</div>
+      <div class="hint">Pfad relativ zu USB_ROOT aus config.php, üblich ist &lt;slug&gt;/movie.&lt;Endung&gt; (beim Anhaken von USB vorgeschlagen, Endung ergänzen). Mehrteilige Filme: eine Datei pro Zeile (movie-cd1.avi, movie-cd2.avi, …), in Abspielreihenfolge.</div>
     </div>
     <div class="form-row">
       ${imageFieldHtml('poster', 'Poster', 'Hochformat. Wird erst nach dem Speichern hochgeladen und erzeugt automatisch ein Thumbnail.')}
@@ -527,11 +535,19 @@ function openEditForm(m){
     isEdit ? openMovie(MOVIES.indexOf(m)) : closeMovie();
   });
   // Datei-Feld nur bei Medium USB zeigen (eingetragene Dateien bleiben beim Umschalten erhalten).
-  const mediumInput = document.getElementById('mediumInput');
   const toggleFilesField = () => {
-    document.getElementById('filesField').style.display = mediumInput.value.trim() === 'USB' ? '' : 'none';
+    document.getElementById('filesField').style.display = checkedMedia().includes('USB') ? '' : 'none';
   };
-  mediumInput.addEventListener('input', toggleFilesField);
+  // Beim Anhaken von USB ein leeres Datei-Feld mit dem üblichen Pfad <slug>/movie. vorbelegen (Slug aus dem
+  // aktuellen Titel + Jahr, so wie der Server ihn vergibt); die Endung (avi, mkv, …) ist nicht bekannt.
+  const suggestFile = e => {
+    const filesInput = document.getElementById('filesInput');
+    const title = document.getElementById('titleInput').value.trim();
+    const year = document.getElementById('yearInput').value.trim();
+    if(e.target.value !== 'USB' || !e.target.checked || filesInput.value.trim() || !title) return;
+    filesInput.value = `${slugify(`${title} ${year}`)}/movie.`;
+  };
+  document.getElementById('mediumInputs').addEventListener('change', e => { suggestFile(e); toggleFilesField(); });
   toggleFilesField();
 
   for(const kind of ['poster', 'fanart']){
@@ -566,8 +582,8 @@ function collectFormData(){
     fsk: fsk || null,
     genres: text('genresInput').split(',').map(g => g.trim()).filter(Boolean),
     director: text('directorInput') || null,
-    medium: text('mediumInput') || null,
-    files: text('mediumInput') === 'USB' ? text('filesInput').split('\n').map(f => f.trim()).filter(Boolean) : [],
+    medium: checkedMedia(),
+    files: checkedMedia().includes('USB') ? text('filesInput').split('\n').map(f => f.trim()).filter(Boolean) : [],
     cast: text('castInput').split('\n').map(line => {
       const [name, ...role] = line.split('|');
       return {name: name.trim(), role: role.join('|').trim() || null};
@@ -576,6 +592,11 @@ function collectFormData(){
     plot: text('plotInput') || null,
     notes: text('notesInput') || null,
   };
+}
+
+/** Im Formular angehakte Medien, in der Reihenfolge der Checkboxen. */
+function checkedMedia(){
+  return [...document.querySelectorAll('#mediumInputs input:checked')].map(cb => cb.value);
 }
 
 async function saveMovie(slug){
@@ -587,8 +608,13 @@ async function saveMovie(slug){
     errorBox.innerHTML = '<div class="error-box">Titel ist erforderlich.</div>';
     return;
   }
-  if(payload.medium === 'USB' && !payload.files.length){
+  if(payload.medium.includes('USB') && !payload.files.length){
     errorBox.innerHTML = '<div class="error-box">Bei Medium USB bitte die Filmdatei (relativ zum USB-Ordner) angeben.</div>';
+    return;
+  }
+  // Fängt den nicht vervollständigten Vorschlag "<slug>/movie." ab.
+  if(payload.files.some(f => !/\.[a-z0-9]+$/i.test(f))){
+    errorBox.innerHTML = '<div class="error-box">Bei der Filmdatei fehlt die Dateiendung (z. B. .avi, .mkv, .mp4).</div>';
     return;
   }
 

@@ -215,7 +215,7 @@ selbst mit abdeckt.
   "fsk": "12",
   "genres": ["Abenteuer", "Komödie", "Familie"],
   "director": "Richard Donner",
-  "medium": "USB",
+  "medium": ["USB"],
   "files": ["die-goonies-1985/movie.avi"],
   "poster": "poster.jpg",
   "thumb": "thumb.jpg",
@@ -243,10 +243,13 @@ Liste von Strings, `cast` eine Liste von Darstellern. Dort sind `profile` (TMDB-
 Download) und `thumb` (Dateiname unter `actors/`) nur bei importierten Filmen gesetzt. Die übrigen Felder sind
 Strings oder `null`.
 
-`medium` ist das Format des eigenen Exemplars (DVD, Blu-ray, USB), `fsk` die Altersfreigabe. `files` gibt es nur bei
-Medium USB: die Filmdatei(en) relativ zu `USB_ROOT`, bei mehrteiligen Filmen (`cd1`, `cd2`, …) mehrere in
-Abspielreihenfolge, immer mit `/` gespeichert. Absolute Pfade und `..` lehnt die API ab.
-Beides sind bewusst freie Texte; das Formular schlägt die üblichen Werte vor. `uniqueids`, `poster`, `thumb` und
+`medium` ist die Liste der Formate, in denen der Film vorhanden ist (`["DVD"]`, bei doppeltem Bestand z. B.
+`["DVD", "USB"]`); im Formular per Checkbox gewählt (DVD, Blu-ray, USB plus alle schon verwendeten Werte). Die API
+nimmt auch einen String an (`"DVD, USB"`, kommagetrennt), ältere `movie.json` mit `"medium": "USB"` werden beim
+Lesen zur Liste und beim nächsten Speichern so geschrieben (`normalize_movie_media()` in `crud.php`). `fsk` ist
+die Altersfreigabe als freier Text, das Formular schlägt die üblichen Werte vor. `files` gibt es nur bei Medium
+USB: die Filmdatei(en) relativ zu `USB_ROOT`, bei mehrteiligen Filmen (`cd1`, `cd2`, …) mehrere in
+Abspielreihenfolge, immer mit `/` gespeichert. Absolute Pfade und `..` lehnt die API ab. `uniqueids`, `poster`, `thumb` und
 `fanart` setzen nur Import und Upload; beim Bearbeiten über das Formular bleiben sie erhalten, ebenso
 `profile`/`thumb` der Darsteller (Zuordnung über den Namen).
 
@@ -279,7 +282,7 @@ Löschen/Importieren) aufgerufen, siehe nächsten Abschnitt.
 ### Suchen, Filtern, Sortieren
 
 Die Suche durchsucht Titel, Originaltitel, Jahr, Genres, Regie, Darsteller (Name und Rolle), Handlung und Medium.
-Gefiltert wird nach Genre (alle Filme, die das gewählte Genre enthalten) und nach Medium (DVD, Blu-ray, ...);
+Gefiltert wird nach Genre (alle Filme, die das gewählte Genre enthalten) und nach Medium (DVD, Blu-ray, ...; ein Film mit mehreren Medien erscheint unter jedem);
 beide Filter lassen sich kombinieren und bieten nur Werte an, die im Bestand tatsächlich vorkommen. Sortiert wird
 alphabetisch, nach Erscheinungsjahr (Filme ohne Jahr am Ende) oder nach Hinzufügedatum. Suchbegriff, Filter und
 Sortierung werden in `localStorage` unter `videothek_view_state` gemerkt und überstehen so einen Reload.
@@ -300,7 +303,7 @@ Im Bearbeiten-Formular stehen Poster und Hintergrundbild nebeneinander, jeweils 
 Filme mit Medium **USB** liegen als Dateien auf einer USB-Platte bzw. lokal unter `USB_ROOT` (config.php,
 z. B. `D:\videothek`), ein Unterordner pro Film mit dem Slug als Namen und darin nur die Filmdatei `movie.<ext>`
 (`am-sonntag-bist-du-tot-2014\movie.mkv`; mehrteilig `verblendung-2011\movie-cd1.flv`, `movie-cd2.flv`, …), keine
-Poster oder NFOs. Im Formular erscheint bei Medium USB das Pflichtfeld "Filmdatei (relativ zum USB-Ordner)"; in
+Poster oder NFOs. Im Formular erscheint bei angehaktem Medium USB (auch zusammen mit DVD o. Ä.) das Pflichtfeld "Filmdatei (relativ zum USB-Ordner)"; in
 der Detailansicht der Button **"▶ Abspielen"**.
 
 Der Button öffnet keinen `file:///`-Link, denn den blockieren Chrome, Edge und Firefox auf einer http(s)-Seite

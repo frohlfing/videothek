@@ -28,7 +28,11 @@ function movie_dir(string $slug): string
     return MOVIES_DIR . '/' . $slug;
 }
 
-/** Liest und dekodiert movie.json eines Films. Null, wenn Ordner/Datei fehlt oder JSON ungültig ist. */
+/**
+ * Liest und dekodiert movie.json eines Films. Null, wenn Ordner/Datei fehlt oder JSON ungültig ist.
+ * Ältere Dateien speichern medium noch als einzelnen String ("USB"); das wird hier zur Liste (["USB"]),
+ * damit alle Aufrufer nur das Listenformat sehen. Gespeichert wird es so beim nächsten Schreiben.
+ */
 function read_movie_json(string $slug): ?array
 {
     $path = movie_dir($slug) . '/movie.json';
@@ -36,7 +40,13 @@ function read_movie_json(string $slug): ?array
         return null;
     }
     $data = json_decode(file_get_contents($path), true);
-    return is_array($data) ? $data : null;
+    if (!is_array($data)) {
+        return null;
+    }
+    if (array_key_exists('medium', $data) && !is_array($data['medium'])) {
+        $data['medium'] = normalize_movie_media($data['medium']);
+    }
+    return $data;
 }
 
 /**
@@ -159,6 +169,9 @@ function validate_movie_input(array $data): array
     if (trim((string) ($data['title'] ?? '')) === '') {
         $errors[] = 'title ist erforderlich';
     }
+    if (isset($data['medium']) && !is_array($data['medium']) && !is_string($data['medium'])) {
+        $errors[] = 'medium muss ein Array oder ein Text sein';
+    }
     foreach (['genres', 'cast'] as $field) {
         if (isset($data[$field]) && !is_array($data[$field])) {
             $errors[] = "$field muss ein Array sein";
@@ -215,6 +228,20 @@ function normalize_movie_files(array $files): array
     ), 'strlen'));
 }
 
+/**
+ * Medien des eigenen Exemplars, z. B. ["DVD", "USB"], wenn der Film doppelt vorhanden ist. Akzeptiert auch einen
+ * einzelnen String, mehrere Werte darin durch Komma getrennt ("DVD, USB"; altes Format bzw. IMPORT_DEFAULT_MEDIUM).
+ * @return string[]
+ */
+function normalize_movie_media(mixed $media): array
+{
+    if ($media === null) {
+        return [];
+    }
+    $list = is_array($media) ? $media : explode(',', (string) $media);
+    return array_values(array_unique(array_filter(array_map(fn($m) => trim((string) $m), $list), 'strlen')));
+}
+
 /** Leerer/fehlender Wert -> null, sonst getrimmter String. */
 function nullable_string(mixed $value): ?string
 {
@@ -249,7 +276,7 @@ function normalize_movie_fields(array $data): array
             'profile' => nullable_string($c['profile'] ?? null),
             'thumb' => nullable_string($c['thumb'] ?? null),
         ], array_values($data['cast'] ?? [])),
-        'medium' => nullable_string($data['medium'] ?? null),
+        'medium' => normalize_movie_media($data['medium'] ?? null),
         'files' => normalize_movie_files($data['files'] ?? []),
         'trailer' => nullable_string($data['trailer'] ?? null),
         'plot' => nullable_string($data['plot'] ?? null),

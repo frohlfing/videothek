@@ -184,14 +184,26 @@ header p.sub{
   padding:1.8rem 1.9rem 2.2rem;
   position:relative;
 }
+/* Schließen-Button: 44px Tippfläche, rechts gefloatet (Toolbar/Überschrift weichen aus) und sticky, damit er
+   in langen Formularen beim Scrollen sichtbar bleibt. Negative Ränder ziehen ihn in die Ecke (Padding von .sheet). */
 .sheet .close{
-  position:absolute;
-  top:.9rem;right:1rem;
-  background:none;border:none;
-  font-size:1.4rem;
+  position:sticky;
+  top:.4rem;
+  float:right;
+  margin:-1.4rem -1.5rem 0 .5rem;
+  width:44px;height:44px;
+  display:flex;align-items:center;justify-content:center;
+  padding:0;
+  /*background:var(--card);*/
+  background:none;
+  border:none;
+  border-radius:50%;
+  font-size:1.8rem;
   color:var(--ink-soft);
   cursor:pointer;
   line-height:1;
+  z-index:3;
+  touch-action:manipulation;
 }
 .sheet .close:hover{color:var(--accent);}
 .sheet .hero{
@@ -304,7 +316,7 @@ a.btn{display:inline-flex; align-items:center; text-decoration:none;}
 .form-field{margin-bottom:1rem;}
 .form-row{display:flex; gap:1rem; flex-wrap:wrap;}
 .form-row .form-field{flex:1 1 140px;}
-.form-field label{
+.form-field label, .form-field .label{
   display:block;
   font-size:.78rem;
   text-transform:uppercase;
@@ -312,6 +324,16 @@ a.btn{display:inline-flex; align-items:center; text-decoration:none;}
   color:var(--ink-soft);
   margin-bottom:.3rem;
 }
+/* Mehrfachauswahl (Medium): Checkboxen nebeneinander, mit großer Tippfläche fürs Smartphone */
+.checkbox-row{display:flex; gap:.4rem 1.2rem; flex-wrap:wrap;}
+.form-field .checkbox-row label{
+  display:inline-flex; align-items:center; gap:.45rem;
+  min-height:44px; margin:0;
+  font-size:.95rem; text-transform:none; letter-spacing:0;
+  color:var(--ink);
+  cursor:pointer;
+}
+.checkbox-row input[type=checkbox]{width:1.15rem; height:1.15rem; accent-color:var(--accent); margin:0;}
 .form-field input[type=text], .form-field textarea{
   width:100%;
   padding:.55rem .7rem;
@@ -357,7 +379,9 @@ a.btn{display:inline-flex; align-items:center; text-decoration:none;}
   margin-bottom:1rem;
 }
 /* Hintergrundbild (fanart) hinter dem Kopf der Detailansicht, nach unten in die Kartenfarbe auslaufend */
-.sheet{overflow:hidden;}
+/* clip statt hidden: schneidet die Fanart an den runden Ecken ab, ohne einen Scroll-Container zu erzeugen,
+   der position:sticky des Schließen-Buttons aushebeln würde. */
+.sheet{overflow:clip;}
 .sheet .fanart{
   position:absolute;
   top:0; left:0; right:0;
@@ -373,7 +397,7 @@ a.btn{display:inline-flex; align-items:center; text-decoration:none;}
   background:linear-gradient(180deg, rgba(30,26,35,0.2) 0%, var(--card) 100%);
 }
 .sheet > *:not(.fanart){position:relative;}
-.sheet .close{position:absolute;}
+.sheet .close{position:sticky;}
 
 /* Darsteller: vollständige Liste, scrollt in einem eigenen Bereich (Fotos per loading="lazy") */
 .cast-list{
@@ -454,6 +478,7 @@ a.btn{display:inline-flex; align-items:center; text-decoration:none;}
   header h1{font-size:2rem;}
   .grid{grid-template-columns:repeat(auto-fill, minmax(140px,1fr));}
   .sheet{padding:1.3rem 1.1rem 1.6rem;}
+  .sheet .close{margin:-.9rem -.7rem 0 .5rem;}
   .sheet .hero-img{width:140px;}
 }
 

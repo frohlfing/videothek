@@ -7,7 +7,9 @@
  * GET /api/search.php?query=tt0089218                 (IMDb-ID)
  *   -> {"results": [{"tmdb": 9340, "title": ..., "originalTitle": ..., "year": ..., "overview": ..., "poster": ...}],
  *       "existing": {"9340": "die-goonies-1985"}}
- *   "existing" ordnet bereits vorhandene TMDB-IDs ihrem Slug zu, damit das Frontend sie markieren kann.
+ *   "existing" ordnet Treffer, die schon in der Videothek sind, ihrem Slug zu (Schlüssel: TMDB-ID des Treffers),
+ *   damit das Frontend sie markieren kann. Erkannt über die TMDB-ID oder – für Filme ohne TMDB-ID, z. B. von Hand
+ *   angelegt – über Titel + Jahr, wie bei der Duplikatprüfung in create_movie() (crud.php: title_exists()).
  *   Kein Token nötig (rein lesend); Schutz vor öffentlichem Zugriff übernimmt die HTTP Basic Auth.
  */
 
@@ -28,11 +30,26 @@ try {
     json_error(502, $e->getMessage());
 }
 
-$existing = [];
+$byTmdb = [];
+$byTitleYear = [];
+$titleYearKey = fn(string $title, ?int $year) => mb_strtolower(trim($title)) . '|' . ($year ?? '');
 foreach (list_movie_slugs() as $slug) {
-    $tmdb = read_movie_json($slug)['uniqueids']['tmdb'] ?? null;
+    $movie = read_movie_json($slug);
+    if ($movie === null) {
+        continue;
+    }
+    $tmdb = $movie['uniqueids']['tmdb'] ?? null;
     if ($tmdb !== null) {
-        $existing[(string) $tmdb] = $slug;
+        $byTmdb[(string) $tmdb] = $slug;
+    }
+    $byTitleYear[$titleYearKey((string) $movie['title'], $movie['year'] ?? null)] = $slug;
+}
+
+$existing = [];
+foreach ($results as $r) {
+    $slug = $byTmdb[(string) $r['tmdb']] ?? $byTitleYear[$titleYearKey($r['title'], $r['year'])] ?? null;
+    if ($slug !== null) {
+        $existing[(string) $r['tmdb']] = $slug;
     }
 }
 
