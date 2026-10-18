@@ -1,14 +1,17 @@
 <?php
 
 /**
- * Nimmt das Poster oder das Hintergrundbild (fanart) für einen bestehenden Film entgegen. Zum Poster
- * wird automatisch ein Thumbnail generiert (siehe api/lib/thumbnail.php). Die eigentliche Speicher-/Validierungslogik
- * steckt in api/lib/image_store.php (store_movie_image()), gemeinsam genutzt mit import.php.
+ * Nimmt Bilder eines bestehenden Eintrags entgegen: Poster (mit automatischem Thumbnail, siehe
+ * api/lib/thumbnail.php), Hintergrundbild (fanart) oder Foto eines Darstellers. Poster und Hintergrundbild lassen
+ * sich auch entfernen; Darstellerfotos entfernt das Formular selbst (es schickt den Dateinamen nicht mehr mit,
+ * update_movie() räumt die Datei auf). Die Speicher-/Validierungslogik
+ * steckt in api/lib/image_store.php, gemeinsam genutzt mit import.php.
  *
  * POST /api/upload.php (multipart/form-data)
- *   Felder: slug (Pflicht, muss einen existierenden Film referenzieren), image (Pflicht, Datei),
- *   kind (optional: "poster" (Default) oder "fanart").
- *   Token nötig (Header X-API-Token). Antwort: das komplette, aktualisierte Film-Objekt.
+ *   Felder: slug (Pflicht, muss einen existierenden Eintrag referenzieren), image (Datei, Pflicht außer bei remove),
+ *   kind: "poster" (Default), "fanart" oder "actor" (dazu actor = Name),
+ *   remove = "1": Poster bzw. Hintergrundbild entfernen statt hochladen.
+ *   Token nötig (Header X-API-Token). Antwort: der komplette, aktualisierte Eintrag.
  */
 
 require_once __DIR__ . '/../../config.php';
@@ -27,13 +30,24 @@ if ($slug === '') {
     json_error(400, 'slug ist erforderlich');
 }
 
-if (!isset($_FILES['image']) || $_FILES['image']['error'] !== UPLOAD_ERR_OK) {
-    json_error(400, 'Kein gültiges Bild im Feld "image" übermittelt');
+$kind = (string) ($_POST['kind'] ?? 'poster');
+if (!in_array($kind, ['poster', 'fanart', 'actor'], true)) {
+    json_error(400, 'kind muss poster, fanart oder actor sein');
 }
 
-$kind = (string) ($_POST['kind'] ?? 'poster');
-if (!in_array($kind, ['poster', 'fanart'], true)) {
-    json_error(400, 'kind muss poster oder fanart sein');
+if (($_POST['remove'] ?? '') === '1') {
+    if (!in_array($kind, ['poster', 'fanart'], true)) {
+        json_error(400, 'Entfernen geht hier nur für poster und fanart');
+    }
+    try {
+        json_response(200, remove_movie_image($slug, $kind));
+    } catch (NotFoundException $e) {
+        json_error(404, $e->getMessage());
+    }
+}
+
+if (!isset($_FILES['image']) || $_FILES['image']['error'] !== UPLOAD_ERR_OK) {
+    json_error(400, 'Kein gültiges Bild im Feld "image" übermittelt');
 }
 
 $file = $_FILES['image'];
@@ -50,14 +64,19 @@ if (!move_uploaded_file($file['tmp_name'], $safeTmp)) {
 
 // Kein finally: json_error() beendet das Skript per exit(), das würde ein finally-Block überspringen.
 try {
-    $movie = store_movie_image($slug, $safeTmp, $kind);
+    $movie = $kind === 'actor'
+        ? store_actor_photo($slug, (string) ($_POST['actor'] ?? ''), $safeTmp)
+        : store_movie_image($slug, $safeTmp, $kind);
 } catch (ImageValidationException $e) {
     @unlink($safeTmp);
     json_error(400, $e->getMessage());
 } catch (NotFoundException $e) {
     @unlink($safeTmp);
     json_error(404, $e->getMessage());
+} catch (RuntimeException $e) {
+    @unlink($safeTmp);
+    json_error(500, $e->getMessage());
 }
-@unlink($safeTmp);
 
+@unlink($safeTmp);
 json_response(200, $movie);

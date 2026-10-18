@@ -58,12 +58,6 @@ function tmdb_get(string $path, array $params = []): array
     return $data;
 }
 
-/** TMDB-Pfadpräfix der Art: Filme unter /movie, Serien unter /tv. */
-function tmdb_kind(string $type): string
-{
-    return $type === TYPE_SERIES ? 'tv' : 'movie';
-}
-
 /**
  * Sucht Filme und Serien. Eine IMDb-ID ("tt0089218", "tt0903747") wird wie bei Kodi direkt über /find
  * aufgelöst, sonst Titelsuche in beiden Katalogen (optional auf ein Jahr eingeschränkt, bei Serien das Jahr
@@ -157,6 +151,7 @@ function tmdb_movie(int $tmdbId): array
         'originalTitle' => ($m['original_title'] ?? '') !== $m['title'] ? ($m['original_title'] ?? null) : null,
         'year' => tmdb_year($m['release_date'] ?? null),
         'genres' => array_column($m['genres'] ?? [], 'name'),
+        'collection' => tmdb_collection($m),
         'runtime' => !empty($m['runtime']) ? (int) $m['runtime'] : null,
         'fsk' => tmdb_certification($m['release_dates']['results'] ?? []),
         'director' => $directors ? implode(', ', $directors) : null,
@@ -176,6 +171,21 @@ function tmdb_movie(int $tmdbId): array
 }
 
 /**
+ * Reihe eines Films aus den TMDB-Details (belongs_to_collection), sonst null. Den Zusatz "Filmreihe", den TMDB an
+ * fast jeden Namen hängt ("Millennium Filmreihe"), lassen wir weg: Reihe "Millennium".
+ * @return ?array{name: string, tmdb: string}
+ */
+function tmdb_collection(array $details): ?array
+{
+    $c = $details['belongs_to_collection'] ?? null;
+    $name = trim(preg_replace('/\s+Filmreihe$/iu', '', trim((string) ($c['name'] ?? ''))));
+    if (!is_array($c) || empty($c['id']) || $name === '') {
+        return null;
+    }
+    return ['name' => $name, 'tmdb' => (string) $c['id']];
+}
+
+/**
  * Darsteller einer Serie, höchstens so viele (die Hauptbesetzung zuerst). Lange Serien haben über die Staffeln
  * hinweg Hunderte Gastdarsteller (Breaking Bad: 348), deren Fotos niemand braucht.
  */
@@ -188,13 +198,17 @@ const TMDB_APPEND_LIMIT = 20;
 const TMDB_PLACEHOLDER_EPISODE_TITLE = '/^(Folge|Episode|Épisode|Episodio|Aflevering) \d+$/u';
 
 /**
- * Lädt alle Details einer Serie samt Staffeln und Folgen (Titel, Handlung) und bringt sie in unser
- * movie.json-Format (type "series", ohne slug/created/Bilder, Staffeln noch ohne Medium). Zusätzlich:
- * poster_url/fanart_url zum Herunterladen.
+ * Lädt alle Details einer Serie samt Staffeln und Folgen (Titel, Handlung) und bringt jede Staffel in unser
+ * movie.json-Format (type "season", ohne slug/created/Bilder/Medium): {series: {name, tmdb}, seasons: [...]}.
+ * Jede Staffel bekommt ihr eigenes Cover, ihre Beschreibung und ihr Jahr, soweit TMDB sie hat, sonst die der Serie;
+ * Genres, Freigabe, Idee, Darsteller und Trailer sind die der Serie. Je Staffel zusätzlich poster_url/fanart_url
+ * zum Herunterladen.
  *
+ * @param ?int[] $only nur diese Staffeln laden und liefern (null = alle); unbekannte Nummern fehlen im Ergebnis
+ * @return array{series: array{name: string, tmdb: string}, seasons: array[]}
  * @throws RuntimeException
  */
-function tmdb_series(int $tmdbId): array
+function tmdb_series(int $tmdbId, ?array $only = null): array
 {
     $lang = tmdb_language_code();
     $t = tmdb_get("tv/$tmdbId", [
@@ -209,7 +223,8 @@ function tmdb_series(int $tmdbId): array
         $plot = trim((string) (tmdb_get("tv/$tmdbId", ['language' => 'en-US'])['overview'] ?? ''));
     }
 
-    $numbers = array_column($t['seasons'] ?? [], 'season_number');
+    $allNumbers = array_column($t['seasons'] ?? [], 'season_number');
+    $numbers = $only === null ? $allNumbers : array_values(array_intersect($allNumbers, $only));
     $seasonData = tmdb_series_seasons($tmdbId, $numbers, TMDB_LANGUAGE);
 
     // Wie bei der Handlung: Fehlt die Übersetzung einer Folge, liefert TMDB den Platzhalter "Folge 3" und keine
@@ -234,47 +249,35 @@ function tmdb_series(int $tmdbId): array
         }
     }
 
+    // Laufzeit einer Folge: TMDB führt `episode_run_time` kaum noch, daher sonst der Median der Folgen.
+    $median = function (array $values): ?int {
+        sort($values);
+        return $values ? $values[intdiv(count($values), 2)] : null;
+    };
     $runtimes = [];
-    $seasons = [];
-    foreach ($t['seasons'] ?? [] as $s) {
-        $n = (int) $s['season_number'];
-        $episodes = [];
-        foreach ($seasonData[$n]['episodes'] ?? [] as $e) {
-            $episodes[] = [
-                'number' => (int) $e['episode_number'],
-                'title' => ($e['name'] ?? '') !== '' ? $e['name'] : null,
-                'plot' => trim((string) ($e['overview'] ?? '')) !== '' ? trim($e['overview']) : null,
-            ];
-            if (!empty($e['runtime']) && $n > 0) {
-                $runtimes[] = (int) $e['runtime'];
+    foreach ($seasonData as $n => $data) {
+        foreach ($data['episodes'] ?? [] as $e) {
+            if (!empty($e['runtime'])) {
+                $runtimes[$n][] = (int) $e['runtime'];
             }
         }
-        // Ohne Folgendetails (selten) wenigstens die Anzahl als unbenannte Folgen.
-        if (!$episodes) {
-            for ($i = 1; $i <= (int) ($s['episode_count'] ?? 0); $i++) {
-                $episodes[] = ['number' => $i, 'title' => null, 'plot' => null];
-            }
-        }
-        $seasons[] = [
-            'number' => $n,
-            'name' => ($s['name'] ?? '') !== '' ? $s['name'] : null,
-            'year' => tmdb_year($s['air_date'] ?? null),
-            'episodes' => $episodes,
-            'medium' => [],
-            'files' => [],
-        ];
     }
-
-    // Laufzeit einer Folge: TMDB führt `episode_run_time` kaum noch, daher sonst der Median aller Folgen.
-    $runtime = !empty($t['episode_run_time'][0]) ? (int) $t['episode_run_time'][0] : null;
-    if ($runtime === null && $runtimes) {
-        sort($runtimes);
-        $runtime = $runtimes[intdiv(count($runtimes), 2)];
-    }
+    $seriesRuntime = !empty($t['episode_run_time'][0]) ? (int) $t['episode_run_time'][0]
+        : $median(array_merge(...array_values(array_diff_key($runtimes, [0 => true]))));
 
     $cast = $t['aggregate_credits']['cast'] ?? [];
     usort($cast, fn($a, $b) => ($a['order'] ?? 0) <=> ($b['order'] ?? 0));
-    $cast = array_slice($cast, 0, TMDB_SERIES_CAST_LIMIT);
+    $cast = array_map(function ($c) {
+        // Hauptrolle = die mit den meisten Folgen.
+        $roles = $c['roles'] ?? [];
+        usort($roles, fn($a, $b) => ($b['episode_count'] ?? 0) <=> ($a['episode_count'] ?? 0));
+        $role = trim((string) ($roles[0]['character'] ?? ''));
+        return [
+            'name' => (string) $c['name'],
+            'role' => $role !== '' ? $role : null,
+            'profile' => $c['profile_path'] ?? null,
+        ];
+    }, array_slice($cast, 0, TMDB_SERIES_CAST_LIMIT));
 
     $uniqueids = ['tmdb' => (string) $t['id']];
     if (!empty($t['external_ids']['imdb_id'])) {
@@ -283,38 +286,101 @@ function tmdb_series(int $tmdbId): array
     if (!empty($t['external_ids']['tvdb_id'])) {
         $uniqueids['tvdb'] = (string) $t['external_ids']['tvdb_id'];
     }
-
-    $ended = in_array($t['status'] ?? '', ['Ended', 'Canceled'], true);
     $creators = array_values(array_unique(array_column($t['created_by'] ?? [], 'name')));
+    $series = ['name' => (string) $t['name'], 'tmdb' => (string) $t['id']];
+    $posterUrl = tmdb_pick_image($t['images']['posters'] ?? [], [$lang, 'en', null], $t['poster_path'] ?? null, 'w780');
+    $fanartUrl = tmdb_pick_image($t['images']['backdrops'] ?? [], [null, $lang, 'en'], $t['backdrop_path'] ?? null, 'w1280');
+    $regular = count(array_filter($allNumbers, fn($n) => $n > 0));
+    $trailer = tmdb_trailer($t['videos']['results'] ?? []);
 
-    return [
-        'type' => TYPE_SERIES,
-        'title' => (string) $t['name'],
-        'originalTitle' => ($t['original_name'] ?? '') !== $t['name'] ? ($t['original_name'] ?? null) : null,
-        'year' => tmdb_year($t['first_air_date'] ?? null),
-        'yearEnd' => $ended ? tmdb_year($t['last_air_date'] ?? null) : null,
-        'genres' => array_column($t['genres'] ?? [], 'name'),
-        'runtime' => $runtime,
-        'fsk' => tmdb_tv_rating($t['content_ratings']['results'] ?? []),
-        'creator' => $creators ? implode(', ', $creators) : null,
-        'seasons' => $seasons,
-        'cast' => array_map(function ($c) {
-            // Hauptrolle = die mit den meisten Folgen.
-            $roles = $c['roles'] ?? [];
-            usort($roles, fn($a, $b) => ($b['episode_count'] ?? 0) <=> ($a['episode_count'] ?? 0));
-            $role = trim((string) ($roles[0]['character'] ?? ''));
-            return [
-                'name' => (string) $c['name'],
-                'role' => $role !== '' ? $role : null,
-                'profile' => $c['profile_path'] ?? null,
+    $seasons = [];
+    foreach ($t['seasons'] ?? [] as $s) {
+        $n = (int) $s['season_number'];
+        if (!in_array($n, $numbers, true)) {
+            continue;
+        }
+        $episodes = [];
+        foreach ($seasonData[$n]['episodes'] ?? [] as $e) {
+            $episodes[] = [
+                'number' => (int) $e['episode_number'],
+                'title' => ($e['name'] ?? '') !== '' ? $e['name'] : null,
+                'plot' => trim((string) ($e['overview'] ?? '')) !== '' ? trim($e['overview']) : null,
             ];
-        }, $cast),
-        'plot' => $plot !== '' ? $plot : null,
-        'trailer' => tmdb_trailer($t['videos']['results'] ?? []),
-        'uniqueids' => $uniqueids,
-        'poster_url' => tmdb_pick_image($t['images']['posters'] ?? [], [$lang, 'en', null], $t['poster_path'] ?? null, 'w780'),
-        'fanart_url' => tmdb_pick_image($t['images']['backdrops'] ?? [], [null, $lang, 'en'], $t['backdrop_path'] ?? null, 'w1280'),
-    ];
+        }
+        // Ohne Folgendetails (selten) wenigstens die Anzahl als unbenannte Folgen.
+        if (!$episodes) {
+            for ($i = 1; $i <= (int) ($s['episode_count'] ?? 0); $i++) {
+                $episodes[] = ['number' => $i, 'title' => null, 'plot' => null];
+            }
+        }
+        $overview = trim((string) ($seasonData[$n]['overview'] ?? $s['overview'] ?? ''));
+        $seasons[] = [
+            'type' => TYPE_SEASON,
+            'title' => season_entry_title($series['name'], $s['name'] ?? null, $n, $regular === 1),
+            'originalTitle' => ($t['original_name'] ?? '') !== $t['name'] ? ($t['original_name'] ?? null) : null,
+            'year' => tmdb_year($s['air_date'] ?? null) ?? tmdb_year($t['first_air_date'] ?? null),
+            'genres' => array_column($t['genres'] ?? [], 'name'),
+            'runtime' => isset($runtimes[$n]) ? $median($runtimes[$n]) : $seriesRuntime,
+            'fsk' => tmdb_tv_rating($t['content_ratings']['results'] ?? []),
+            'series' => $series,
+            'season' => $n,
+            'creator' => $creators ? implode(', ', $creators) : null,
+            'episodes' => $episodes,
+            'cast' => $cast,
+            'plot' => $overview !== '' ? $overview : ($plot !== '' ? $plot : null),
+            'trailer' => $trailer,
+            'uniqueids' => $uniqueids,
+            'poster_url' => !empty($s['poster_path']) ? tmdb_image_url($s['poster_path'], 'w780') : $posterUrl,
+            'fanart_url' => $fanartUrl,
+        ];
+    }
+
+    return ['series' => $series, 'seasons' => $seasons, 'catalog' => tmdb_series_catalog($t)];
+}
+
+/**
+ * Alle regulären Staffeln einer Serie laut TMDB (ohne Specials) für data/series.json, aus der Antwort von
+ * tv/{id}, die tmdb_series() ohnehin abruft (kein zusätzlicher Abruf). date leer bzw. in der Zukunft = angekündigt.
+ * @return array{name: string, seasons: array<array{season: int, title: ?string, year: ?int, date: ?string, episodes: ?int}>}
+ */
+function tmdb_series_catalog(array $t): array
+{
+    $seasons = [];
+    foreach ($t['seasons'] ?? [] as $s) {
+        $n = (int) ($s['season_number'] ?? 0);
+        if ($n < 1) {
+            continue;
+        }
+        $seasons[] = [
+            'season' => $n,
+            'title' => ($s['name'] ?? '') !== '' ? $s['name'] : null,
+            'year' => tmdb_year($s['air_date'] ?? null),
+            'date' => ($s['air_date'] ?? '') !== '' ? $s['air_date'] : null,
+            'episodes' => isset($s['episode_count']) ? (int) $s['episode_count'] : null,
+        ];
+    }
+    usort($seasons, fn($a, $b) => $a['season'] <=> $b['season']);
+    return ['name' => (string) $t['name'], 'seasons' => $seasons];
+}
+
+/**
+ * Alle Filme einer TMDB-Reihe (collection/{id}) für data/collections.json, nach Erscheinungsdatum (ohne Datum ans
+ * Ende). date leer bzw. in der Zukunft = angekündigt.
+ * @return array{name: string, parts: array<array{tmdb: string, title: string, year: ?int, date: ?string}>}
+ * @throws RuntimeException
+ */
+function tmdb_collection_catalog(int $collectionId): array
+{
+    $c = tmdb_get("collection/$collectionId", ['language' => TMDB_LANGUAGE]);
+    $parts = array_map(fn($p) => [
+        'tmdb' => (string) $p['id'],
+        'title' => (string) ($p['title'] ?? $p['original_title'] ?? ''),
+        'year' => tmdb_year($p['release_date'] ?? null),
+        'date' => ($p['release_date'] ?? '') !== '' ? $p['release_date'] : null,
+    ], $c['parts'] ?? []);
+    usort($parts, fn($a, $b) => [$a['date'] === null, $a['date']] <=> [$b['date'] === null, $b['date']]);
+    $name = tmdb_collection(['belongs_to_collection' => ['id' => $collectionId, 'name' => $c['name'] ?? '']]);
+    return ['name' => $name['name'] ?? (string) ($c['name'] ?? ''), 'parts' => $parts];
 }
 
 /**
@@ -399,16 +465,6 @@ function tmdb_trailer_candidates(array $videos): array
 function tmdb_trailer(array $videos): ?string
 {
     return youtube_first_available(tmdb_trailer_candidates($videos));
-}
-
-/** Nur die Videos eines Films bzw. einer Serie (für den Trailer-Abgleich ohne kompletten Detail-Abruf). */
-function tmdb_movie_trailer(int $tmdbId, string $type = TYPE_MOVIE): ?string
-{
-    $data = tmdb_get(tmdb_kind($type) . "/$tmdbId/videos", [
-        'language' => TMDB_LANGUAGE,
-        'include_video_language' => tmdb_language_code() . ',en',
-    ]);
-    return tmdb_trailer($data['results'] ?? []);
 }
 
 /** Erstes Bild in der Reihenfolge der gewünschten Sprachen (null = ohne Text), sonst $fallbackPath. */

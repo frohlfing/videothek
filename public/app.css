@@ -176,6 +176,88 @@ header p.sub{
   letter-spacing:.08em;
   box-shadow:0 2px 6px rgba(0,0,0,0.5);
 }
+/* Reihe (z. B. die Matrix-Filme): Cover der Teile als aufgefächerter Stapel, Positionen setzt app.js inline */
+.card .thumb.collage{background:radial-gradient(circle at 30% 25%, var(--accent-soft), var(--paper-deep) 70%);}
+.card .collage-cover{
+  position:absolute;
+  width:60%; height:60%; /* 2:3 wie das Plakat, weil die Box selbst 2:3 ist */
+  border-radius:4px;
+  overflow:hidden;
+  background:var(--card);
+  border:1px solid var(--rule);
+  box-shadow:0 6px 14px rgba(0,0,0,0.55);
+  transition:transform .2s ease;
+}
+.card .collage-cover span{padding:.4rem; text-align:center; font-size:.7rem;}
+.card .type-badge{z-index:10;}
+.card.collection-card.expanded{border-color:var(--accent);}
+
+/* Aufgeklappte Reihe: über die volle Breite unter der Zeile ihrer Kachel */
+.collection-panel{
+  grid-column:1 / -1;
+  background:var(--paper-deep);
+  border:1px solid var(--accent);
+  border-radius:6px;
+  padding:.8rem 1rem 1.1rem;
+}
+.collection-head{display:flex; align-items:center; justify-content:space-between; gap:1rem;}
+.collection-head h3{margin:0; font-size:1.05rem; color:var(--accent);}
+.collection-head .close{
+  width:40px; height:40px; padding:0;
+  background:none; border:none; border-radius:50%;
+  font-size:1.6rem; color:var(--ink-soft); cursor:pointer;
+}
+.collection-head .close:hover{color:var(--accent);}
+.collection-items{
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(150px,1fr));
+  gap:1rem;
+  margin-top:.6rem;
+}
+/* Auffächern: Die Teile gleiten nacheinander vom Stapel an ihren Platz. --k ist die Position im Panel; jede Karte
+   setzt sie selbst per style="--k:…" (cardHtml() in app.js), 0 ist nur der Standardwert. */
+.collection-items .card{--k:0; animation:fan-out .35s ease backwards; animation-delay:calc(var(--k) * 70ms);}
+@keyframes fan-out{
+  from{opacity:0; transform:translateX(calc(var(--k) * -40px)) rotate(-6deg) scale(.9);}
+}
+@media (prefers-reduced-motion:reduce){
+  .collection-items .card{animation:none;}
+}
+.collection-count{font-size:.8rem; font-weight:400; color:var(--ink-soft); margin-left:.4rem;}
+/* Eintrag ohne Medium (nicht im Bestand): blass wie fehlende Staffeln, aber anklickbar */
+.card.not-owned{border-style:dashed;}
+.card.not-owned .thumb img{filter:grayscale(1); opacity:.4;}
+.card.not-owned h3, .card.not-owned .meta{opacity:.6;}
+.card .cat-tag.missing-tag{background:none; border:1px dashed var(--rule);}
+/* Aufgefächerte Reihe bei Suche/Filter: Treffer hervorgehoben, übrige Teile abgeschwächt */
+.collection-items .card.hit{border-color:var(--accent); box-shadow:0 0 0 1px var(--accent);}
+.collection-items .card.other{opacity:.4;}
+.collection-items .card.other:hover{opacity:.8;}
+
+/* Detailansicht: Teile der Reihe als kleine Plakate */
+.collection-parts{
+  list-style:none; margin:0 0 1.2rem; padding:0;
+  display:grid; grid-template-columns:repeat(auto-fill, minmax(96px,1fr)); gap:.8rem;
+}
+.collection-parts li{cursor:pointer; font-size:.78rem; line-height:1.3;}
+.collection-parts .part-poster{
+  position:relative; padding-top:150%; border-radius:4px; overflow:hidden;
+  background:var(--paper-deep); border:1px solid var(--rule); margin-bottom:.3rem;
+}
+.collection-parts .part-poster img{position:absolute; inset:0; width:100%; height:100%; object-fit:cover;}
+.collection-parts li:hover .part-poster{border-color:var(--accent);}
+.collection-parts li.current{cursor:default;}
+.collection-parts li.current .part-poster{border:2px solid var(--accent);}
+.collection-parts .part-year{color:var(--ink-soft);}
+.collection-parts li.not-owned .part-poster{border-style:dashed;}
+.collection-parts li.not-owned .part-poster img{filter:grayscale(1); opacity:.4;}
+.collection-parts li.not-owned .part-title{color:var(--ink-soft);}
+/* Weitere Teile laut TMDB (kein Eintrag in der Videothek): leerer Rahmen, dezent */
+.collection-parts li.gap{cursor:default; opacity:.55;}
+.collection-parts li.gap .part-poster{border-style:dashed; background:transparent;}
+.collection-parts li.gap:hover .part-poster{border-color:var(--rule);}
+.collection-parts li.gap .part-title{color:var(--ink-soft);}
+
 [hidden]{display:none !important;}
 
 /* Detail overlay */
@@ -329,6 +411,7 @@ a.btn{display:inline-flex; align-items:center; text-decoration:none;}
 
 /* Formular (Anlegen/Bearbeiten) */
 .form-field{margin-bottom:1rem;}
+.form-field .field-link{display:inline-block; margin-top:.35rem; font-size:.85rem; color:var(--accent);}
 .form-row{display:flex; gap:1rem; flex-wrap:wrap;}
 .form-row .form-field{flex:1 1 140px;}
 .form-field label, .form-field .label{
@@ -350,19 +433,44 @@ a.btn{display:inline-flex; align-items:center; text-decoration:none;}
 }
 .checkbox-row input[type=checkbox], .checkbox-row input[type=radio]{width:1.15rem; height:1.15rem; accent-color:var(--accent); margin:0;}
 
-/* Formular: Staffeln einer Serie, je ein Block mit Nummer/Bezeichnung/Jahr, Medium, Dateien und Folgen */
-.season-editor{
-  border:1px solid var(--rule);
-  border-radius:4px;
-  padding:.8rem .9rem .2rem;
-  margin-bottom:.8rem;
-  background:var(--paper-deep);
+.form-row .se-number{flex:0 1 110px;}
+.btn.btn-small{height:auto; min-height:36px; padding:.3rem .65rem; font-size:.82rem; display:inline-flex; align-items:center; justify-content:center;}
+label.btn{text-transform:none; letter-spacing:0; color:var(--ink); margin:0; cursor:pointer;}
+
+/* Formular: Folgen einer Staffel als ein Textfeld (Format siehe episodesText() in app.js) */
+.form-field textarea.episodes-input{min-height:22rem; line-height:1.45;}
+.cast-row input{
+  width:100%; padding:.45rem .6rem; border:1px solid var(--rule); border-radius:4px;
+  background:var(--paper); color:var(--ink); font:inherit; font-size:.92rem; resize:vertical;
 }
-.season-editor .form-row{align-items:flex-end;}
-.form-row .se-number, .form-row .se-year{flex:0 1 90px;}
-.form-row .se-name{flex:1 1 160px;}
-.season-editor .se-remove{margin-bottom:1rem;}
-.form-field textarea.se-episodes-input{min-height:5rem;}
+.cast-photo{
+  width:44px; height:66px; flex:none; border-radius:3px; overflow:hidden;
+  background:var(--paper); border:1px solid var(--rule);
+  display:flex; align-items:center; justify-content:center; color:var(--ink-soft); font-size:.8rem;
+}
+.cast-photo img{width:100%; height:100%; object-fit:cover;}
+
+/* Formular: Darsteller, je eine Zeile mit Foto, Name, Rolle */
+.cast-rows{max-height:28rem; overflow:auto; border:1px solid var(--rule); border-radius:4px; padding:0 .6rem; margin-bottom:.6rem; background:var(--paper-deep);}
+.cast-rows:empty{display:none;}
+.cast-row{
+  display:grid; grid-template-columns:36px 1fr auto; gap:.5rem; align-items:center;
+  /*padding:.45rem 0;*/
+  padding:.2rem 0;
+  /*border-bottom:1px solid var(--rule);*/
+}
+.cast-row:last-child{border-bottom:none;}
+.cast-row .cast-photo{width:36px; height:54px; cursor:pointer;}
+.cast-row .cast-photo:hover{border-color:var(--accent);}
+/* Foto entfernen: kleines "×" unten rechts über dem Foto */
+.cast-photo-wrap{position:relative; width:36px; height:54px;}
+.cast-photo-remove{
+  position:absolute; right:-6px; bottom:-6px; width:20px; height:20px; padding:0;
+  border:1px solid var(--rule); border-radius:50%; background:var(--paper); color:var(--ink-soft);
+  font-size:.85rem; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center;
+}
+.cast-photo-remove:hover{color:var(--accent); border-color:var(--accent);}
+.btn.cast-remove{font-size:1.2rem; min-width:36px; padding:0 .5rem;}
 .form-field input[type=text], .form-field textarea{
   width:100%;
   padding:.55rem .7rem;
@@ -381,18 +489,35 @@ a.btn{display:inline-flex; align-items:center; text-decoration:none;}
 .form-field textarea#plotInput{min-height:9rem;}
 .form-field .hint{font-size:.72rem; color:var(--ink-soft); margin-top:.3rem;}
 .form-preview{
+  position:relative;
   width:110px;
   margin-bottom:.6rem;
 }
-.form-preview .ratio-box{
+/* Die Vorschau ist das Label der (versteckten) Dateiauswahl: Klick wählt ein neues Bild */
+.form-field .form-preview label.ratio-box{
+  display:block;
   width:100%;
   padding-top:150%;
+  margin:0;
   position:relative;
   border-radius:4px;
   border:1px solid var(--rule);
   overflow:hidden;
   background:var(--paper-deep);
+  cursor:pointer;
 }
+.form-field .form-preview label.ratio-box:hover{border-color:var(--accent);}
+.form-preview .preview-empty{
+  position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:.5rem;
+  text-align:center; font-size:.75rem; color:var(--ink-soft); text-transform:none; letter-spacing:0;
+}
+/* Bild entfernen: "×" unten rechts über der Vorschau, wie beim Darstellerfoto */
+.image-remove{
+  position:absolute; right:-8px; bottom:-8px; width:26px; height:26px; padding:0;
+  border:1px solid var(--rule); border-radius:50%; background:var(--paper); color:var(--ink-soft);
+  font-size:1rem; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center;
+}
+.image-remove:hover{color:var(--accent); border-color:var(--accent);}
 .form-preview .ratio-box img{
   position:absolute; top:0; left:0;
   width:100%; height:100%;
@@ -453,44 +578,25 @@ a.btn{display:inline-flex; align-items:center; text-decoration:none;}
 .cast-list .actor-photo img{width:100%; height:100%; object-fit:cover; display:block;}
 .cast-list .actor-role{color:var(--ink-soft); font-size:.74rem; font-style:italic;}
 
-/* Staffeln einer Serie: aufklappbar, darin die Folgen; nicht im Bestand = abgeblendet */
-.seasons{display:flex; flex-direction:column; gap:.4rem;}
-.season{
-  border:1px solid var(--rule);
-  border-radius:4px;
-  background:var(--paper-deep);
-}
-.season summary{
-  display:flex; flex-wrap:wrap; align-items:baseline; gap:.2rem .8rem;
-  min-height:44px;
-  padding:.65rem .8rem;
-  cursor:pointer;
-  list-style:none;
-}
-.season summary::-webkit-details-marker{display:none;}
-.season summary::before{
-  content:"\25B8"; /* ▸, aufgeklappt ▾ */
-  color:var(--accent);
-  width:.8rem;
-}
-.season[open] summary::before{content:"\25BE";}
-.season .season-name{font-weight:600;}
-.season .season-meta{color:var(--ink-soft); font-size:.85rem;}
-.season .season-media{margin-left:auto; font-size:.72rem; text-transform:uppercase; letter-spacing:.06em; color:var(--accent);}
-.season.missing{opacity:.55;}
-.season.missing .season-media{color:var(--ink-soft);}
-.season-body{padding:0 .8rem .8rem;}
-.season-body .play-btn{margin:.2rem 0 .7rem;}
-.episodes{list-style:none; margin:0; padding:0;}
+/* Folgen einer Staffel in der Detailansicht */
+.episodes{list-style:none; margin:0 0 1.2rem; padding:0;}
 .episodes li{
   display:flex; gap:.7rem;
-  padding:.45rem 0;
-  border-top:1px solid var(--rule);
+  /*padding:.45rem 0;*/
+  /*border-top:1px solid var(--rule);*/
 }
 .episodes .ep-no{flex:0 0 1.8rem; text-align:right; color:var(--ink-soft); font-variant-numeric:tabular-nums;}
 .episodes .ep-body{min-width:0; flex:1;}
 .episodes .ep-title{font-weight:600; font-size:.92rem;}
-.episodes .ep-plot{color:var(--ink-soft); font-size:.82rem; line-height:1.45; margin-top:.15rem;}
+/* Titel als Aufklapp-Button: ▸ zu, ▾ offen (Handlung ausgeblendet, bis man klickt) */
+.episodes .ep-toggle{
+  background:none; border:none; padding:0; margin:0; font:inherit; color:inherit; text-align:left; cursor:pointer;
+  display:inline-flex; align-items:baseline; gap:.35rem; min-height:28px;
+}
+.episodes .ep-toggle::before{/*content:"\25B8";*/ width:.7rem; flex:none;}
+/*.episodes .ep-toggle[aria-expanded="true"]::before{content:"\25BE";}*/
+.episodes .ep-toggle:hover{color:var(--accent);}
+.episodes .ep-plot{color:var(--ink-soft); font-size:.82rem; line-height:1.45; margin-bottom:.82rem;}
 .episodes .ep-play{
   display:inline-flex; align-items:center; justify-content:center;
   width:32px; height:32px; margin:-.4rem 0 -.4rem .4rem;
@@ -500,7 +606,6 @@ a.btn{display:inline-flex; align-items:center; text-decoration:none;}
   vertical-align:middle;
 }
 .episodes .ep-play:hover{background:var(--accent-soft);}
-.ep-none{color:var(--ink-soft); font-style:italic; font-size:.85rem; margin:.3rem 0;}
 
 /* Trailer: am Bildschirm Player, im Druck QR-Code */
 .print-only{display:none;}
@@ -517,11 +622,18 @@ a.btn{display:inline-flex; align-items:center; text-decoration:none;}
 /* Formular: Poster (2:3) und Hintergrundbild (16:9) nebeneinander */
 .form-row .image-field{flex:1 1 200px;}
 .fanart-field .form-preview{width:220px;}
-.fanart-field .form-preview .ratio-box{padding-top:56.25%;}
+.fanart-field .form-preview label.ratio-box{padding-top:56.25%;}
 
 /* Import-Dialog: TMDB-Suche */
 .form-row .search-query{flex:3 1 220px;}
 .form-row .search-year{flex:1 1 100px;}
+/* Barcode-Scan im Import-Dialog (Kamerabild der Rückkamera) */
+.scan-box{margin:.8rem 0; text-align:center;}
+.scan-box video{
+  display:block; width:100%; max-height:50vh; object-fit:cover;
+  background:#000; border-radius:4px; border:1px solid var(--rule);
+}
+.scan-box .hint, .ean-note{font-size:.85rem; color:var(--ink-soft); margin:.5rem 0;}
 .search-results{list-style:none; margin:.4rem 0 0; padding:0;}
 .search-results li{
   display:flex; gap:.9rem;
@@ -535,6 +647,10 @@ a.btn{display:inline-flex; align-items:center; text-decoration:none;}
 .search-results li:hover{border-color:var(--accent);}
 .search-results li.exists{opacity:.6;}
 .search-results li.importing{border-color:var(--accent); cursor:progress;}
+/* Serien-Treffer: Abfrage der zu importierenden Staffeln */
+.import-seasons{display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; margin-top:.5rem; cursor:default;}
+.import-seasons label{display:flex; align-items:center; gap:.5rem; font-size:.88rem;}
+.import-seasons input{width:11rem; padding:.4rem .5rem; background:var(--paper); color:var(--ink); border:1px solid var(--rule); border-radius:4px; font:inherit;}
 .search-results .result-poster{
   flex:0 0 64px; height:96px;
   border-radius:3px; overflow:hidden;
@@ -568,6 +684,8 @@ a.btn{display:inline-flex; align-items:center; text-decoration:none;}
 @media (max-width:520px){
   header h1{font-size:2rem;}
   .grid{grid-template-columns:repeat(auto-fill, minmax(140px,1fr));}
+  .collection-items{grid-template-columns:repeat(auto-fill, minmax(120px,1fr));}
+  .collection-panel{padding:.6rem .7rem .9rem;}
   .sheet{padding:1.3rem 1.1rem 1.6rem;}
   .sheet .close{margin:-.9rem -.7rem 0 .5rem;}
   .sheet .hero-img{width:140px;}
@@ -612,11 +730,7 @@ a.btn{display:inline-flex; align-items:center; text-decoration:none;}
   .cast-list{max-height:none; overflow:visible; grid-template-columns:repeat(6, 1fr);}
   .cast-list li:nth-child(n+7){display:none;}
   .sheet .hero-img{width:180px;}
-  /* Staffeln: eine Zeile pro Staffel (zugeklappt), ohne Aufklapp-Pfeil */
-  .seasons{gap:0;}
-  .season{border:none; border-bottom:1px solid var(--rule); border-radius:0; background:none; break-inside:avoid;}
-  .season summary{min-height:0; padding:.25rem 0;}
-  .season summary::before{display:none;}
-  .season.missing{opacity:1;}
-  .season.missing .season-name, .season.missing .season-meta{color:var(--ink-soft);}
+  /* Folgen: nur Nummer und Titel */
+  .episodes .ep-plot{display:none;}
+  .episodes li{padding:.15rem 0; break-inside:avoid;}
 }

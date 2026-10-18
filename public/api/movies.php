@@ -1,15 +1,17 @@
 <?php
 
 /**
- * JSON-API für Filme und Serien (Feld "type": "movie" | "series"): Listen/Lesen, Anlegen, Bearbeiten (inkl.
- * Rename bei Titel-/Jahresänderung) und Löschen. Poster- und Hintergrundbild-Upload laufen separat über upload.php.
+ * JSON-API für Filme und Staffeln von Serien (Feld "type": "movie" | "season"): Listen/Lesen, Anlegen, Bearbeiten
+ * (inkl. Rename bei Titel-/Jahresänderung) und Löschen. Poster- und Hintergrundbild-Upload laufen separat über upload.php.
  *
- * GET    /api/movies.php            -> {"movies": [...]}, alle Filme und Serien, alphabetisch nach Titel sortiert.
- *                                       Kein Token nötig.
+ * GET    /api/movies.php            -> {"movies": [...]}, alle Einträge, alphabetisch nach Titel sortiert, je mit
+ *                                       "thumbHash" (siehe list_movies()). Kein Token nötig.
  * GET    /api/movies.php?slug=xyz   -> einzelner Eintrag. Kein Token nötig. 404, falls unbekannt.
  * POST   /api/movies.php            -> legt einen neuen Eintrag an. Body: JSON-Objekt mit title (Pflicht), type,
- *                                       originalTitle, year, runtime, fsk, genres, plot, trailer, cast, notes;
- *                                       Filme zusätzlich director, medium, files; Serien yearEnd, creator, seasons.
+ *                                       originalTitle, year, runtime, fsk, genres, medium, files, plot, trailer,
+ *                                       cast, notes;
+ *                                       Filme zusätzlich collection, director; Staffeln series, season, creator,
+ *                                       episodes.
  *                                       Token nötig. 201 bei Erfolg.
  * PUT    /api/movies.php?slug=xyz   -> aktualisiert einen Eintrag (gleicher Body wie POST; ohne `type` bleibt die Art).
  *                                       Ändert sich der Slug (Titel/Jahr), wird der Ordner umbenannt. Token nötig.

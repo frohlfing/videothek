@@ -14,33 +14,35 @@
  */
 
 /**
- * @typedef {Object} Season
- * @property {number} number     0 = Specials
- * @property {?string} name      z. B. "Staffel 1" (TMDB); leer -> seasonLabel()
- * @property {?number} year
- * @property {Episode[]} episodes
- * @property {string[]} medium   leer = Staffel ist nicht im eigenen Bestand
- * @property {string[]} files    nur bei Medium USB: Folgendateien relativ zu USB_ROOT, üblich <slug>/S01/E01.<ext>
+ * Reihe, zu der ein Film gehört (z. B. die Matrix-Filme), bzw. Serie einer Staffel. tmdb ist die TMDB-ID der Reihe
+ * bzw. Serie (nur bei Import aus TMDB).
+ * @typedef {Object} Collection
+ * @property {string} name
+ * @property {?string} tmdb
+ * @property {?number} [part]  nur Reihen: Nummer des Films in der Reihe (von Hand); leer = nach Erscheinungsjahr
  */
 
 /**
- * Ein Film oder eine Serie (type). Filme haben director/medium/files, Serien creator/yearEnd/seasons.
+ * Ein Film oder eine Staffel einer Serie (type). Eine Staffel ist ein Eintrag wie ein Film, dazu Serie, Nummer,
+ * Idee und Folgen; die Staffeln einer Serie erscheinen in der Übersicht gemeinsam auf einer Kachel wie eine Reihe.
  * @typedef {Object} Movie
- * @property {'movie'|'series'} type
+ * @property {'movie'|'season'} type
  * @property {string} slug
  * @property {string} title
  * @property {?string} originalTitle
- * @property {?number} year      bei Serien das Jahr der Erstausstrahlung
- * @property {?number} [yearEnd] nur Serien: letztes Jahr, falls abgeschlossen
+ * @property {?number} year
  * @property {string[]} genres
- * @property {?number} runtime   Laufzeit in Minuten (bei Serien pro Folge)
+ * @property {?Collection} [collection]  nur Filme: Reihe
+ * @property {?Collection} [series]      nur Staffeln: Serie
+ * @property {?number} [season]          nur Staffeln: Nummer, 0 = Specials
+ * @property {?number} runtime   Laufzeit in Minuten (bei Staffeln pro Folge)
  * @property {?string} fsk       "0", "6", "12", "16" oder "18"
  * @property {?string} [director] nur Filme
- * @property {?string} [creator]  nur Serien ("Idee")
+ * @property {?string} [creator]  nur Staffeln ("Idee")
+ * @property {Episode[]} [episodes] nur Staffeln
  * @property {CastMember[]} cast
- * @property {string[]} [medium]  nur Filme, z. B. ["DVD"] oder ["DVD", "USB"], wenn der Film mehrfach vorhanden ist
- * @property {string[]} [files]   nur Filme mit Medium USB: Filmdatei(en) relativ zu USB_ROOT (config.php)
- * @property {Season[]} [seasons] nur Serien
+ * @property {string[]} medium   z. B. ["DVD"] oder ["DVD", "USB"], wenn er mehrfach vorhanden ist; leer = nicht im Bestand
+ * @property {string[]} files    nur mit Medium USB: Datei(en) relativ zu USB_ROOT (config.php), bei Staffeln die Folgen
  * @property {?string} trailer  YouTube-URL
  * @property {?string} plot
  * @property {?string} notes
@@ -49,20 +51,22 @@
  * @property {?string} thumb
  * @property {?string} fanart   Hintergrundbild (Kodi-Begriff)
  * @property {string} created
+ * @property {?string} [thumbHash]  Prüfsumme des Thumbnails (nur aus der Liste, für gleiche Cover einer Serie)
  * @property {string} [import_warning]
  */
 
 /**
  * Ein Treffer von api/search.php.
  * @typedef {Object} SearchResult
- * @property {'movie'|'series'} type
+ * @property {'movie'|'series'} type  bei TMDB gibt es Serien, in der Videothek werden daraus Staffeln
  * @property {number} tmdb
  * @property {string} title
  * @property {?string} originalTitle
  * @property {?number} year
  * @property {?string} overview
  * @property {?string} poster    Plakat-URL bei TMDB
- * @property {?string} existing  Slug, falls schon in der Videothek
+ * @property {?string} existing  Slug, falls der Film schon in der Videothek ist
+ * @property {number} [existingSeasons]  Serien: Zahl der schon vorhandenen Staffeln
  */
 
 /**
@@ -74,8 +78,10 @@
  * @property {number} remaining
  */
 
-/** @type {Movie[]} Filme und Serien */
+/** @type {Movie[]} Filme und Staffeln */
 let MOVIES = [];
+/** Alte Serien-Einträge (alle Staffeln in einem); nicht angezeigt, sie werden neu importiert. */
+let legacySeriesCount = 0;
 // `true`, während openEditForm()/openImportForm() offen ist (ungespeicherte Eingaben sind möglich).
 // Verhindert, dass ein Klick neben das Formular oder Escape die Eingaben versehentlich verwirft
 // (siehe overlay-Klick-Handler und keydown-Handler weiter unten) — nur die expliziten Buttons
@@ -90,6 +96,8 @@ const sortSel = document.getElementById('sortSel');
 const typeSel = document.getElementById('typeSel');
 const genreSel = document.getElementById('genreSel');
 const mediumSel = document.getElementById('mediumSel');
+/** Wert der Medium-Auswahl für Einträge ohne Medium; kann kein echtes Medium sein, der Server entfernt Leerzeichen am Rand. */
+const NOT_OWNED = ' none';
 const resultCount = document.getElementById('resultCount');
 const subCount = document.getElementById('subCount');
 const newMovieBtn = document.getElementById('newMovieBtn');
@@ -101,6 +109,24 @@ const TOKEN_KEY = 'videothek_api_token';
 
 const MEDIUM_OPTIONS = ['DVD', 'Blu-ray', 'USB'];
 const FSK_OPTIONS = ['0', '6', '12', '16', '18'];
+
+// Artikel am Titelanfang, die beim Sortieren nach Titel übergangen werden ("The Big Lebowski" steht bei B, wie in
+// Kodi). Angezeigt wird der Titel unverändert. Leere Liste = aus.
+const SORT_IGNORE_ARTICLES = ['der', 'die', 'das', 'the', 'ein', 'eine', 'a', 'an'];
+const SORT_ARTICLE_RE = SORT_IGNORE_ARTICLES.length ? new RegExp(`^(?:${SORT_IGNORE_ARTICLES.join('|')})\\s+`, 'i') : null;
+const titleCollator = new Intl.Collator('de');
+
+/** Titel ohne führenden Artikel (SORT_IGNORE_ARTICLES), zum Sortieren. */
+function sortTitle(title){
+  const t = (title || '').trim();
+  const rest = SORT_ARTICLE_RE ? t.replace(SORT_ARTICLE_RE, '') : t;
+  return rest || t; // Titel, der nur aus dem Artikel besteht ("Die"), bleibt, wie er ist
+}
+
+/** Vergleicht zwei Titel alphabetisch, führende Artikel übergangen. */
+function compareTitles(a, b){
+  return titleCollator.compare(sortTitle(a), sortTitle(b)) || titleCollator.compare(a || '', b || '');
+}
 
 function escapeHtml(str){
   return String(str ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -117,13 +143,13 @@ function slugify(title){
 }
 
 /** @param {Movie} m */
-function isSeries(m){
-  return m.type === 'series';
+function isSeason(m){
+  return m.type === 'season';
 }
 
-/** "Film" / "Serie" (für Überschriften und Meldungen). @param {'movie'|'series'} type */
+/** "Film" / "Staffel" bzw. bei TMDB-Treffern "Serie" (für Überschriften und Meldungen). @param {string} type */
 function typeLabel(type){
-  return type === 'series' ? 'Serie' : 'Film';
+  return {season: 'Staffel', series: 'Serie'}[type] || 'Film';
 }
 
 /** "1 Film" / "3 Filme", "1 Serie" / "2 Serien" usw. */
@@ -131,28 +157,9 @@ function countLabel(n, singular, plural){
   return `${n} ${n === 1 ? singular : plural}`;
 }
 
-/**
- * Medien eines Eintrags: beim Film sein Medium, bei einer Serie alle Medien ihrer Staffeln (für Karte, Filter, Suche).
- * @param {Movie} m
- * @returns {string[]}
- */
+/** Medien eines Eintrags (für Karte, Filter, Suche). @param {Movie} m @returns {string[]} */
 function mediaOf(m){
-  return isSeries(m) ? [...new Set(m.seasons.flatMap(s => s.medium))] : m.medium;
-}
-
-/** Reguläre Staffeln (ohne Specials, Staffel 0). @param {Movie} m */
-function regularSeasons(m){
-  return m.seasons.filter(s => s.number > 0);
-}
-
-/** @param {Season} s */
-function seasonLabel(s){
-  return s.name || (s.number === 0 ? 'Specials' : `Staffel ${s.number}`);
-}
-
-/** "2008", bei abgeschlossenen Serien "2008–2013". @param {Movie} m */
-function yearsText(m){
-  return isSeries(m) && m.year && m.yearEnd && m.yearEnd !== m.year ? `${m.year}–${m.yearEnd}` : m.year;
+  return m.medium;
 }
 
 /** Zweistellig mit führender Null (Staffel-/Folgennummern in Dateinamen: S01E03). */
@@ -164,7 +171,7 @@ function pad2(n){
  * Dateien einer Folge innerhalb von season.files – wie season_episode_files() in api/lib/crud.php: Zuordnung über
  * die Folgennummer im Dateinamen ("E03", "S01E03", "e3", mehrteilig "E03-cd1", "E03-cd2"); trägt keine Datei der
  * Staffel eine solche Nummer, zählt die Position (1. Datei = 1. Folge der Liste).
- * @param {Season} season
+ * @param {Movie} season
  * @param {number} episode
  * @returns {string[]}
  */
@@ -180,9 +187,9 @@ function episodeFiles(season, episode){
   return pos >= 0 && season.files[pos] ? [season.files[pos]] : [];
 }
 
-/** @param {Season} season */
-function seasonPlayable(season){
-  return season.medium.includes('USB') && season.files.length > 0;
+/** Film bzw. Staffel auf USB mit eingetragenen Dateien? @param {Movie} m */
+function isPlayable(m){
+  return m.medium.includes('USB') && m.files.length > 0;
 }
 
 /**
@@ -192,26 +199,101 @@ function seasonPlayable(season){
  * @returns {Movie}
  */
 function withDefaults(m){
-  m.type = m.type === 'series' ? 'series' : 'movie';
+  m.type = m.type === 'season' ? 'season' : 'movie';
   m.genres = m.genres || [];
   m.cast = m.cast || [];
-  if(isSeries(m)){
-    m.seasons = (m.seasons || []).map(/** @param {Season} s @returns {Season} */ s => ({
-      ...s, episodes: s.episodes || [], medium: s.medium || [], files: s.files || [],
-    }));
+  m.medium = m.medium || [];
+  m.files = m.files || [];
+  if(isSeason(m)){
+    m.series = m.series && m.series.name ? m.series : null;
+    m.season = m.season ?? null;
+    m.episodes = m.episodes || [];
   } else {
-    m.medium = m.medium || [];
-    m.files = m.files || [];
+    m.collection = m.collection && m.collection.name ? m.collection : null;
   }
   return m;
 }
 
-// PHP liefert die Liste der Filme und Serien über die JSON-API (api/movies.php).
+// PHP liefert die Liste der Filme und Staffeln über die JSON-API (api/movies.php). Alte Serien-Einträge (type
+// "series") zeigt die Übersicht nicht, sie werden nur gezählt (Hinweis im Kopf: neu importieren).
 /** @returns {Promise<Movie[]>} */
 async function loadMovies(){
   /** @type {{movies: Movie[]}} */
   const data = await fetch('api/movies.php').then(res => res.json());
-  return data.movies.map(withDefaults);
+  legacySeriesCount = data.movies.filter(m => m.type === 'series').length;
+  return data.movies.filter(m => m.type !== 'series').map(withDefaults);
+}
+
+/**
+ * @typedef {Object} CatalogItem  ein Teil einer Reihe bzw. eine Staffel laut TMDB (data/collections.json, series.json)
+ * @property {string} [tmdb]  Filme: TMDB-ID des Films
+ * @property {number} [season]  Staffeln: Nummer
+ * @property {?string} title
+ * @property {?number} year
+ * @property {?string} date  Erscheinungs- bzw. Ausstrahlungsdatum; leer oder in der Zukunft = angekündigt
+ */
+/**
+ * @typedef {Object} CatalogEntry
+ * @property {string} name
+ * @property {string} updated  ISO-Datum der letzten Abfrage bei TMDB
+ * @property {CatalogItem[]} [parts]
+ * @property {CatalogItem[]} [seasons]
+ */
+
+/** Was es laut TMDB von Reihen und Serien gibt, je TMDB-ID (api/catalog.php). */
+let CATALOG = /** @type {{collections: Object<string, CatalogEntry>, series: Object<string, CatalogEntry>}} */ ({collections: {}, series: {}});
+
+/** Lädt CATALOG. Fehlt er oder schlägt das fehl, zeigt die Übersicht einfach keine "2 von 7"-Hinweise. */
+async function loadCatalog(){
+  try {
+    const res = await fetch('api/catalog.php');
+    if(!res.ok) return;
+    const data = await res.json();
+    CATALOG = {collections: data.collections || {}, series: data.series || {}};
+  } catch(err) {
+    console.warn('Katalog nicht geladen', err);
+  }
+}
+
+/**
+ * Gleicht eine Reihe bzw. Serie mit dem Katalog ab: owned = Einträge im Bestand, total = vorhandene Einträge plus
+ * erschienene Teile ohne Eintrag (missing); angekündigte Teile zählen nicht mit. Abgleich über uniqueids.tmdb bzw.
+ * Serien-TMDB-ID + Staffelnummer; eine Gruppe mit mehreren TMDB-IDs (z. B. Shaun das Schaf) nimmt alle zusammen.
+ * @param {Movie[]} members  alle Einträge der Gruppe
+ * @returns {?{owned: number, total: number, missing: CatalogItem[], announced: CatalogItem[], updated: string}}  null ohne Katalog
+ */
+function groupCatalog(members){
+  const season = isSeason(members[0]);
+  const ids = [...new Set(members.map(m => groupOf(m)?.tmdb).filter(Boolean))];
+  const entries = ids.map(id => season ? CATALOG.series[id] : CATALOG.collections[id]).filter(Boolean);
+  if(!entries.length) return null;
+  const itemKey = (id, item) => season ? `${id}:${item.season}` : String(item.tmdb);
+  const entryKey = m => season ? (m.series?.tmdb ? `${m.series.tmdb}:${m.season}` : null) : (m.uniqueids?.tmdb || null);
+  const present = new Set(MOVIES.filter(m => isSeason(m) === season).map(entryKey).filter(Boolean));
+  const today = new Date().toISOString().slice(0, 10);
+  const seen = new Set();
+  const missing = [], announced = [];
+  ids.forEach(id => {
+    const entry = season ? CATALOG.series[id] : CATALOG.collections[id];
+    for(const item of (entry && (season ? entry.seasons : entry.parts)) || []){
+      const key = itemKey(id, item);
+      if(seen.has(key) || present.has(key)) continue;
+      seen.add(key);
+      (item.date && item.date <= today ? missing : announced).push(item);
+    }
+  });
+  return {
+    owned: members.filter(isOwned).length,
+    total: members.length + missing.length,
+    missing,
+    announced,
+    updated: entries.map(e => e.updated).sort()[0],
+  };
+}
+
+/** "2 von 7" ohne Wertung; für die Kachel mit Einheit ("2 von 7 Filmen"). */
+function catalogCountText(info, unitPlural = ''){
+  return `${info.owned} von ${info.total}${unitPlural ? ` ${unitPlural}` : ''}`;
 }
 
 function getStoredToken(){
@@ -277,7 +359,7 @@ function thumbSrc(m){
  * @param {CastMember} c
  */
 function actorSrc(m, c){
-  return c.thumb ? `api/image.php?slug=${encodeURIComponent(m.slug)}&actor=${encodeURIComponent(c.name)}` : null;
+  return c.thumb ? `api/image.php?slug=${encodeURIComponent(m.slug)}&actor=${encodeURIComponent(c.name)}&v=${encodeURIComponent(c.thumb)}` : null;
 }
 
 /** YouTube-Video-ID aus watch?v=…, youtu.be/… oder /embed/… — null, wenn es keine YouTube-URL ist. */
@@ -287,19 +369,14 @@ function youtubeId(url){
 }
 
 /**
- * Film: "1985 · 114 Min. · FSK 12", Serie: "2008–2013 · 5 Staffeln · 48 Min./Folge · FSK 16" (mit $long zusätzlich
- * die Zahl der Folgen) — leere Angaben fallen weg.
+ * Film: "1985 · 114 Min. · FSK 12", Staffel: "2008 · 7 Folgen · 48 Min./Folge · FSK 16" — leere Angaben fallen weg.
  * @param {Movie} m
- * @param {boolean} [long]
  */
-function metaLine(m, long = false){
-  if(isSeries(m)){
-    const seasons = regularSeasons(m);
-    const episodes = seasons.reduce((sum, s) => sum + s.episodes.length, 0);
+function metaLine(m){
+  if(isSeason(m)){
     return [
-      yearsText(m),
-      seasons.length ? countLabel(seasons.length, 'Staffel', 'Staffeln') : null,
-      long && episodes ? countLabel(episodes, 'Folge', 'Folgen') : null,
+      m.year,
+      m.episodes.length ? countLabel(m.episodes.length, 'Folge', 'Folgen') : null,
       m.runtime ? `${m.runtime} Min./Folge` : null,
       m.fsk ? `FSK ${m.fsk}` : null,
     ].filter(Boolean).join(' · ');
@@ -312,20 +389,155 @@ function metaLine(m, long = false){
 }
 
 /**
+ * Im eigenen Bestand: Mindestens ein Medium angehakt. Einträge ohne Medium, etwa fehlende Teile einer Reihe oder
+ * Staffeln einer Serie, erscheinen überall blass.
+ * @param {Movie} m
+ */
+function isOwned(m){
+  return mediaOf(m).length > 0;
+}
+
+/**
  * @param {Movie} m
  * @param {number} idx
+ * @param {string} [extraClass]  z. B. "hit"/"other" im aufgefächerten Panel einer Reihe
+ * @param {?number} [k]  Position beim Auffächern (Verzögerung der Animation); im Panel kurzer Titel ohne Etikett
  */
-function cardHtml(m, idx){
+function cardHtml(m, idx, extraClass = '', k = null){
   const src = thumbSrc(m);
+  const inPanel = k !== null;
   const img = src ? `<img src="${escapeHtml(src)}" alt="${escapeHtml(m.title)}" loading="lazy">` : '<span>kein Cover</span>';
-  return `<div class="card" data-idx="${idx}">
-    <div class="thumb">${img}${isSeries(m) ? '<div class="type-badge">Serie</div>' : ''}</div>
+  const cls = ['card', isOwned(m) ? '' : 'not-owned', extraClass].filter(Boolean).join(' ');
+  return `<div class="${cls}" data-idx="${idx}"${inPanel ? ` style="--k:${k}"` : ''}>
+    <div class="thumb">${img}${isSeason(m) && !inPanel ? '<div class="type-badge">Serie</div>' : ''}</div>
     <div class="body">
-      <h3>${escapeHtml(m.title)}</h3>
+      <h3>${escapeHtml(inPanel ? shortTitle(m) : m.title)}</h3>
       <div class="meta">${escapeHtml(metaLine(m))}</div>
       ${m.genres.slice(0, 2).map(g => `<div class="cat-tag">${escapeHtml(g)}</div>`).join('')}
-      ${mediaOf(m).map(md => `<div class="cat-tag medium-tag">${escapeHtml(md)}</div>`).join('')}
+      ${notOwnedTagOr(mediaOf(m))}
     </div>
+  </div>`;
+}
+
+/** Medien als Schlagwörter, ohne Medium der Hinweis "nicht im Bestand". @param {string[]} media */
+function notOwnedTagOr(media){
+  return media.length
+    ? media.map(md => `<div class="cat-tag medium-tag">${escapeHtml(md)}</div>`).join('')
+    : '<div class="cat-tag missing-tag">nicht im Bestand</div>';
+}
+
+/** Gruppe eines Eintrags: die Reihe eines Films bzw. die Serie einer Staffel, sonst null. @param {Movie} m */
+function groupOf(m){
+  return (isSeason(m) ? m.series : m.collection) || null;
+}
+
+/**
+ * Schlüssel der Gruppe (Art und Name ohne Groß-/Kleinschreibung), null ohne Gruppe. Eine Reihe und eine Serie
+ * gleichen Namens bleiben getrennt.
+ * @param {Movie} m
+ */
+function groupKey(m){
+  const g = groupOf(m);
+  return g ? `${isSeason(m) ? 's' : 'c'}:${g.name.trim().toLowerCase()}` : null;
+}
+
+/**
+ * Teile einer Gruppe: Staffeln nach Nummer (Specials ans Ende); Filme einer Reihe nach "Teil", Filme ohne Teil
+ * danach nach Jahr (ohne Jahr ans Ende); bei Gleichstand nach Titel.
+ */
+function groupOrder(a, b){
+  const rank = ({m}) => isSeason(m)
+    ? [0, m.season === 0 || m.season === null ? 9999 : m.season]
+    : (m.collection?.part != null ? [0, m.collection.part] : [1, m.year ?? 9999]);
+  const [ra, rb] = [rank(a), rank(b)];
+  return ra[0] - rb[0] || ra[1] - rb[1] || compareTitles(a.m.title, b.m.title);
+}
+
+/** "Teil 2" bei Filmen mit Teilnummer, sonst null. @param {Movie} m */
+function partLabel(m){
+  return !isSeason(m) && m.collection?.part != null ? `Teil ${m.collection.part}` : null;
+}
+
+/**
+ * Titel innerhalb der eigenen Serie: ohne den Seriennamen vorn ("Die Tudors – Staffel 2" -> "Staffel 2").
+ * @param {Movie} m
+ */
+function shortTitle(m){
+  const name = isSeason(m) && m.series ? m.series.name : null;
+  if(!name || !m.title.toLowerCase().startsWith(name.toLowerCase())) return m.title;
+  return m.title.slice(name.length).replace(/^\s*[–:-]\s*/, '') || m.title;
+}
+
+/**
+ * Cover als aufgefächerter Stapel (höchstens vier), von links oben (erstes, vorn) nach rechts unten (hinten).
+ * @param {{src: ?string, label: string}[]} covers  ohne src erscheint label
+ */
+function collageHtml(covers){
+  const shown = covers.slice(0, 4);
+  const n = shown.length;
+  return shown.map(({src, label}, k) => {
+    const t = n === 1 ? 0.5 : k / (n - 1);
+    const style = `left:${(4 + t * 32).toFixed(1)}%;top:${(4 + t * 28).toFixed(1)}%;transform:rotate(${(-7 + t * 14).toFixed(1)}deg);z-index:${n - k}`;
+    return `<div class="collage-cover" style="${style}">${src ? `<img src="${escapeHtml(src)}" alt="" loading="lazy">` : `<span>${escapeHtml(label)}</span>`}</div>`;
+  }).join('');
+}
+
+/**
+ * Kachel einer Reihe bzw. Serie: die Cover der Teile als aufgefächerter Stapel (höchstens vier, der erste Teil liegt
+ * oben). Gleiche Cover (z. B. Staffeln mit dem Poster der Serie) erscheinen nur einmal; bleibt nur eines, ist es das
+ * Cover der Kachel.
+ * @param {CollectionGroup} group
+ */
+function groupCardHtml(group){
+  const seen = new Set();
+  const covers = group.items
+    .map(({m}) => ({src: thumbSrc(m), label: shortTitle(m), hash: m.thumbHash || thumbSrc(m) || m.slug}))
+    .filter(c => !seen.has(c.hash) && seen.add(c.hash));
+  const first = group.items[0].m;
+  const series = isSeason(first);
+  const years = [...new Set(group.items.map(({m}) => m.year).filter(Boolean))].sort((a, b) => a - b);
+  const span = years.length ? (years.length === 1 ? years[0] : `${years[0]}–${years[years.length - 1]}`) : null;
+  const media = [...new Set(group.items.flatMap(({m}) => mediaOf(m)))];
+  const cls = ['card', 'collection-card', media.length ? '' : 'not-owned', expandedGroup === group.key ? 'expanded' : ''].filter(Boolean).join(' ');
+  const img = covers.length === 1
+    ? (covers[0].src ? `<img src="${escapeHtml(covers[0].src)}" alt="" loading="lazy">` : '<span>kein Cover</span>')
+    : collageHtml(covers);
+  const info = groupCatalog(group.items.map(({m}) => m));
+  const count = info && info.total > group.items.length
+    ? catalogCountText(info, series ? 'Staffeln' : 'Filmen')
+    : series ? countLabel(group.items.length, 'Staffel', 'Staffeln') : countLabel(group.items.length, 'Film', 'Filme');
+  return `<div class="${cls}" data-group="${escapeHtml(group.key)}" title="${series ? 'Staffeln anzeigen' : 'Teile der Reihe anzeigen'}">
+    <div class="thumb${covers.length === 1 ? '' : ' collage'}">${img}<div class="type-badge">${series ? 'Serie' : 'Reihe'}</div></div>
+    <div class="body">
+      <h3>${escapeHtml(groupOf(first).name)}</h3>
+      <div class="meta">${escapeHtml([count, span].filter(Boolean).join(' · '))}</div>
+      ${notOwnedTagOr(media)}
+    </div>
+  </div>`;
+}
+
+/**
+ * Aufgefächerte Teile einer Reihe bzw. Staffeln einer Serie unter der Zeile ihrer Kachel (über die volle Breite des
+ * Rasters). Grenzen Suche oder Filter die Übersicht ein, sind die Treffer hervorgehoben und die übrigen abgeschwächt.
+ * @param {CollectionGroup} group
+ */
+function groupPanelHtml(group){
+  const filtered = group.hits.size < group.items.length;
+  const owned = group.items.filter(({m}) => isOwned(m)).length;
+  const info = groupCatalog(group.items.map(({m}) => m));
+  const note = [
+    info && info.total > owned ? catalogCountText(info)
+      : owned < group.items.length ? `${owned} von ${group.items.length} im Bestand` : null,
+    filtered ? countLabel(group.hits.size, 'Treffer', 'Treffer') : null,
+  ].filter(Boolean).join(' · ');
+  const cards = group.items.map(({m, i}, k) => cardHtml(m, i, filtered ? (group.hits.has(i) ? 'hit' : 'other') : '', k));
+  const label = isSeason(group.items[0].m) ? 'Serie' : 'Reihe';
+  return `<div class="collection-panel" id="collectionPanel">
+    <div class="collection-head">
+      <h3>${escapeHtml(groupOf(group.items[0].m).name)}${note ? ` <span class="collection-count">${escapeHtml(note)}</span>` : ''}</h3>
+      <button class="close" id="collectionCloseBtn" type="button" aria-label="${label} zuklappen">&times;</button>
+    </div>
+    <div class="collection-items">${cards.join('')}</div>
   </div>`;
 }
 
@@ -350,23 +562,30 @@ function knownValues(valuesOf){
  * https://learn.microsoft.com/en-us/answers/questions/5583325/datalist-tag-not-properly-rendered-on-microsoft-ed
  */
 function refreshFilters(){
-  const fill = (select, valuesOf, allLabel) => {
+  const fill = (select, valuesOf, allLabel, extra = []) => {
     const values = knownValues(valuesOf);
     const current = select.value;
-    select.innerHTML = `<option value="">${allLabel}</option>` + values.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
-    select.value = values.includes(current) ? current : '';
+    const options = [...values.map(v => [v, v]), ...extra];
+    select.innerHTML = `<option value="">${allLabel}</option>` + options.map(([v, label]) => `<option value="${escapeHtml(v)}">${escapeHtml(label)}</option>`).join('');
+    select.value = options.some(([v]) => v === current) ? current : '';
   };
   fill(genreSel, m => m.genres, 'Alle Genres');
-  fill(mediumSel, mediaOf, 'Alle Medien');
+  fill(mediumSel, mediaOf, 'Alle Medien', MOVIES.some(m => !isOwned(m)) ? [[NOT_OWNED, '(nicht im Bestand)']] : []);
 }
 
-/** Aktualisiert die Gesamtanzahl im Header (nötig nach jedem Anlegen/Löschen/Import). */
+/**
+ * Aktualisiert die Gesamtanzahl im Header (nötig nach jedem Anlegen/Löschen/Import): Filme und Serien (Staffeln ohne
+ * Serie zählen einzeln), dazu ein Hinweis auf alte Serien-Einträge, die neu zu importieren sind.
+ */
 function updateHeaderCount(){
-  const series = MOVIES.filter(isSeries).length;
-  const movies = MOVIES.length - series;
-  subCount.textContent = series
-    ? `${countLabel(movies, 'Film', 'Filme')} · ${countLabel(series, 'Serie', 'Serien')}`
-    : countLabel(movies, 'Film', 'Filme');
+  const seasons = MOVIES.filter(isSeason);
+  const series = new Set(seasons.map(m => groupKey(m) || m.slug)).size;
+  const movies = MOVIES.length - seasons.length;
+  subCount.textContent = [
+    countLabel(movies, 'Film', 'Filme'),
+    series ? countLabel(series, 'Serie', 'Serien') : null,
+    legacySeriesCount ? `${countLabel(legacySeriesCount, 'Serie', 'Serien')} im alten Format ausgeblendet (neu importieren)` : null,
+  ].filter(Boolean).join(' · ');
 }
 
 /**
@@ -382,7 +601,7 @@ function createdTime(m){
 function sortWithMissingLast(items, key, compare){
   items.sort((a, b) => {
     const va = a.m[key], vb = b.m[key];
-    const byTitle = a.m.title.localeCompare(b.m.title, 'de');
+    const byTitle = compareTitles(a.m.title, b.m.title);
     if(va == null && vb == null) return byTitle;
     if(va == null) return 1;
     if(vb == null) return -1;
@@ -403,15 +622,17 @@ function renderGrid(){
   if(genre){
     items = items.filter(({m}) => m.genres.includes(genre));
   }
-  if(medium){
+  if(medium === NOT_OWNED){
+    items = items.filter(({m}) => !isOwned(m));
+  } else if(medium){
     items = items.filter(({m}) => mediaOf(m).includes(medium));
   }
 
   if(q){
-    // Bei Serien zählen auch die Folgentitel ("Felina" findet Breaking Bad).
-    const episodeTitles = m => isSeries(m) ? m.seasons.flatMap(s => s.episodes.map(e => e.title)) : [];
+    // Bei Staffeln zählen auch die Folgentitel ("Felina" findet Breaking Bad).
+    const episodeTitles = m => isSeason(m) ? m.episodes.map(e => e.title) : [];
     items = items.filter(({m}) =>
-      [m.title, m.originalTitle, m.director, m.creator, m.plot, m.year && String(m.year), ...m.genres, ...mediaOf(m), ...episodeTitles(m)]
+      [m.title, m.originalTitle, groupOf(m)?.name, m.director, m.creator, m.plot, m.year && String(m.year), ...m.genres, ...mediaOf(m), ...episodeTitles(m)]
         .some(v => (v || '').toLowerCase().includes(q))
       || m.cast.some(c => c.name.toLowerCase().includes(q) || (c.role || '').toLowerCase().includes(q))
     );
@@ -419,7 +640,7 @@ function renderGrid(){
 
   switch(sortSel.value){
     case 'title':
-      items.sort((a,b) => a.m.title.localeCompare(b.m.title, 'de'));
+      items.sort((a,b) => compareTitles(a.m.title, b.m.title));
       break;
     case 'year-desc':
       sortWithMissingLast(items, 'year', (x, y) => y - x);
@@ -437,9 +658,80 @@ function renderGrid(){
   }
 
   resultCount.textContent = `${items.length} von ${MOVIES.length} ${MOVIES.length === 1 ? 'Titel' : 'Titeln'}`;
-  grid.innerHTML = items.length
-    ? items.map(({m,i}) => cardHtml(m, i)).join('')
-    : '<p class="empty">Nichts gefunden.</p>';
+
+  // Filme einer Reihe bzw. Staffeln einer Serie erscheinen gemeinsam auf einer Kachel, an der Stelle ihres ersten
+  // Treffers in der gewählten Sortierung. Das gilt auch bei Suche und Filtern: Die Kachel steht dann für die ganze
+  // Gruppe, beim Auffächern sind die Treffer hervorgehoben. Eine Gruppe mit nur einem Eintrag bleibt einzeln.
+  const hitIdx = new Set(items.map(({i}) => i));
+  const hitKeys = new Set(items.map(({m}) => groupKey(m)).filter(Boolean));
+  /** @type {Map<string, {m: Movie, i: number}[]>} */
+  const members = new Map();
+  MOVIES.forEach((m, i) => {
+    const key = groupKey(m);
+    if(key && hitKeys.has(key)) members.set(key, [...(members.get(key) || []), {m, i}]);
+  });
+  currentGroups = new Map([...members]
+    .filter(([, list]) => list.length > 1)
+    .map(([key, list]) => [key, {
+      key,
+      items: [...list].sort(groupOrder),
+      hits: new Set(list.filter(({i}) => hitIdx.has(i)).map(({i}) => i)),
+    }]));
+  if(expandedGroup && !currentGroups.has(expandedGroup)) expandedGroup = null;
+
+  const done = new Set();
+  const html = [];
+  for(const item of items){
+    const key = groupKey(item.m);
+    if(key && currentGroups.has(key)){
+      if(!done.has(key)) html.push(groupCardHtml(currentGroups.get(key)));
+      done.add(key);
+    } else {
+      html.push(cardHtml(item.m, item.i));
+    }
+  }
+  grid.innerHTML = html.length ? html.join('') : '<p class="empty">Nichts gefunden.</p>';
+  placeGroupPanel();
+}
+
+/**
+ * Teile einer Reihe bzw. Staffeln einer Serie in der Übersicht (groupOrder()).
+ * @typedef {Object} CollectionGroup
+ * @property {string} key  groupKey()
+ * @property {{m: Movie, i: number}[]} items  alle Teile der Gruppe, unabhängig von Suche und Filtern
+ * @property {Set<number>} hits  Indizes (in MOVIES) der Teile, die Suche und Filter erfüllen
+ */
+
+/** @type {?string} Schlüssel der aufgeklappten Gruppe (groupKey()) */
+let expandedGroup = null;
+/** @type {Map<string, CollectionGroup>} Gruppen der zuletzt gezeigten Übersicht */
+let currentGroups = new Map();
+
+/**
+ * Setzt die aufgefächerten Teile der offenen Gruppe hinter die letzte Kachel derselben Rasterzeile (welche das ist,
+ * hängt von der Fensterbreite ab, daher auch nach einer Größenänderung neu).
+ */
+function placeGroupPanel(){
+  document.getElementById('collectionPanel')?.remove();
+  if(!expandedGroup) return;
+  const tile = [...grid.querySelectorAll('.collection-card')].find(c => c.dataset.group === expandedGroup);
+  if(!tile) return;
+  let last = tile;
+  while(last.nextElementSibling && last.nextElementSibling.offsetTop === tile.offsetTop){
+    last = last.nextElementSibling;
+  }
+  last.insertAdjacentHTML('afterend', groupPanelHtml(currentGroups.get(expandedGroup)));
+}
+
+/** Klappt eine Gruppe auf, bzw. zu bei einem Klick auf die schon offene oder mit null. @param {?string} key */
+function toggleGroup(key){
+  expandedGroup = key && key !== expandedGroup ? key : null;
+  grid.querySelectorAll('.collection-card').forEach(c => c.classList.toggle('expanded', c.dataset.group === expandedGroup));
+  placeGroupPanel();
+  const panel = document.getElementById('collectionPanel');
+  if(panel && panel.getBoundingClientRect().bottom > window.innerHeight){
+    panel.scrollIntoView({behavior: 'smooth', block: 'nearest'});
+  }
 }
 
 /** Textblock mit Überschrift; jede Zeile wird ein eigener Absatz. Leer -> ''. */
@@ -504,9 +796,11 @@ function printableSheetHtml(m){
 
   const facts = [
     ['Genre', m.genres.join(', ')],
-    isSeries(m) ? ['Idee', m.creator] : ['Regie', m.director],
-    ['Medium', mediaOf(m).join(', ')],
-  ].filter(([, v]) => v);
+    isSeason(m) ? ['Serie', m.series?.name] : ['Reihe', m.collection && [m.collection.name, partLabel(m)].filter(Boolean).join(', ')],
+    isSeason(m) ? ['Staffel', m.season === 0 ? 'Specials' : m.season] : null,
+    isSeason(m) ? ['Idee', m.creator] : ['Regie', m.director],
+    ['Medium', isOwned(m) ? mediaOf(m).join(', ') : 'nicht im Bestand'],
+  ].filter(f => f && f[1] !== null && f[1] !== undefined && f[1] !== '');
   const factsHtml = facts.length
     ? `<dl class="facts">${facts.map(([k, v]) => `<dt>${k}</dt><dd>${escapeHtml(v)}</dd>`).join('')}</dl>`
     : '';
@@ -522,57 +816,43 @@ function printableSheetHtml(m){
       <div class="titles">
         <h2>${escapeHtml(m.title)}</h2>
         ${m.originalTitle ? `<div class="original-title">${escapeHtml(m.originalTitle)}</div>` : ''}
-        <div class="meta-line">${escapeHtml(metaLine(m, true))}</div>
+        <div class="meta-line">${escapeHtml(metaLine(m))}</div>
         ${factsHtml}
         ${createdHtml}
       </div>
     </div>
     ${paragraphsHtml('Handlung', m.plot, 'plot')}
-    ${isSeries(m) ? seasonsHtml(m) : ''}
-    <div id="trailerSlot">${trailerHtml(m)}</div>
+    ${isSeason(m) ? episodesHtml(m) : ''}
+    <div class="screen-only">${groupPartsHtml(m)}</div>
+    ${trailerHtml(m)}
     ${castHtml(m)}
     ${paragraphsHtml('Notizen', m.notes, 'notes')}
   `;
 }
 
 /**
- * Staffeln einer Serie, jede aufklappbar mit ihren Folgen (Titel, Handlung). Im Bestand: Medium der Staffel und –
- * bei USB mit Dateien – Buttons zum Abspielen der ganzen Staffel bzw. einzelner Folgen. Nicht im Bestand: abgeblendet.
- * Im Ausdruck erscheint nur die zugeklappte Übersicht (eine Zeile pro Staffel).
+ * Folgen einer Staffel; bei USB mit Dateien je Folge ein Button zum Abspielen. Die Handlung ist zugeklappt, ein
+ * Klick auf den Titel (mit Pfeil ▸/▾) zeigt sie (Handler am #sheet).
  * @param {Movie} m
  */
-function seasonsHtml(m){
-  if(!m.seasons.length) return '';
-  const owned = m.seasons.filter(s => s.medium.length).length;
-  const playUrl = (s, e) => `api/play.php?slug=${encodeURIComponent(m.slug)}&season=${s.number}${e != null ? `&episode=${e}` : ''}`;
-  const items = m.seasons.map(s => {
-    const playable = seasonPlayable(s);
-    const episodes = s.episodes.map(e => {
-      const play = playable && episodeFiles(s, e.number).length
-        ? `<a class="ep-play screen-only" href="${playUrl(s, e.number)}" title="Folge abspielen" aria-label="Folge ${e.number} abspielen">&#9654;</a>`
-        : '';
-      return `<li>
-        <span class="ep-no">${e.number}</span>
-        <div class="ep-body">
-          <div class="ep-title">${escapeHtml(e.title || `Folge ${e.number}`)}${play}</div>
-          ${e.plot ? `<div class="ep-plot">${escapeHtml(e.plot)}</div>` : ''}
-        </div>
-      </li>`;
-    }).join('');
-    const meta = [s.year, s.episodes.length ? countLabel(s.episodes.length, 'Folge', 'Folgen') : null].filter(Boolean).join(' · ');
-    return `<details class="season${s.medium.length ? '' : ' missing'}">
-      <summary>
-        <span class="season-name">${escapeHtml(seasonLabel(s))}</span>
-        <span class="season-meta">${escapeHtml(meta)}</span>
-        <span class="season-media">${s.medium.length ? escapeHtml(s.medium.join(', ')) : 'nicht vorhanden'}</span>
-      </summary>
-      <div class="season-body">
-        ${playable ? `<a class="btn btn-primary play-btn screen-only" href="${playUrl(s)}" title="Öffnet alle Folgen der Staffel im installierten Player">&#9654; ${escapeHtml(seasonLabel(s))} abspielen</a>` : ''}
-        ${episodes ? `<ol class="episodes">${episodes}</ol>` : '<p class="ep-none">Keine Folgen eingetragen.</p>'}
+function episodesHtml(m){
+  if(!m.episodes.length) return '';
+  const playable = isPlayable(m);
+  const items = m.episodes.map(e => {
+    const play = playable && episodeFiles(m, e.number).length
+      ? `<a class="ep-play screen-only" href="api/play.php?slug=${encodeURIComponent(m.slug)}&episode=${e.number}" title="Folge abspielen" aria-label="Folge ${e.number} abspielen">&#9654;</a>`
+      : '';
+    return `<li>
+      <span class="ep-no">${e.number}</span>
+      <div class="ep-body">
+        <div class="ep-title">${e.plot
+          ? `<button class="ep-toggle" type="button" aria-expanded="false" title="Handlung anzeigen">${escapeHtml(e.title || `Folge ${e.number}`)}</button>`
+          : escapeHtml(e.title || `Folge ${e.number}`)}${play}</div>
+        ${e.plot ? `<div class="ep-plot" hidden>${escapeHtml(e.plot)}</div>` : ''}
       </div>
-    </details>`;
+    </li>`;
   }).join('');
-  return `<h4>Staffeln (${owned} von ${m.seasons.length} im Bestand)</h4><div class="seasons">${items}</div>`;
+  return `<h4>Folgen (${m.episodes.length})</h4><ol class="episodes">${items}</ol>`;
 }
 
 function openMovie(idx){
@@ -585,7 +865,7 @@ function openMovie(idx){
     ${fanart ? `<div class="fanart" style="background-image:url('${escapeHtml(fanart)}')"></div>` : ''}
     <button class="close" id="closeBtn" aria-label="Schließen">&times;</button>
     <div class="btn-row toolbar">
-      ${!isSeries(m) && m.medium.includes('USB') && m.files.length ? `<a class="btn btn-primary play-btn" href="api/play.php?slug=${encodeURIComponent(m.slug)}" title="Öffnet die Filmdatei im installierten Player">&#9654; Abspielen</a>` : ''}
+      ${isPlayable(m) ? `<a class="btn btn-primary play-btn" href="api/play.php?slug=${encodeURIComponent(m.slug)}" title="${isSeason(m) ? 'Öffnet alle Folgen der Staffel' : 'Öffnet die Filmdatei'} im installierten Player">&#9654; ${isSeason(m) ? 'Alle Folgen abspielen' : 'Abspielen'}</a>` : ''}
       <button class="btn" id="printBtn" type="button">Drucken</button>
       <button class="btn" id="editBtn" type="button">Bearbeiten</button>
       <button class="btn btn-danger" id="deleteBtn" type="button">Löschen</button>
@@ -597,44 +877,66 @@ function openMovie(idx){
   document.getElementById('printBtn').addEventListener('click', () => window.print());
   document.getElementById('editBtn').addEventListener('click', () => openEditForm(m));
   document.getElementById('deleteBtn').addEventListener('click', () => deleteMovieUI(m));
-  void refreshTrailer(m);
 }
 
 /**
- * Lässt den Server den Trailer prüfen (api/trailer.php: höchstens alle paar Tage wirklich bei YouTube/TMDB)
- * und tauscht den Player aus, falls ein toter Trailer ersetzt, ergänzt oder entfernt wurde. Ein eingebetteter
- * YouTube-Player verrät dem Browser nicht, ob das Video fehlt – deshalb die Prüfung auf dem Server.
- * Fehler bleiben still: Dann bleibt einfach der bisherige Trailer stehen.
+ * Detailansicht: alle Teile der Reihe bzw. Staffeln der Serie als kleine Plakate (groupOrder()); ein Klick öffnet den
+ * Teil. Teile, die nicht im Bestand sind, erscheinen blass. Weitere Teile laut Katalog (groupCatalog()) stehen als
+ * leere Platzhalter an ihrer Stelle in der Reihenfolge (nach Staffelnummer bzw. Jahr). Leer ohne Gruppe oder wenn
+ * es außer diesem Eintrag nichts zu zeigen gibt.
  * @param {Movie} m
  */
-async function refreshTrailer(m){
-  if(!m.trailer && !(m.uniqueids && m.uniqueids.tmdb)) return; // nichts zu prüfen, nichts nachzuholen
-  let data;
-  try {
-    const res = await fetch(`api/trailer.php?slug=${encodeURIComponent(m.slug)}`);
-    if(!res.ok) return;
-    data = await res.json();
-  } catch(err){
-    return;
+function groupPartsHtml(m){
+  const key = groupKey(m);
+  if(!key) return '';
+  const parts = MOVIES.map((x, i) => ({m: x, i})).filter(({m: x}) => groupKey(x) === key).sort(groupOrder);
+  const info = groupCatalog(parts.map(({m: x}) => x));
+  const gaps = info ? [...info.missing, ...info.announced] : [];
+  if(parts.length < 2 && !gaps.length) return '';
+  const owned = parts.filter(({m: x}) => isOwned(x)).length;
+  const total = info ? info.total : parts.length;
+  const season = isSeason(m);
+  // Der Name steht schon oben in der Detailansicht ("Reihe: …" bzw. Serie), hier nur Art und Anzahl.
+  const heading = `${season ? 'Staffeln' : 'Filmteile'} (${owned < total ? `${owned} von ${total}` : total})`;
+
+  const entryHtml = ({m: x, i}) => {
+    const cls = [x === m ? 'current' : '', isOwned(x) ? '' : 'not-owned'].filter(Boolean).join(' ');
+    const year = [partLabel(x), x.year, isOwned(x) ? null : 'nicht im Bestand'].filter(Boolean).join(' · ');
+    return `<li${cls ? ` class="${cls}"` : ''} data-idx="${i}">
+      <div class="part-poster">${thumbSrc(x) ? `<img src="${escapeHtml(thumbSrc(x))}" alt="" loading="lazy">` : ''}</div>
+      <div class="part-title">${escapeHtml(shortTitle(x))}</div><div class="part-year">${escapeHtml(year)}</div></li>`;
+  };
+  const gapHtml = item => {
+    const title = season ? (item.title || `Staffel ${item.season}`) : (item.title || '');
+    const meta = [item.year, info.announced.includes(item) ? 'angekündigt' : null].filter(Boolean).join(' · ');
+    return `<li class="gap"><div class="part-poster"></div>
+      <div class="part-title">${escapeHtml(title)}</div><div class="part-year">${escapeHtml(meta)}</div></li>`;
+  };
+  // Platzhalter vor dem ersten Eintrag, der danach kommt (Staffelnummer bzw. Jahr), sonst ans Ende.
+  const after = (item, x) => season
+    ? (x.season === 0 || x.season === null ? 9999 : x.season) > item.season
+    : (x.year ?? 9999) > (item.year ?? 9999);
+  const slots = parts.map(() => []);
+  const tail = [];
+  for(const item of gaps){
+    const k = parts.findIndex(({m: x}) => after(item, x));
+    (k < 0 ? tail : slots[k]).push(item);
   }
-  if(data.trailer === m.trailer) return;
-  m.trailer = data.trailer;
-  const slot = document.getElementById('trailerSlot');
-  // Nur austauschen, wenn noch dieselbe Detailansicht offen ist (nicht inzwischen Formular oder anderer Film).
-  if(slot && !formIsOpen && document.querySelector('.sheet h2')?.textContent === m.title){
-    slot.innerHTML = trailerHtml(m);
-  }
+  const items = parts.map((p, k) => slots[k].map(gapHtml).join('') + entryHtml(p)).join('') + tail.map(gapHtml).join('');
+  const stand = info ? ` title="Laut TMDB, Stand ${escapeHtml(new Date(info.updated).toLocaleDateString('de-DE'))}"` : '';
+  return `<h4${stand}>${escapeHtml(heading)}</h4><ul class="collection-parts">${items}</ul>`;
 }
 
 function closeMovie(){
+  stopScan();
   formIsOpen = false;
   overlay.classList.remove('open');
   sheet.innerHTML = '';
 }
 
 /**
- * Zeigt das Anlege-/Bearbeitungsformular für Filme und Serien. m === null bedeutet: neuer Eintrag (zunächst Film,
- * die Art lässt sich oben umschalten). Felder, die nur eine Art haben, stehen in .movie-only bzw. .series-only und
+ * Zeigt das Anlege-/Bearbeitungsformular für Filme und Staffeln. m === null bedeutet: neuer Eintrag (zunächst Film,
+ * die Art lässt sich oben umschalten). Felder, die nur eine Art haben, stehen in .movie-only bzw. .season-only und
  * werden je nach gewählter Art ein- oder ausgeblendet; ihre Eingaben bleiben beim Umschalten erhalten, gespeichert
  * werden nur die der gewählten Art.
  * @param {?Movie} m
@@ -646,23 +948,28 @@ function openEditForm(m){
   const val = field => isEdit ? escapeHtml(m[field] ?? '') : '';
   // Feste Medien plus alle schon verwendeten (frühere Freitexte bleiben so auswählbar).
   const mediumChoices = [...new Set([...MEDIUM_OPTIONS, ...knownValues(mediaOf)])];
-  const castText = isEdit ? m.cast.map(c => c.role ? `${c.name} | ${c.role}` : c.name).join('\n') : '';
   /**
-   * Bildfeld mit Vorschau (vorhandenes Bild bzw. nach Dateiauswahl die neue Datei).
+   * Bildfeld wie beim Darstellerfoto: Klick auf die Vorschau wählt ein neues Bild, "×" unten rechts entfernt es.
+   * Hochgeladen bzw. gelöscht wird erst beim Speichern (data-remove="1" merkt das Entfernen, siehe saveMovie()).
    * @param {'poster'|'fanart'} kind
-   * @param {string} label  Feldbeschriftung (HTML)
+   * @param {string} label  Feldbeschriftung
    * @param {string} hint   Hinweis unter dem Feld (HTML)
    */
   const imageFieldHtml = (kind, label, hint) => {
     const src = isEdit ? movieImageSrc(m, kind) : null;
-    return `<div class="form-field image-field ${kind}-field">
-      <label>${label}</label>
-      <div class="form-preview" id="${kind}PreviewWrap"${src ? '' : ' style="display:none"'}><div class="ratio-box"><img id="${kind}Preview" src="${src ? escapeHtml(src) : ''}" alt=""></div></div>
-      <input type="file" id="${kind}Input" accept="image/jpeg,image/png,image/webp">
+    return `<div class="form-field image-field ${kind}-field" id="${kind}Field" data-remove="">
+      <span class="label">${label}</span>
+      <div class="form-preview">
+        <label class="ratio-box" for="${kind}Input" title="${label} auswählen">
+          <img id="${kind}Preview" src="${src ? escapeHtml(src) : ''}" alt=""${src ? '' : ' hidden'}>
+          <span class="preview-empty" id="${kind}Empty"${src ? ' hidden' : ''}>${label} wählen</span>
+        </label>
+        <button class="image-remove" id="${kind}RemoveBtn" type="button" title="${label} entfernen" aria-label="${label} entfernen"${src ? '' : ' hidden'}>&times;</button>
+      </div>
+      <input type="file" id="${kind}Input" accept="image/jpeg,image/png,image/webp" hidden>
       <div class="hint">${hint}</div>
     </div>`;
   };
-  const seasons = isEdit && isSeries(m) ? m.seasons : [];
 
   sheet.innerHTML = `
     <button class="close" id="closeBtn" aria-label="Schließen">&times;</button>
@@ -670,10 +977,9 @@ function openEditForm(m){
     <h2 id="formTitle"></h2>
     <div id="formError"></div>
     <div class="form-field">
-      <span class="label">Art</span>
       <div class="checkbox-row" id="typeInputs">
         <label><input type="radio" name="type" value="movie"${type === 'movie' ? ' checked' : ''}> Film</label>
-        <label><input type="radio" name="type" value="series"${type === 'series' ? ' checked' : ''}> Serie</label>
+        <label><input type="radio" name="type" value="season"${type === 'season' ? ' checked' : ''}> Serie</label>
       </div>
     </div>
     <div class="form-field">
@@ -686,12 +992,8 @@ function openEditForm(m){
     </div>
     <div class="form-row">
       <div class="form-field">
-        <label for="yearInput" id="yearLabel">Jahr</label>
+        <label for="yearInput">Jahr</label>
         <input type="text" id="yearInput" inputmode="numeric" value="${val('year')}" placeholder="z. B. 1985">
-      </div>
-      <div class="form-field series-only">
-        <label for="yearEndInput">Bis (Jahr)</label>
-        <input type="text" id="yearEndInput" inputmode="numeric" value="${val('yearEnd')}" placeholder="leer, falls sie noch läuft">
       </div>
       <div class="form-field">
         <label for="runtimeInput" id="runtimeLabel">Laufzeit (Min.)</label>
@@ -712,44 +1014,72 @@ function openEditForm(m){
         <label for="directorInput">Regie</label>
         <input type="text" id="directorInput" value="${val('director')}">
       </div>
-      <div class="form-field series-only">
+      <div class="form-field season-only">
         <label for="creatorInput">Idee</label>
         <input type="text" id="creatorInput" value="${val('creator')}">
       </div>
     </div>
-    <div class="media-block movie-only" id="movieMedia">
+    <div class="form-row movie-only">
+      <div class="form-field">
+        <label for="collectionInput">Reihe</label>
+        <input type="text" id="collectionInput" list="collectionList" autocomplete="off" value="${isEdit && m.collection ? escapeHtml(m.collection.name) : ''}" placeholder="z. B. Matrix Filmreihe">
+        <datalist id="collectionList">${knownValues(x => x.collection?.name).map(c => `<option value="${escapeHtml(c)}">`).join('')}</datalist>
+        <div class="hint">Filme derselben Reihe erscheinen in der Übersicht gemeinsam auf einer Kachel. Leer = keine Reihe.</div>
+      </div>
+      <div class="form-field se-number">
+        <label for="partInput">Teil</label>
+        <input type="text" id="partInput" inputmode="numeric" value="${isEdit && m.collection?.part != null ? m.collection.part : ''}" placeholder="z. B. 2">
+        <div class="hint">Leer = nach Jahr.</div>
+      </div>
+    </div>
+    <div class="form-row season-only">
+      <div class="form-field">
+        <label for="seriesInput">Serie</label>
+        <input type="text" id="seriesInput" list="seriesList" autocomplete="off" value="${isEdit && m.series ? escapeHtml(m.series.name) : ''}" placeholder="z. B. Die Tudors">
+        <datalist id="seriesList">${knownValues(x => x.series?.name).map(c => `<option value="${escapeHtml(c)}">`).join('')}</datalist>
+        <div class="hint">Staffeln derselben Serie erscheinen in der Übersicht gemeinsam auf einer Kachel.</div>
+      </div>
+      <div class="form-field se-number">
+        <label for="seasonInput">Staffel</label>
+        <input type="text" id="seasonInput" inputmode="numeric" value="${val('season')}" placeholder="0 = Specials">
+      </div>
+    </div>
+    <div class="media-block" id="mediaBlock">
       <div class="form-field">
         <span class="label">Medium</span>
-        <div class="checkbox-row media-choices">${mediaCheckboxesHtml(mediumChoices, isEdit && !isSeries(m) ? m.medium : [])}</div>
-        <div class="hint">Mehrfachauswahl, wenn der Film z. B. als DVD und auf USB vorhanden ist.</div>
+        <div class="checkbox-row media-choices">${mediaCheckboxesHtml(mediumChoices, isEdit ? m.medium : [])}</div>
+        <div class="hint">Mehrfachauswahl, wenn er z. B. als DVD und auf USB vorhanden ist. Nichts angehakt = nicht im Bestand.</div>
       </div>
       <div class="form-field files-field">
-        <label for="filesInput">Filmdatei (relativ zum USB-Ordner)</label>
-        <textarea id="filesInput" class="files-input" rows="2" placeholder="z. B. zimmer-1408-2007/movie.avi">${escapeHtml(isEdit && !isSeries(m) ? m.files.join('\n') : '')}</textarea>
-        <div class="hint">Pfad relativ zu USB_ROOT aus config.php, üblich ist &lt;slug&gt;/movie.&lt;Endung&gt; (beim Anhaken von USB vorgeschlagen, Endung ergänzen). Mehrteilige Filme: eine Datei pro Zeile (movie-cd1.avi, movie-cd2.avi, …), in Abspielreihenfolge.</div>
+        <label for="filesInput">Dateien (relativ zum USB-Ordner)</label>
+        <textarea id="filesInput" class="files-input" rows="3" placeholder="z. B. zimmer-1408-2007/movie.avi">${escapeHtml(isEdit ? m.files.join('\n') : '')}</textarea>
+        <div class="hint">Pfad relativ zu USB_ROOT aus config.php (beim Anhaken von USB vorgeschlagen, Endung ergänzen; die Endung der ersten Zeile wird auf alle ohne Endung übertragen). Film: üblich &lt;slug&gt;/movie.&lt;Endung&gt;, mehrteilig eine Datei pro Zeile in Abspielreihenfolge. Staffel: eine Datei pro Folge, üblich &lt;slug&gt;/E01.&lt;Endung&gt;; zugeordnet wird über die Folgennummer im Dateinamen (E01, S01E01), mehrteilige Folgen als E03-cd1, E03-cd2.</div>
       </div>
     </div>
-    <div class="form-field series-only">
-      <span class="label">Staffeln</span>
-      <div id="seasonEditors">${seasons.map(s => seasonEditorHtml(s, mediumChoices)).join('')}</div>
-      <button class="btn" id="addSeasonBtn" type="button">+ Staffel</button>
-    </div>
     <div class="form-row">
-      ${imageFieldHtml('poster', 'Poster', 'Hochformat. Wird erst nach dem Speichern hochgeladen und erzeugt automatisch ein Thumbnail.')}
-      ${imageFieldHtml('fanart', 'Hintergrundbild', 'Querformat, erscheint abgedunkelt hinter dem Kopf der Detailansicht.')}
+      ${imageFieldHtml('poster', 'Poster', 'Hochformat, das Thumbnail entsteht automatisch. Klick aufs Bild wählt ein neues, × entfernt es; beides erst beim Speichern.')}
+      ${imageFieldHtml('fanart', 'Hintergrundbild', 'Querformat, erscheint abgedunkelt hinter dem Kopf der Detailansicht. Klick aufs Bild wählt ein neues, × entfernt es.')}
     </div>
     <div class="form-field">
       <label for="plotInput">Handlung</label>
       <textarea id="plotInput">${escapeHtml(isEdit ? (m.plot || '') : '')}</textarea>
     </div>
+    <!-- Folgen direkt nach der Handlung, wie in der Detailansicht -->
+    <div class="form-field season-only">
+      <label for="episodesInput">Folgen</label>
+      <textarea id="episodesInput" class="episodes-input" rows="16" spellcheck="true" placeholder="1. Titel der ersten Folge&#10;Handlung …&#10;&#10;2. Titel der zweiten Folge&#10;Handlung …">${escapeHtml(isEdit && isSeason(m) ? episodesText(m.episodes) : '')}</textarea>
+      <div class="hint"><strong id="episodeCount"></strong> Je Folge eine Zeile „Nummer. Titel“, darunter die Handlung; zwischen den Folgen eine Leerzeile.</div>
+    </div>
     <div class="form-field">
       <label for="trailerInput">Trailer (YouTube-URL)</label>
       <input type="text" id="trailerInput" value="${val('trailer')}" placeholder="https://www.youtube.com/watch?v=...">
+      <a class="field-link" id="trailerSearch" href="#" target="_blank" rel="noopener">Trailer auf YouTube suchen</a>
     </div>
     <div class="form-field">
-      <label for="castInput">Darsteller</label>
-      <textarea id="castInput">${escapeHtml(castText)}</textarea>
-      <div class="hint">Ein Darsteller pro Zeile, optional mit Rolle: "Sean Astin | Mikey".</div>
+      <span class="label">Darsteller</span>
+      <div class="cast-rows" id="castRows">${(isEdit ? m.cast : []).map(c => castRowHtml(c, isEdit ? actorSrc(m, c) : null)).join('')}</div>
+      <button class="btn" id="addCastBtn" type="button">+ Darsteller</button>
+      <div class="hint">Reihenfolge wie in der Detailansicht. Ein neues Foto wird erst nach dem Speichern hochgeladen.</div>
     </div>
     <div class="form-field">
       <label for="notesInput">Notizen</label>
@@ -765,26 +1095,15 @@ function openEditForm(m){
   overlay.classList.add('open');
 
   const editForm = document.getElementById('editForm');
-  const seasonEditors = document.getElementById('seasonEditors');
-  const addSeason = () => {
-    const numbers = [...seasonEditors.querySelectorAll('.se-number-input')].map(i => parseInt(i.value, 10)).filter(n => !isNaN(n));
-    seasonEditors.insertAdjacentHTML('beforeend', seasonEditorHtml(
-      {number: numbers.length ? Math.max(...numbers) + 1 : 1, name: null, year: null, episodes: [], medium: [], files: []},
-      mediumChoices
-    ));
-    toggleFilesField(seasonEditors.lastElementChild);
-  };
-  // Art umschalten: Felder der anderen Art aus-, eigene einblenden; eine neue Serie beginnt mit Staffel 1.
+  // Art umschalten: Felder der anderen Art aus-, eigene einblenden.
   const applyType = () => {
     const t = formType();
     editForm.querySelectorAll('.movie-only').forEach(el => { el.hidden = t !== 'movie'; });
-    editForm.querySelectorAll('.series-only').forEach(el => { el.hidden = t !== 'series'; });
+    editForm.querySelectorAll('.season-only').forEach(el => { el.hidden = t !== 'season'; });
     document.getElementById('formTitle').textContent = isEdit
       ? `${typeLabel(t)} bearbeiten`
-      : (t === 'series' ? 'Neue Serie' : 'Neuer Film');
-    document.getElementById('yearLabel').textContent = t === 'series' ? 'Von (Jahr)' : 'Jahr';
-    document.getElementById('runtimeLabel').textContent = t === 'series' ? 'Folgenlänge (Min.)' : 'Laufzeit (Min.)';
-    if(t === 'series' && !seasonEditors.children.length) addSeason();
+      : (t === 'season' ? 'Neue Staffel' : 'Neuer Film');
+    document.getElementById('runtimeLabel').textContent = t === 'season' ? 'Folgenlänge (Min.)' : 'Laufzeit (Min.)';
   };
 
   document.getElementById('closeBtn').addEventListener('click', closeMovie);
@@ -792,11 +1111,39 @@ function openEditForm(m){
     isEdit ? openMovie(MOVIES.indexOf(m)) : closeMovie();
   });
   document.getElementById('typeInputs').addEventListener('change', applyType);
-  document.getElementById('addSeasonBtn').addEventListener('click', addSeason);
-  seasonEditors.addEventListener('click', e => {
-    if(e.target.closest('.se-remove')) e.target.closest('.season-editor').remove();
+  // Folgen: Zähler bzw. Hinweis auf ein Formatproblem, laufend beim Tippen.
+  const episodesInput = document.getElementById('episodesInput');
+  const showEpisodeCount = () => {
+    const {episodes, error} = parseEpisodesText(episodesInput.value);
+    document.getElementById('episodeCount').textContent = error || `${countLabel(episodes.length, 'Folge', 'Folgen')} erkannt.`;
+  };
+  episodesInput.addEventListener('input', showEpisodeCount);
+  showEpisodeCount();
+  // Trailer suchen: YouTube-Suche nach Titel und Jahr aus dem Formular; die gefundene URL trägt man selbst ein.
+  const trailerSearch = document.getElementById('trailerSearch');
+  const updateTrailerSearch = () => {
+    const words = [document.getElementById('titleInput').value.trim(), document.getElementById('yearInput').value.trim(), 'Trailer Deutsch'];
+    trailerSearch.href = 'https://www.youtube.com/results?search_query=' + encodeURIComponent(words.filter(Boolean).join(' '));
+  };
+  updateTrailerSearch();
+  ['titleInput', 'yearInput'].forEach(id => document.getElementById(id).addEventListener('input', updateTrailerSearch));
+  const castRows = document.getElementById('castRows');
+  document.getElementById('addCastBtn').addEventListener('click', () => {
+    castRows.insertAdjacentHTML('beforeend', castRowHtml({name: '', role: null, profile: null, thumb: null}, null));
+    castRows.lastElementChild.querySelector('.cast-entry').focus();
   });
-  // Medium angehakt/abgewählt (Film oder eine Staffel): Datei-Feld ein-/ausblenden, bei USB Dateien vorschlagen.
+  castRows.addEventListener('click', e => {
+    const row = e.target.closest('.cast-row');
+    if(e.target.closest('.cast-remove')) row.remove();
+    if(e.target.closest('.cast-photo-remove')){
+      // Foto weg: Dateiname nicht mehr mitschicken (der Server löscht die Datei), auch kein TMDB-Porträt nachladen.
+      row.dataset.thumb = row.dataset.profile = '';
+      row.querySelector('.cast-photo-input').value = '';
+      showPreview(row.querySelector('.cast-photo'), null, parseCastEntry(row.querySelector('.cast-entry').value).name);
+      e.target.closest('.cast-photo-remove').hidden = true;
+    }
+  });
+  // Medium angehakt/abgewählt: Datei-Feld ein-/ausblenden, bei USB Dateien vorschlagen.
   // Am #editForm statt am dauerhaften #sheet, sonst käme bei jedem Öffnen ein weiterer Listener dazu.
   editForm.addEventListener('change', e => {
     const block = e.target.closest('.media-choices') && e.target.closest('.media-block');
@@ -805,28 +1152,50 @@ function openEditForm(m){
       toggleFilesField(block);
     }
     if(e.target.classList.contains('files-input')) completeExtensions(e.target);
+    // Neues Foto gewählt (Klick aufs Foto): in der Vorschau zeigen, hochgeladen wird erst nach dem Speichern.
+    if(e.target.matches('.cast-photo-input') && e.target.files[0]){
+      const row = e.target.closest('.cast-row');
+      const reader = new FileReader();
+      reader.onload = () => showPreview(row.querySelector('.cast-photo'), reader.result, '');
+      reader.readAsDataURL(e.target.files[0]);
+      row.querySelector('.cast-photo-remove').hidden = false;
+    }
   });
   editForm.querySelectorAll('.media-block').forEach(toggleFilesField);
   applyType();
 
   for(const kind of ['poster', 'fanart']){
-    document.getElementById(`${kind}Input`).addEventListener('change', e => {
-      const file = e.target.files[0];
+    const field = document.getElementById(`${kind}Field`);
+    const input = document.getElementById(`${kind}Input`);
+    const preview = document.getElementById(`${kind}Preview`);
+    const removeBtn = document.getElementById(`${kind}RemoveBtn`);
+    const show = src => {
+      preview.hidden = !src;
+      if(src) preview.src = src;
+      document.getElementById(`${kind}Empty`).hidden = !!src;
+      removeBtn.hidden = !src;
+    };
+    input.addEventListener('change', () => {
+      const file = input.files[0];
       if(!file) return;
       const reader = new FileReader();
-      reader.onload = () => {
-        document.getElementById(`${kind}PreviewWrap`).style.display = '';
-        document.getElementById(`${kind}Preview`).src = reader.result;
-      };
+      reader.onload = () => show(reader.result);
       reader.readAsDataURL(file);
+      field.dataset.remove = ''; // ein neues Bild ersetzt das alte ohnehin
+    });
+    // Entfernen: eine gewählte Datei verwerfen; ein vorhandenes Bild löscht erst das Speichern.
+    removeBtn.addEventListener('click', () => {
+      input.value = '';
+      show(null);
+      field.dataset.remove = isEdit && m[kind] ? '1' : '';
     });
   }
   document.getElementById('saveBtn').addEventListener('click', () => saveMovie(isEdit ? m.slug : null));
 }
 
-/** Im Formular gewählte Art. @returns {'movie'|'series'} */
+/** Im Formular gewählte Art. @returns {'movie'|'season'} */
 function formType(){
-  return document.querySelector('#typeInputs input:checked').value === 'series' ? 'series' : 'movie';
+  return document.querySelector('#typeInputs input:checked').value === 'season' ? 'season' : 'movie';
 }
 
 /** Checkboxen für die Medien, die angehakten aus $selected. */
@@ -834,60 +1203,103 @@ function mediaCheckboxesHtml(choices, selected){
   return choices.map(md => `<label><input type="checkbox" value="${escapeHtml(md)}"${selected.includes(md) ? ' checked' : ''}> ${escapeHtml(md)}</label>`).join('');
 }
 
-let seasonEditorSeq = 0; // für eindeutige ids der Eingabefelder (label for=…)
+/** Bild bzw. Platzhalter in einer Vorschau-Box (Darstellerfoto). */
+function showPreview(box, src, name){
+  const initials = (name || '').split(/\s+/).filter(Boolean).map(w => w[0]).join('').slice(0, 2);
+  box.innerHTML = src ? `<img src="${escapeHtml(src)}" alt="">` : `<span>${escapeHtml(initials)}</span>`;
+}
+
+let castRowSeq = 0; // eindeutige ids für label for=… (Klick aufs Foto öffnet die Dateiauswahl)
 
 /**
- * Eingabeblock einer Staffel im Formular. Die Folgen werden als Titel pro Zeile bearbeitet; ihre Nummern
- * (data-episode-numbers) bleiben beim Speichern über die Position erhalten (siehe parseEpisodes()).
- * @param {Season} s
- * @param {string[]} mediumChoices
+ * Eine Darsteller-Zeile im Formular: Foto (Klick wählt ein neues, "×" in der Ecke entfernt es), ein Feld
+ * "Name: Rolle" und "×" für den Darsteller. Dateiname des Fotos und TMDB-Porträtpfad stehen in
+ * data-thumb/data-profile und gehen beim Speichern mit.
+ * @param {CastMember} c
+ * @param {?string} src  vorhandenes Foto
  */
-function seasonEditorHtml(s, mediumChoices){
-  const k = ++seasonEditorSeq;
-  const titles = s.episodes.map(e => e.title || '-').join('\n');
-  return `<div class="season-editor media-block" data-episode-numbers="${escapeHtml(JSON.stringify(s.episodes.map(e => e.number)))}">
-    <div class="form-row">
-      <div class="form-field se-number">
-        <label for="se${k}Number">Staffel</label>
-        <input type="text" id="se${k}Number" class="se-number-input" inputmode="numeric" value="${s.number}">
-      </div>
-      <div class="form-field se-name">
-        <label for="se${k}Name">Bezeichnung</label>
-        <input type="text" id="se${k}Name" class="se-name-input" value="${escapeHtml(s.name || '')}" placeholder="${escapeHtml(seasonLabel({...s, name: null}))}">
-      </div>
-      <div class="form-field se-year">
-        <label for="se${k}Year">Jahr</label>
-        <input type="text" id="se${k}Year" class="se-year-input" inputmode="numeric" value="${s.year ?? ''}">
-      </div>
-      <button class="btn se-remove" type="button" title="Staffel aus der Liste entfernen">Entfernen</button>
+function castRowHtml(c, src){
+  const id = `castPhoto${++castRowSeq}`;
+  const initials = c.name.split(/\s+/).filter(Boolean).map(w => w[0]).join('').slice(0, 2);
+  return `<div class="cast-row" data-thumb="${escapeHtml(c.thumb || '')}" data-profile="${escapeHtml(c.profile || '')}">
+    <div class="cast-photo-wrap">
+      <label class="cast-photo" for="${id}" title="Foto auswählen">${src ? `<img src="${escapeHtml(src)}" alt="" loading="lazy">` : `<span>${escapeHtml(initials)}</span>`}</label>
+      <input type="file" id="${id}" class="cast-photo-input" accept="image/jpeg,image/png,image/webp" hidden>
+      <button class="cast-photo-remove" type="button" title="Foto entfernen" aria-label="Foto entfernen"${c.thumb ? '' : ' hidden'}>&times;</button>
     </div>
-    <div class="form-field">
-      <span class="label">Medium</span>
-      <div class="checkbox-row media-choices">${mediaCheckboxesHtml(mediumChoices, s.medium)}</div>
-      <div class="hint">Nichts angehakt = Staffel ist nicht im Bestand.</div>
-    </div>
-    <div class="form-field files-field">
-      <label for="se${k}Files">Dateien (relativ zum USB-Ordner)</label>
-      <textarea id="se${k}Files" class="files-input" rows="3">${escapeHtml(s.files.join('\n'))}</textarea>
-      <div class="hint">Eine Datei pro Folge, üblich &lt;slug&gt;/S01/E01.&lt;Endung&gt; (beim Anhaken von USB vorgeschlagen; die Endung der ersten Zeile wird auf alle ohne Endung übertragen). Zugeordnet wird über die Folgennummer im Dateinamen (E01, S01E01), mehrteilige Folgen als E03-cd1, E03-cd2.</div>
-    </div>
-    <div class="form-field">
-      <label for="se${k}Episodes">Folgen</label>
-      <textarea id="se${k}Episodes" class="se-episodes-input" rows="4">${escapeHtml(titles)}</textarea>
-      <div class="hint">Ein Titel pro Zeile, in der Reihenfolge der Folgen; „-“ für eine Folge ohne Titel.</div>
-    </div>
+    <input type="text" class="cast-entry" value="${escapeHtml(castEntryText(c))}" placeholder="Name: Rolle" aria-label="Name: Rolle">
+    <button class="btn btn-small cast-remove" type="button" title="Darsteller entfernen" aria-label="Darsteller entfernen">&times;</button>
   </div>`;
 }
 
-/** Datei-Feld eines Film- bzw. Staffelblocks nur bei Medium USB zeigen (eingetragene Dateien bleiben erhalten). */
+/** "Name: Rolle" bzw. nur "Name" ohne Rolle. @param {CastMember} c */
+function castEntryText(c){
+  return c.role ? `${c.name}: ${c.role}` : c.name;
+}
+
+/**
+ * Gegenstück zu castEntryText(): Name bis zum ersten Doppelpunkt, der Rest ist die Rolle.
+ * @param {string} text
+ * @returns {{name: string, role: ?string}}
+ */
+function parseCastEntry(text){
+  const pos = text.indexOf(':');
+  return pos < 0
+    ? {name: text.trim(), role: null}
+    : {name: text.slice(0, pos).trim(), role: text.slice(pos + 1).trim() || null};
+}
+
+/**
+ * Folgen als Text fürs Formular: je Folge eine Zeile "Nummer. Titel", darunter die Handlung, zwischen den Folgen eine
+ * Leerzeile. Gegenstück: parseEpisodesText().
+ * @param {Episode[]} episodes
+ */
+function episodesText(episodes){
+  return episodes.map(e => [`${e.number}.${e.title ? ' ' + e.title : ''}`, ...(e.plot ? [e.plot] : [])].join('\n')).join('\n\n');
+}
+
+/**
+ * Liest den Text aus episodesText() zurück. Eine Folge beginnt mit "Nummer." (dahinter optional der Titel), aber nur
+ * am Anfang oder nach einer Leerzeile; so darf eine Handlung auch mit "3. Oktober …" weitergehen. Die Zeilen bis zur
+ * nächsten Folge sind die Handlung (Leerzeilen darin entfallen, wie auf dem Server). Text vor der ersten Folge ist
+ * ein Fehler. Doppelte Nummern prüft der Server.
+ * @param {string} text
+ * @returns {{episodes: Episode[], error: ?string}}
+ */
+function parseEpisodesText(text){
+  /** @type {Episode[]} */
+  const episodes = [];
+  let afterBlank = true;
+  let error = null;
+  for(const raw of text.replace(/\r/g, '').split('\n')){
+    const line = raw.trim();
+    if(!line){
+      afterBlank = true;
+      continue;
+    }
+    const head = afterBlank ? line.match(/^(\d+)\.(?:\s+(.*))?$/) : null;
+    afterBlank = false;
+    if(head){
+      episodes.push({number: parseInt(head[1], 10), title: head[2] ? head[2].trim() : null, plot: null});
+    } else if(episodes.length){
+      const e = episodes[episodes.length - 1];
+      e.plot = e.plot ? `${e.plot}\n${line}` : line;
+    } else {
+      error ??= `Vor der ersten Folge steht Text ohne Nummer („${line.slice(0, 40)}“). Eine Folge beginnt mit „1. Titel“.`;
+    }
+  }
+  return {episodes, error};
+}
+
+/** Datei-Feld nur bei Medium USB zeigen (eingetragene Dateien bleiben erhalten). */
 function toggleFilesField(block){
   block.querySelector('.files-field').hidden = !checkedMedia(block).includes('USB');
 }
 
 /**
  * Beim Anhaken von USB ein leeres Datei-Feld mit dem üblichen Pfad vorbelegen: Film <slug>/movie., Staffel
- * <slug>/S01/E01., <slug>/S01/E02., … (eine Zeile pro Folge). Der Slug kommt aus dem aktuellen Titel + Jahr, so
- * wie der Server ihn vergibt; die Endung (avi, mkv, …) ist nicht bekannt und wird ergänzt (completeExtensions()).
+ * <slug>/E01., <slug>/E02., … (eine Zeile pro Folge). Der Slug kommt aus dem aktuellen Titel + Jahr, so wie der
+ * Server ihn vergibt; die Endung (avi, mkv, …) ist nicht bekannt und wird ergänzt (completeExtensions()).
  */
 function suggestFiles(block){
   const filesInput = block.querySelector('.files-input');
@@ -895,13 +1307,12 @@ function suggestFiles(block){
   const year = document.getElementById('yearInput').value.trim();
   if(filesInput.value.trim() || !title) return;
   const slug = slugify(`${title} ${year}`);
-  if(!block.classList.contains('season-editor')){
+  if(formType() !== 'season'){
     filesInput.value = `${slug}/movie.`;
     return;
   }
-  const season = parseInt(block.querySelector('.se-number-input').value, 10) || 1;
-  const episodes = parseEpisodes(block).map(e => e.number);
-  filesInput.value = (episodes.length ? episodes : [1]).map(e => `${slug}/S${pad2(season)}/E${pad2(e)}.`).join('\n');
+  const episodes = parseEpisodesText(document.getElementById('episodesInput').value).episodes.map(e => e.number);
+  filesInput.value = (episodes.length ? episodes : [1]).map(e => `${slug}/E${pad2(e)}.`).join('\n');
 }
 
 /** Überträgt die Dateiendung der ersten Zeile mit Endung auf alle Zeilen, die noch auf "." enden (Vorschlag). */
@@ -912,7 +1323,7 @@ function completeExtensions(textarea){
   textarea.value = lines.map(l => l.trim().endsWith('.') ? l.trim() + ext[1] : l).join('\n');
 }
 
-/** Im Film- bzw. Staffelblock angehakte Medien, in der Reihenfolge der Checkboxen. */
+/** Angehakte Medien, in der Reihenfolge der Checkboxen. */
 function checkedMedia(block){
   return [...block.querySelectorAll('.media-choices input:checked')].map(cb => cb.value);
 }
@@ -923,28 +1334,15 @@ function textLines(value){
 }
 
 /**
- * Folgen eines Staffelblocks aus der Titelliste (eine Zeile pro Folge, "-" = ohne Titel). Die n-te Zeile behält die
- * Nummer der n-ten bisherigen Folge (data-episode-numbers), weitere Zeilen zählen ab der letzten Nummer weiter.
- * @returns {{number: number, title: ?string}[]}
+ * Liest die Formularfelder aus und baut daraus den API-Payload (je nach gewählter Art).
+ * @param {?Movie} [current]  bearbeiteter Eintrag (null beim Anlegen)
  */
-function parseEpisodes(block){
-  const known = JSON.parse(block.dataset.episodeNumbers || '[]');
-  const lines = block.querySelector('.se-episodes-input').value.split('\n').map(s => s.trim());
-  while(lines.length && !lines[lines.length - 1]) lines.pop();
-  let next = 1;
-  return lines.map((line, i) => {
-    const number = known[i] ?? next;
-    next = number + 1;
-    return {number, title: line && line !== '-' ? line : null};
-  });
-}
-
-/** Liest die Formularfelder aus und baut daraus den API-Payload (je nach gewählter Art). */
-function collectFormData(){
+function collectFormData(current = null){
   const text = id => document.getElementById(id).value.trim();
   const number = v => v === '' ? null : (/^\d+$/.test(v) ? parseInt(v, 10) : v); // Ungültiges lehnt der Server mit Meldung ab
   const fsk = text('fskInput').replace(/^FSK\s*/i, '');
   const type = formType();
+  const medium = checkedMedia(document.getElementById('mediaBlock'));
 
   const common = {
     type,
@@ -954,46 +1352,105 @@ function collectFormData(){
     runtime: number(text('runtimeInput')),
     fsk: fsk || null,
     genres: text('genresInput').split(',').map(g => g.trim()).filter(Boolean),
-    cast: text('castInput').split('\n').map(line => {
-      const [name, ...role] = line.split('|');
-      return {name: name.trim(), role: role.join('|').trim() || null};
-    }).filter(c => c.name),
+    cast: [...document.querySelectorAll('#castRows .cast-row')].map(row => ({
+      ...parseCastEntry(row.querySelector('.cast-entry').value),
+      profile: row.dataset.profile || null,
+      thumb: row.dataset.thumb || null,
+    })).filter(c => c.name),
     trailer: text('trailerInput') || null,
     plot: text('plotInput') || null,
     notes: text('notesInput') || null,
-  };
-
-  if(type === 'series'){
-    return {
-      ...common,
-      yearEnd: number(text('yearEndInput')),
-      creator: text('creatorInput') || null,
-      seasons: [...document.querySelectorAll('.season-editor')].map(block => {
-        const medium = checkedMedia(block);
-        return {
-          number: number(block.querySelector('.se-number-input').value.trim()),
-          name: block.querySelector('.se-name-input').value.trim() || null,
-          year: number(block.querySelector('.se-year-input').value.trim()),
-          episodes: parseEpisodes(block),
-          medium,
-          files: medium.includes('USB') ? textLines(block.querySelector('.files-input').value) : [],
-        };
-      }),
-    };
-  }
-
-  const movieMedia = document.getElementById('movieMedia');
-  const medium = checkedMedia(movieMedia);
-  return {
-    ...common,
-    director: text('directorInput') || null,
     medium,
     files: medium.includes('USB') ? textLines(text('filesInput')) : [],
   };
+
+  if(type === 'season'){
+    return {
+      ...common,
+      series: formGroup(text('seriesInput'), x => x.series, current),
+      season: number(text('seasonInput')),
+      creator: text('creatorInput') || null,
+      episodes: parseEpisodesText(document.getElementById('episodesInput').value).episodes,
+    };
+  }
+  return {
+    ...common,
+    collection: withPart(formGroup(text('collectionInput'), x => x.collection, current), number(text('partInput'))),
+    director: text('directorInput') || null,
+  };
+}
+
+/**
+ * Reihe bzw. Serie zum eingegebenen Namen. Hatte der Eintrag schon diesen Namen, behält er seine TMDB-ID (die
+ * Shaun-das-Schaf-DVDs sind bei TMDB verschiedene Serien unter einem Namen). Sonst wird die TMDB-ID einer
+ * vorhandenen Gruppe dieses Namens übernommen, bei einem neuen Namen ist sie leer.
+ * @param {string} name
+ * @param {function(Movie): ?Collection} of  m => m.collection bzw. m => m.series
+ * @param {?Movie} current  bearbeiteter Eintrag oder null
+ * @returns {?Collection}
+ */
+function formGroup(name, of, current){
+  if(!name) return null;
+  const same = g => g && g.name.trim().toLowerCase() === name.toLowerCase();
+  const own = current ? of(current) : null;
+  const existing = same(own) ? own : MOVIES.map(of).find(same);
+  // Umbenannt (kein anderer Eintrag trägt den neuen Namen): Die eigene TMDB-ID bleibt, damit Import und
+  // "2 von 7" die Reihe weiter erkennen.
+  return {name, tmdb: existing ? existing.tmdb : (own ? own.tmdb : null)};
+}
+
+/**
+ * Nach dem Speichern: Hat sich der Name der Reihe bzw. Serie geändert, fragen, ob die übrigen Teile der bisherigen
+ * Gruppe mit umbenannt werden sollen (sonst zerfällt sie in zwei Gruppen). Jeder Teil behält seine TMDB-ID und
+ * Teilnummer. Liefert Fehlermeldungen; MOVIES wird für die umbenannten Teile aktualisiert.
+ * @param {Movie} before  Eintrag vor dem Speichern
+ * @param {Movie} saved  gespeicherter Eintrag
+ * @returns {Promise<string[]>}
+ */
+async function renameGroupSiblings(before, saved){
+  const oldGroup = groupOf(before), newGroup = groupOf(saved);
+  if(!oldGroup || !newGroup || isSeason(before) !== isSeason(saved) || oldGroup.name === newGroup.name) return [];
+  const key = groupKey(before);
+  const siblings = MOVIES.filter(x => x.slug !== before.slug && groupKey(x) === key);
+  if(!siblings.length) return [];
+  const label = isSeason(saved) ? 'Serie' : 'Reihe';
+  const others = siblings.length === 1 ? 'dem anderen Teil' : `den anderen ${siblings.length} Teilen`;
+  if(!window.confirm(`${label} auch bei ${others} von „${oldGroup.name}“ in „${newGroup.name}“ umbenennen?`)) return [];
+
+  const field = isSeason(saved) ? 'series' : 'collection';
+  const errors = [];
+  for(const sibling of siblings){
+    try {
+      const url = `api/movies.php?slug=${encodeURIComponent(sibling.slug)}`;
+      /** @type {Movie} */
+      const fresh = await fetch(url).then(res => { if(!res.ok) throw new Error(`HTTP ${res.status}`); return res.json(); });
+      fresh[field] = {...fresh[field], name: newGroup.name};
+      const updated = withDefaults(await apiWrite(url, {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(fresh),
+      }));
+      MOVIES = MOVIES.map(x => x.slug === sibling.slug ? {...updated, thumbHash: x.thumbHash} : x);
+    } catch(err){
+      errors.push(`${sibling.title}: ${err.message}`);
+    }
+  }
+  return errors;
+}
+
+/**
+ * Reihe mit der Teilnummer aus dem Formular (ohne Reihe keine Nummer).
+ * @param {?Collection} collection
+ * @param {number|string|null} part  ungültige Eingaben lehnt der Server mit Meldung ab
+ * @returns {?{name: string, tmdb: ?string, part: (number|string|null)}}  Payload, part ggf. noch ungeprüft
+ */
+function withPart(collection, part){
+  return collection ? {name: collection.name, tmdb: collection.tmdb, part} : null;
 }
 
 async function saveMovie(slug){
-  const payload = collectFormData();
+  const before = slug ? MOVIES.find(x => x.slug === slug) || null : null;
+  const payload = collectFormData(before);
   const errorBox = document.getElementById('formError');
   errorBox.innerHTML = '';
   const showError = msg => {
@@ -1005,23 +1462,17 @@ async function saveMovie(slug){
     showError('Titel ist erforderlich.');
     return;
   }
-  if(payload.type === 'series'){
-    if(payload.seasons.some(s => s.number === null)){
-      showError('Jede Staffel braucht eine Nummer (0 für Specials).');
-      return;
-    }
-    const withoutFiles = payload.seasons.filter(s => s.medium.includes('USB') && !s.files.length);
-    if(withoutFiles.length){
-      showError(`Bei Medium USB bitte die Dateien (relativ zum USB-Ordner) angeben: ${withoutFiles.map(seasonLabel).join(', ')}.`);
-      return;
-    }
-  } else if(payload.medium.includes('USB') && !payload.files.length){
-    showError('Bei Medium USB bitte die Filmdatei (relativ zum USB-Ordner) angeben.');
+  const episodesError = payload.type === 'season' ? parseEpisodesText(document.getElementById('episodesInput').value).error : null;
+  if(episodesError){
+    showError(episodesError);
     return;
   }
-  // Fängt den nicht vervollständigten Vorschlag "<slug>/movie." bzw. "<slug>/S01/E01." ab.
-  const files = payload.type === 'series' ? payload.seasons.flatMap(s => s.files) : payload.files;
-  if(files.some(f => !/\.[a-z0-9]+$/i.test(f))){
+  if(payload.medium.includes('USB') && !payload.files.length){
+    showError(`Bei Medium USB bitte ${payload.type === 'season' ? 'die Dateien der Folgen' : 'die Filmdatei'} (relativ zum USB-Ordner) angeben.`);
+    return;
+  }
+  // Fängt den nicht vervollständigten Vorschlag "<slug>/movie." bzw. "<slug>/E01." ab.
+  if(payload.files.some(f => !/\.[a-z0-9]+$/i.test(f))){
     showError('Bei mindestens einer Datei fehlt die Dateiendung (z. B. .avi, .mkv, .mp4).');
     return;
   }
@@ -1049,14 +1500,23 @@ async function saveMovie(slug){
   // Text-Teil ist ab hier gespeichert. Ein evtl. folgender Bild-Upload-Fehler
   // darf diesen Erfolg nicht mehr verschlucken (sonst wirkt es, als sei nichts gespeichert).
   const imageErrors = [];
+  /** @type {{label: string, fields: Object<string, string|Blob>}[]} */
+  const uploads = [];
   for(const [kind, label] of [['poster', 'Poster'], ['fanart', 'Hintergrundbild']]){
     const file = document.getElementById(`${kind}Input`).files[0];
-    if(!file) continue;
+    if(file) uploads.push({label, fields: {kind, image: file}});
+    else if(document.getElementById(`${kind}Field`).dataset.remove === '1') uploads.push({label, fields: {kind, remove: '1'}});
+  }
+  document.querySelectorAll('#castRows .cast-row').forEach(row => {
+    const file = row.querySelector('.cast-photo-input').files[0];
+    const name = parseCastEntry(row.querySelector('.cast-entry').value).name;
+    if(file && name) uploads.push({label: `Foto ${name}`, fields: {kind: 'actor', actor: name, image: file}});
+  });
+  for(const {label, fields} of uploads){
     try {
       const fd = new FormData();
       fd.append('slug', saved.slug);
-      fd.append('kind', kind);
-      fd.append('image', file);
+      for(const [key, value] of Object.entries(fields)) fd.append(key, value);
       saved = await apiWrite('api/upload.php', {method: 'POST', body: fd});
     } catch(err){
       imageErrors.push(`${label}: ${err.message}`);
@@ -1066,12 +1526,16 @@ async function saveMovie(slug){
   saved = withDefaults(saved);
   MOVIES = MOVIES.filter(x => x.slug !== slug && x.slug !== saved.slug);
   MOVIES.push(saved);
+  const renameErrors = before ? await renameGroupSiblings(before, saved) : [];
   refreshFilters();
   updateHeaderCount();
   renderGrid();
   openMovie(MOVIES.indexOf(saved));
   if(imageErrors.length){
     alert(`${typeLabel(saved.type)} gespeichert, aber Bild-Upload fehlgeschlagen:\n` + imageErrors.join('\n'));
+  }
+  if(renameErrors.length){
+    alert('Gespeichert, aber nicht alle Teile umbenannt:\n' + renameErrors.join('\n'));
   }
 }
 
@@ -1091,14 +1555,44 @@ async function deleteMovieUI(m){
 }
 
 grid.addEventListener('click', e => {
+  if(e.target.closest('#collectionCloseBtn')){
+    toggleGroup(null);
+    return;
+  }
+  const tile = e.target.closest('.collection-card');
+  if(tile){
+    toggleGroup(tile.dataset.group);
+    return;
+  }
   const card = e.target.closest('.card');
   if(card) openMovie(parseInt(card.dataset.idx, 10));
+});
+// Detailansicht: anderen Teil der Reihe bzw. andere Staffel der Serie öffnen (einmal am dauerhaften #sheet, nicht pro Öffnen).
+sheet.addEventListener('click', e => {
+  // Handlung einer Folge auf-/zuklappen
+  const toggle = e.target.closest('.ep-toggle');
+  if(toggle){
+    const open = toggle.getAttribute('aria-expanded') !== 'true';
+    toggle.setAttribute('aria-expanded', String(open));
+    toggle.title = open ? 'Handlung ausblenden' : 'Handlung anzeigen';
+    toggle.closest('li').querySelector('.ep-plot').hidden = !open;
+    return;
+  }
+  const part = e.target.closest('.collection-parts li[data-idx]');
+  if(part && !part.classList.contains('current')) openMovie(parseInt(part.dataset.idx, 10));
+});
+let resizeTimer = 0;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(placeGroupPanel, 150);
 });
 overlay.addEventListener('click', e => {
   if(e.target === overlay && !formIsOpen) closeMovie();
 });
 document.addEventListener('keydown', e => {
-  if(e.key === 'Escape' && !formIsOpen) closeMovie();
+  if(e.key !== 'Escape' || formIsOpen) return;
+  if(overlay.classList.contains('open')) closeMovie();
+  else if(expandedGroup) toggleGroup(null);
 });
 const VIEW_STATE_KEY = 'videothek_view_state';
 
@@ -1146,8 +1640,8 @@ function openImportForm(){
     <div id="formError"></div>
     <div class="form-row">
       <div class="form-field search-query">
-        <label for="importQueryInput">Titel oder IMDb-ID</label>
-        <input type="text" id="importQueryInput" placeholder="z. B. Die Goonies, Breaking Bad oder tt0089218">
+        <label for="importQueryInput">Titel, IMDb-ID oder Barcode</label>
+        <input type="text" id="importQueryInput" placeholder="z. B. Die Goonies, tt0089218 oder 4012909509665">
       </div>
       <div class="form-field search-year">
         <label for="importYearInput">Jahr (optional)</label>
@@ -1156,19 +1650,27 @@ function openImportForm(){
     </div>
     <div class="btn-row">
       <button class="btn btn-primary" id="searchBtn" type="button">Suchen</button>
+      <button class="btn" id="scanBtn" type="button"${canScan() ? '' : ' hidden'}>Barcode scannen</button>
       <button class="btn" id="cancelBtn" type="button">Abbrechen</button>
+    </div>
+    <div class="scan-box" id="scanBox" hidden>
+      <video id="scanVideo" playsinline muted></video>
+      <p class="hint">Barcode der DVD-Hülle ins Bild halten …</p>
+      <button class="btn" id="scanStopBtn" type="button">Scan abbrechen</button>
     </div>
     <div id="searchResults"></div>
     <p class="tmdb-note">
       Daten und Bilder stammen von <a href="https://www.themoviedb.org" target="_blank" rel="noopener">The Movie Database (TMDB)</a>.
-      Als Medium wird „DVD“ eingetragen, bei Serien für alle Staffeln (ohne Specials); Blu-ray o. Ä. und fehlende
-      Staffeln danach im Formular ändern.
+      Als Medium wird "DVD" eingetragen. Eine Serie wird zu einem Eintrag pro Staffel; vorhandene Staffeln bleiben,
+      wie sie sind, fehlende kommen dazu.
     </p>
   `;
   overlay.classList.add('open');
   document.getElementById('closeBtn').addEventListener('click', closeMovie);
   document.getElementById('cancelBtn').addEventListener('click', closeMovie);
   document.getElementById('searchBtn').addEventListener('click', runSearch);
+  document.getElementById('scanBtn').addEventListener('click', openScan);
+  document.getElementById('scanStopBtn').addEventListener('click', stopScan);
   for(const id of ['importQueryInput', 'importYearInput']){
     document.getElementById(id).addEventListener('keydown', e => {
       if(e.key === 'Enter') document.getElementById('searchBtn').click();
@@ -1189,8 +1691,10 @@ async function runSearch(){
     return;
   }
 
-  resultsBox.innerHTML = '<p class="empty">Suche läuft …</p>';
-  /** @type {{results: SearchResult[], error?: string}} */
+  resultsBox.innerHTML = /^\d{8,13}$/.test(query)
+    ? '<p class="empty">Suche den Titel zum Barcode …</p>'
+    : '<p class="empty">Suche läuft …</p>';
+  /** @type {{results: SearchResult[], error?: string, ean?: string, query?: ?string}} */
   let data;
   let errorMsg = null;
   try {
@@ -1208,56 +1712,284 @@ async function runSearch(){
     return;
   }
 
+  // Barcode: Der aus der Websuche gewonnene Titel ersetzt die Nummer im Suchfeld (lässt sich dort korrigieren).
+  let eanNote = '';
+  if(data.ean){
+    if(data.query) document.getElementById('importQueryInput').value = data.query;
+    eanNote = data.query
+      ? `<p class="ean-note">Barcode ${escapeHtml(data.ean)} → „${escapeHtml(data.query)}“</p>`
+      : `<p class="empty">Zum Barcode ${escapeHtml(data.ean)} wurde kein Titel gefunden. Bitte den Titel eintippen.</p>`;
+    if(!data.query){
+      resultsBox.innerHTML = eanNote;
+      return;
+    }
+  }
   if(!data.results.length){
-    resultsBox.innerHTML = '<p class="empty">Keine Treffer.</p>';
+    resultsBox.innerHTML = eanNote + '<p class="empty">Keine Treffer.</p>';
     return;
   }
-  resultsBox.innerHTML = `<ul class="search-results">${data.results.map(r => `
+  const statusText = r => r.existing ? 'bereits in der Videothek – anklicken zum Öffnen'
+    : r.existingSeasons ? `${countLabel(r.existingSeasons, 'Staffel', 'Staffeln')} schon in der Videothek – anklicken ergänzt weitere` : '';
+  resultsBox.innerHTML = eanNote + `<ul class="search-results">${data.results.map(r => `
     <li class="${r.existing ? 'exists' : ''}" data-tmdb="${r.tmdb}" data-type="${r.type}" data-slug="${escapeHtml(r.existing || '')}">
       <div class="result-poster">${r.poster ? `<img src="${escapeHtml(r.poster)}" alt="" loading="lazy">` : ''}</div>
       <div class="result-body">
         <div class="result-title"><span class="result-type${r.type === 'series' ? ' series' : ''}">${typeLabel(r.type)}</span>${escapeHtml(r.title)}${r.year ? ` <span>(${r.year})</span>` : ''}</div>
         ${r.originalTitle ? `<div class="result-original">${escapeHtml(r.originalTitle)}</div>` : ''}
-        ${r.existing ? '<div class="result-status">bereits in der Videothek – anklicken zum Öffnen</div>' : '<div class="result-status"></div>'}
+        <div class="result-status">${escapeHtml(statusText(r))}</div>
         ${r.overview ? `<div class="result-overview">${escapeHtml(r.overview)}</div>` : ''}
       </div>
     </li>`).join('')}</ul>`;
 
-  resultsBox.querySelectorAll('li').forEach(li => li.addEventListener('click', () => {
+  resultsBox.querySelectorAll('li').forEach(li => li.addEventListener('click', e => {
     if(li.dataset.slug){
       const idx = MOVIES.findIndex(m => m.slug === li.dataset.slug);
       if(idx >= 0) openMovie(idx);
+    } else if(li.dataset.type === 'series'){
+      if(!e.target.closest('.import-seasons')) askSeasons(li);
     } else {
-      runImport(parseInt(li.dataset.tmdb, 10), li.dataset.type === 'series' ? 'series' : 'movie', li);
+      void runImport(parseInt(li.dataset.tmdb, 10), 'movie', li);
     }
   }));
 }
 
 /**
- * Importiert den Film bzw. die Serie und lädt danach alle Darstellerfotos über api/actors.php. Jeder Aufruf dort
- * arbeitet nur ~10 s (PHP-Zeitlimit), daher wird wiederholt, bis nichts mehr fehlt.
+ * Fragt bei einem Serien-Treffer, welche Staffeln importiert werden sollen (nur diese werden angelegt, mit dem
+ * Medium DVD), und startet dann den Import.
+ * @param {HTMLElement} li
+ */
+function askSeasons(li){
+  if(li.querySelector('.import-seasons')) return;
+  li.querySelector('.result-body').insertAdjacentHTML('beforeend', `<div class="import-seasons">
+    <label>Staffel <input type="text" class="seasons-input" placeholder="z. B. 2 oder 1-3, 5"></label>
+    <button class="btn btn-primary btn-small" type="button">Importieren</button>
+  </div>`);
+  const input = li.querySelector('.seasons-input');
+  const start = () => {
+    const seasons = parseSeasonList(input.value);
+    if(!seasons){
+      document.getElementById('formError').innerHTML = '<div class="error-box">Staffel bitte als Nummer angeben, z. B. 2 oder 1-3, 5.</div>';
+      return;
+    }
+    void runImport(parseInt(li.dataset.tmdb, 10), 'series', li, seasons);
+  };
+  li.querySelector('.import-seasons button').addEventListener('click', start);
+  input.addEventListener('keydown', e => { if(e.key === 'Enter') start(); });
+  input.focus();
+}
+
+/**
+ * "1-3, 5" -> [1, 2, 3, 5]; leer -> null, Ungültiges -> false.
+ * @param {string} text
+ * @returns {number[]|null|false}
+ */
+function parseSeasonList(text){
+  if(!text.trim()) return null;
+  const numbers = [];
+  for(const part of text.split(/[,;\s]+/).filter(Boolean)){
+    const m = part.match(/^(\d+)(?:-(\d+))?$/);
+    if(!m) return false;
+    const from = parseInt(m[1], 10), to = m[2] ? parseInt(m[2], 10) : from;
+    if(to < from || to - from > 100) return false;
+    for(let n = from; n <= to; n++) numbers.push(n);
+  }
+  return numbers;
+}
+
+// --- Barcode-Scan im Import-Dialog ------------------------------------------------------------------------------
+// Chrome auf Android erkennt Barcodes selbst (BarcodeDetector). Safari auf dem iPhone kann das nicht, dort übernimmt
+// vendor/zxing.min.js (ZXing, ~330 KB, wird erst beim ersten Scan geladen). Die Kamera gibt der Browser nur über
+// HTTPS (oder localhost) frei, sonst fehlt navigator.mediaDevices und der Button bleibt ausgeblendet.
+// Der erkannte Code landet im Suchfeld und läuft durch die normale Suche; search.php erkennt die EAN.
+
+const SCAN_FORMATS = ['ean_13', 'ean_8', 'upc_a'];
+// Ohne Größenangabe liefert Chrome nur 640 × 480; damit las der BarcodeDetector die feinen Striche oft nicht. Mit
+// 1920 × 1080 erkannte er im Vergleich auf dev/scan-test.html zuverlässig (Android-Smartphone, Oktober 2026).
+const SCAN_CONSTRAINTS = {
+  video: {facingMode: {ideal: 'environment'}, width: {ideal: 1920}, height: {ideal: 1080}},
+  audio: false,
+};
+/** @type {?{stop: function(): void}} */
+let activeScan = null;
+let scanSeq = 0;      // erkennt, dass ein Scan abgebrochen wurde, während die Kamera noch startete
+/** @type {?Promise<typeof ZXing>} Promise des einmaligen Nachladens */
+let zxingLoad = null;
+
+function canScan(){
+  return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+}
+
+/** BarcodeDetector des Browsers für EAN/UPC oder null, wenn es keinen gibt (Safari, Firefox). */
+async function nativeBarcodeDetector(){
+  const Detector = window.BarcodeDetector;
+  if(!Detector) return null;
+  try {
+    /** @type {string[]} */
+    const supported = await Detector.getSupportedFormats();
+    const formats = SCAN_FORMATS.filter(f => supported.includes(f));
+    return formats.length ? new Detector({formats}) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Lädt vendor/zxing.min.js einmalig nach (Typen für die IDE: types/scanner.d.ts).
+ * @returns {Promise<typeof ZXing>}
+ */
+function loadZxing(){
+  zxingLoad ??= new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'vendor/zxing.min.js';
+    script.onload = () => resolve(window.ZXing);
+    script.onerror = () => {
+      zxingLoad = null;
+      reject(new Error('Die Barcode-Erkennung konnte nicht geladen werden.'));
+    };
+    document.head.appendChild(script);
+  });
+  return zxingLoad;
+}
+
+/**
+ * Schaltet den Dauer-Autofokus ein, falls die Kamera ihn anbietet (sonst bleibt der Fokus oft auf dem ersten Bild
+ * stehen). Fehler bleiben still, dann scannt es eben mit dem Standardfokus.
+ * @param {MediaStream} stream
+ */
+async function useContinuousFocus(stream){
+  const track = stream.getVideoTracks()[0];
+  try {
+    // focusMode fehlt in den Standard-Typen (Chrome kennt es trotzdem), daher die Casts.
+    const caps = /** @type {{focusMode?: string[]}} */ (track && track.getCapabilities ? track.getCapabilities() : {});
+    if((caps.focusMode || []).includes('continuous')){
+      await track.applyConstraints(/** @type {MediaTrackConstraints} */ ({advanced: [{focusMode: 'continuous'}]}));
+    }
+  } catch {
+    // nicht unterstützt
+  }
+}
+
+/**
+ * Startet die Rückkamera im video-Element und ruft onCode einmal mit dem ersten erkannten Barcode auf; die Kamera
+ * ist dann schon wieder aus.
+ * @param {HTMLVideoElement} video
+ * @param {function(string): void} onCode
+ * @returns {Promise<{stop: function(): void}>}
+ */
+async function startScan(video, onCode){
+  let stopped = false;
+  const detector = await nativeBarcodeDetector();
+  if(detector){
+    const stream = await navigator.mediaDevices.getUserMedia(SCAN_CONSTRAINTS);
+    await useContinuousFocus(stream);
+    const stop = () => {
+      stopped = true;
+      stream.getTracks().forEach(t => t.stop());
+      video.srcObject = null;
+    };
+    video.srcObject = stream;
+    await video.play();
+    const tick = async () => {
+      if(stopped) return;
+      try {
+        const codes = await detector.detect(video);
+        if(codes.length && !stopped){
+          stop();
+          onCode(codes[0].rawValue);
+          return;
+        }
+      } catch {
+        // einzelnes Bild nicht auswertbar, nächstes versuchen
+      }
+      setTimeout(tick, 150);
+    };
+    void tick();
+    return {stop};
+  }
+
+  const ZXing = await loadZxing();
+  const hints = new Map([[ZXing.DecodeHintType.POSSIBLE_FORMATS,
+    [ZXing.BarcodeFormat.EAN_13, ZXing.BarcodeFormat.EAN_8, ZXing.BarcodeFormat.UPC_A]]]);
+  const reader = new ZXing.BrowserMultiFormatReader(hints);
+  const stop = () => {
+    stopped = true;
+    reader.reset();
+  };
+  await reader.decodeFromConstraints(SCAN_CONSTRAINTS, video, result => {
+    if(result && !stopped){
+      stop();
+      onCode(result.getText());
+    }
+  });
+  return {stop};
+}
+
+async function openScan(){
+  const box = document.getElementById('scanBox');
+  const errorBox = document.getElementById('formError');
+  errorBox.innerHTML = '';
+  box.hidden = false;
+  const seq = ++scanSeq;
+  try {
+    const scan = await startScan(document.getElementById('scanVideo'), code => {
+      activeScan = null;
+      box.hidden = true;
+      document.getElementById('importQueryInput').value = code;
+      document.getElementById('searchBtn').click();
+    });
+    if(seq === scanSeq && !box.hidden) activeScan = scan;
+    else scan.stop(); // während des Kamerastarts abgebrochen oder Dialog geschlossen
+  } catch(err){
+    if(seq !== scanSeq) return;
+    box.hidden = true;
+    const msg = err && err.name === 'NotAllowedError'
+      ? 'Der Zugriff auf die Kamera wurde verweigert. Bitte in den Browser-Einstellungen erlauben.'
+      : err && err.name === 'NotFoundError' ? 'Keine Kamera gefunden.' : `Kamera nicht verfügbar: ${err.message}`;
+    errorBox.innerHTML = `<div class="error-box">${escapeHtml(msg)}</div>`;
+  }
+}
+
+/** Beendet einen laufenden Scan (Button, Schließen des Dialogs). */
+function stopScan(){
+  scanSeq++;
+  if(activeScan){
+    activeScan.stop();
+    activeScan = null;
+  }
+  const box = document.getElementById('scanBox');
+  if(box) box.hidden = true;
+}
+
+/**
+ * Importiert den Film bzw. die Serie (je Staffel ein Eintrag) und lädt danach alle Darstellerfotos.
  * @param {number} tmdb
  * @param {'movie'|'series'} type
  * @param {HTMLElement} li  angeklickter Treffer (zeigt den Fortschritt)
+ * @param {number[]} [seasons]  Serien: die zu importierenden Staffeln
  */
-async function runImport(tmdb, type, li){
+async function runImport(tmdb, type, li, seasons = []){
   const errorBox = document.getElementById('formError');
   if(document.querySelector('.search-results li.importing')) return; // kein Doppel-Import
   const status = li.querySelector('.result-status');
   errorBox.innerHTML = '';
   li.classList.add('importing');
+  li.querySelector('.import-seasons')?.remove();
   status.textContent = type === 'series'
-    ? 'Importiere Serie mit allen Staffeln und Folgen, Poster und Hintergrundbild …'
+    ? `Importiere ${seasons.length > 1 ? 'die Staffeln' : 'die Staffel'} mit Folgen, Cover und Hintergrundbild …`
     : 'Importiere Film, Poster und Hintergrundbild …';
 
-  /** @type {Movie} */
-  let saved;
+  /** @type {Movie[]} */
+  let entries;
+  const warnings = [];
   try {
-    saved = await apiWrite('api/import.php', {
+    /** @type {Movie & {entries?: Movie[]}} */
+    const res = await apiWrite('api/import.php', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({tmdb, type}),
+      body: JSON.stringify(type === 'series' ? {tmdb, type, seasons} : {tmdb, type}),
     });
+    entries = res.entries || [res];
+    if(res.import_warning) warnings.push(res.import_warning);
   } catch(err){
     errorBox.innerHTML = `<div class="error-box">${escapeHtml(err.message)}</div>`;
     li.classList.remove('importing');
@@ -1265,19 +1997,45 @@ async function runImport(tmdb, type, li){
     return;
   }
 
-  const warnings = saved.import_warning ? [saved.import_warning] : [];
-  const total = saved.cast.filter(c => c.profile && !c.thumb).length;
+  for(const [n, entry] of entries.entries()){
+    const label = entries.length > 1 ? `${shortTitle(withDefaults(entry))} (${n + 1} von ${entries.length}): ` : '';
+    entries[n] = withDefaults(await loadActorPhotos(entry, text => { status.textContent = label + text; }, warnings));
+  }
+
+  const slugs = new Set(entries.map(x => x.slug));
+  MOVIES = MOVIES.filter(x => !slugs.has(x.slug));
+  MOVIES.push(...entries);
+  await loadCatalog(); // der Import hat die Teile bzw. Staffeln der Reihe/Serie festgehalten
+  refreshFilters();
+  updateHeaderCount();
+  renderGrid();
+  openMovie(MOVIES.indexOf(entries.find(isOwned) || entries[0]));
+  if(warnings.length){
+    alert([...new Set(warnings)].join('\n'));
+  }
+}
+
+/**
+ * Lädt die Darstellerfotos eines neuen Eintrags über api/actors.php. Jeder Aufruf dort arbeitet nur ~10 s
+ * (PHP-Zeitlimit), daher wird wiederholt, bis nichts mehr fehlt. Liefert den aktualisierten Eintrag.
+ * @param {Movie} entry
+ * @param {function(string): void} progress
+ * @param {string[]} warnings  hier landen Probleme
+ * @returns {Promise<Movie>}
+ */
+async function loadActorPhotos(entry, progress, warnings){
+  const total = entry.cast.filter(c => c.profile && !c.thumb).length;
   try {
     let remaining = total;
     while(remaining > 0){
-      status.textContent = `Lade Darstellerfotos … ${total - remaining} von ${total}`;
+      progress(`Lade Darstellerfotos … ${total - remaining} von ${total}`);
       /** @type {ActorsResult} */
       const res = await apiWrite('api/actors.php', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({slug: saved.slug}),
+        body: JSON.stringify({slug: entry.slug}),
       });
-      saved = res.movie;
+      entry = res.movie;
       if(res.failed) warnings.push(`${res.failed} Darstellerfoto(s) konnten nicht geladen werden.`);
       if(res.remaining >= remaining && !res.loaded && !res.failed) break; // kein Fortschritt -> nicht endlos wiederholen
       remaining = res.remaining;
@@ -1285,26 +2043,16 @@ async function runImport(tmdb, type, li){
   } catch(err){
     warnings.push('Darstellerfotos unvollständig: ' + err.message);
   }
-
-  saved = withDefaults(saved);
-  MOVIES = MOVIES.filter(x => x.slug !== saved.slug);
-  MOVIES.push(saved);
-  refreshFilters();
-  updateHeaderCount();
-  renderGrid();
-  openMovie(MOVIES.indexOf(saved));
-  if(warnings.length){
-    alert(warnings.join('\n'));
-  }
+  return entry;
 }
 
 async function init(){
   try {
-    MOVIES = await loadMovies();
+    [MOVIES] = await Promise.all([loadMovies(), loadCatalog()]);
   } catch(err) {
     console.error(err);
     subCount.textContent = 'Die Videothek konnte nicht geladen werden.';
-    grid.innerHTML = '<p class="empty">Fehler beim Laden der Filme und Serien.</p>';
+    grid.innerHTML = '<p class="empty">Fehler beim Laden der Filme und Staffeln.</p>';
     return;
   }
 

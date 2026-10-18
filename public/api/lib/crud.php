@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/slug.php';
 require_once __DIR__ . '/thumbnail.php';
+require_once __DIR__ . '/image_store.php';
 
 class ValidationException extends RuntimeException
 {
@@ -14,17 +15,25 @@ class ValidationException extends RuntimeException
 
 /** Art eines Eintrags (Feld "type" in movie.json). Fehlt das Feld (ältere Dateien), ist es ein Film. */
 const TYPE_MOVIE = 'movie';
+/**
+ * Staffel einer Serie: ein Eintrag wie ein Film (eigenes Cover, Medium, Dateien, Handlung, Darsteller), dazu die
+ * Serie (series, gruppiert wie die Reihe eines Films), die Staffelnummer (season), "Idee" (creator) und die Folgen.
+ */
+const TYPE_SEASON = 'season';
+const ENTRY_TYPES = [TYPE_MOVIE, TYPE_SEASON];
+/**
+ * Serie bei TMDB (Suche, Import). Außerdem die Art der alten Serien-Einträge mit allen Staffeln in seasons[]; die
+ * Übersicht zeigt sie nicht mehr an (neu importieren und den alten Ordner löschen).
+ */
 const TYPE_SERIES = 'series';
-const ENTRY_TYPES = [TYPE_MOVIE, TYPE_SERIES];
 
 /**
- * Felder, die nur eine der beiden Arten hat. Filme: ein Medium und ggf. Dateien für den ganzen Film;
- * Serien: Medium und Dateien pro Staffel (seasons[]), dazu "Idee" (creator) und Endjahr.
- * Wechselt ein Eintrag die Art, fallen die Felder der anderen Art beim Speichern weg.
+ * Felder, die nur eine der beiden Arten hat. Wechselt ein Eintrag die Art, fallen die Felder der anderen Art beim
+ * Speichern weg.
  */
 const TYPE_ONLY_FIELDS = [
-    TYPE_MOVIE => ['director', 'medium', 'files'],
-    TYPE_SERIES => ['yearEnd', 'creator', 'seasons'],
+    TYPE_MOVIE => ['collection', 'director'],
+    TYPE_SEASON => ['series', 'season', 'creator', 'episodes'],
 ];
 
 /** Film-Slug existiert nicht. */
@@ -44,7 +53,7 @@ function movie_dir(string $slug): string
 }
 
 /**
- * Liest und dekodiert movie.json eines Films bzw. einer Serie. Null, wenn Ordner/Datei fehlt oder JSON ungültig ist.
+ * Liest und dekodiert movie.json eines Films bzw. einer Staffel. Null, wenn Ordner/Datei fehlt oder JSON ungültig ist.
  * Ältere Dateien kennen noch kein "type" (= Film) und speichern medium als einzelnen String ("USB"); beides wird
  * hier ergänzt bzw. zur Liste (["USB"]), damit alle Aufrufer nur das aktuelle Format sehen. Gespeichert wird es so
  * beim nächsten Schreiben.
@@ -59,7 +68,7 @@ function read_movie_json(string $slug): ?array
     if (!is_array($data)) {
         return null;
     }
-    if (!in_array($data['type'] ?? null, ENTRY_TYPES, true)) {
+    if (!in_array($data['type'] ?? null, [...ENTRY_TYPES, TYPE_SERIES], true)) {
         $data = ['type' => TYPE_MOVIE] + $data;
     }
     if (array_key_exists('medium', $data) && !is_array($data['medium'])) {
@@ -73,9 +82,9 @@ function read_movie_json(string $slug): ?array
  * Bilder stehen dort, wo im Formular die Bildfelder sind.
  */
 const MOVIE_FIELD_ORDER = [
-    'type', 'title', 'originalTitle', 'year', 'yearEnd', 'runtime', 'fsk', 'genres', 'director', 'creator',
-    'medium', 'files', 'seasons', 'poster', 'thumb', 'fanart', 'plot', 'trailer', 'cast', 'notes',
-    'uniqueids', 'slug', 'created', 'trailerChecked',
+    'type', 'title', 'originalTitle', 'year', 'runtime', 'fsk', 'genres', 'collection', 'series', 'season', 'director',
+    'creator', 'medium', 'files', 'episodes', 'poster', 'thumb', 'fanart', 'plot', 'trailer', 'cast', 'notes',
+    'uniqueids', 'slug', 'created',
 ];
 
 /**
@@ -131,13 +140,19 @@ function get_movie(string $slug): ?array
     return ensure_thumbnail(movie_dir($slug), $movie);
 }
 
-/** @return array[] Alphabetisch nach Titel sortiert (das Frontend sortiert clientseitig ggf. um, siehe app.js). */
+/**
+ * @return array[] Alphabetisch nach Titel sortiert (das Frontend sortiert clientseitig ggf. um, siehe app.js).
+ * Zusätzlich "thumbHash" (Prüfsumme des Thumbnails, nicht in movie.json): Damit zeigt die Kachel einer Serie ein
+ * Cover, das mehrere Staffeln gemeinsam haben, nur einmal.
+ */
 function list_movies(): array
 {
     $movies = [];
     foreach (list_movie_slugs() as $slug) {
         $movie = get_movie($slug);
         if ($movie !== null) {
+            $thumb = !empty($movie['thumb']) ? movie_dir($slug) . '/' . $movie['thumb'] : null;
+            $movie['thumbHash'] = $thumb && is_file($thumb) ? substr(md5_file($thumb), 0, 12) : null;
             $movies[] = $movie;
         }
     }
@@ -148,7 +163,7 @@ function list_movies(): array
 /**
  * Prüft, ob es schon einen Eintrag derselben Art mit gleichem Titel (case-insensitiv) UND gleichem Jahr gibt.
  * Anders als beim Titel allein dürfen so Remakes ("Ben Hur" 1959 und 2016) nebeneinander existieren, ebenso ein
- * Film und eine gleichnamige Serie. $excludeSlug schließt den eigenen Eintrag beim Update aus.
+ * Film und eine gleichnamige Staffel. $excludeSlug schließt den eigenen Eintrag beim Update aus.
  */
 function title_exists(string $title, ?int $year, string $type = TYPE_MOVIE, ?string $excludeSlug = null): bool
 {
@@ -167,8 +182,84 @@ function title_exists(string $title, ?int $year, string $type = TYPE_MOVIE, ?str
 }
 
 /**
+ * Reihe (collection), die schon einen Eintrag mit dieser TMDB-Collection-ID hat, oder null. Damit ein weiterer Teil
+ * beim Import bzw. Nachtrag denselben (ggf. von Hand geänderten) Namen bekommt wie die vorhandenen.
+ * @return ?array{name: string, tmdb: ?string}
+ */
+function find_collection_by_tmdb_id(string $tmdbId): ?array
+{
+    foreach (list_movie_slugs() as $slug) {
+        $collection = read_movie_json($slug)['collection'] ?? null;
+        if (is_array($collection) && ($collection['tmdb'] ?? null) === $tmdbId) {
+            return $collection;
+        }
+    }
+    return null;
+}
+
+/** Serie, die schon eine Staffel mit dieser TMDB-ID der Serie hat (Name ggf. von Hand geändert), oder null. */
+function find_series_by_tmdb_id(string $tmdbId): ?array
+{
+    foreach (list_movie_slugs() as $slug) {
+        $series = read_movie_json($slug)['series'] ?? null;
+        if (is_array($series) && ($series['tmdb'] ?? null) === $tmdbId) {
+            return $series;
+        }
+    }
+    return null;
+}
+
+/**
+ * Vorhandene Staffeln der Serie mit dieser TMDB-ID: [Staffelnummer => Slug].
+ * @return array<int, string>
+ */
+function seasons_by_series_tmdb_id(string $tmdbId): array
+{
+    $result = [];
+    foreach (list_movie_slugs() as $slug) {
+        $m = read_movie_json($slug);
+        if ($m !== null && $m['type'] === TYPE_SEASON && ($m['series']['tmdb'] ?? null) === $tmdbId && isset($m['season'])) {
+            $result[$m['season']] = $slug;
+        }
+    }
+    return $result;
+}
+
+/**
+ * Slug einer anderen Staffel derselben Serie mit derselben Nummer oder null. Ohne Serie oder Nummer gibt es keine
+ * Dopplung. Haben beide eine TMDB-ID der Serie, entscheidet sie: So dürfen DVDs, die TMDB als eigene Serien mit je
+ * einer "Staffel 1" führt, unter einem gemeinsamen Seriennamen stehen (z. B. "Shaun das Schaf"). Sonst entscheidet
+ * der Name (ohne Groß-/Kleinschreibung).
+ */
+function find_season_slug(array $fields, ?string $excludeSlug = null): ?string
+{
+    if (empty($fields['series']['name']) || ($fields['season'] ?? null) === null) {
+        return null;
+    }
+    $name = mb_strtolower($fields['series']['name']);
+    $tmdb = $fields['series']['tmdb'] ?? null;
+    foreach (list_movie_slugs() as $slug) {
+        if ($slug === $excludeSlug) {
+            continue;
+        }
+        $m = read_movie_json($slug);
+        if ($m === null || $m['type'] !== TYPE_SEASON || ($m['season'] ?? null) !== $fields['season']) {
+            continue;
+        }
+        $otherTmdb = $m['series']['tmdb'] ?? null;
+        $same = $tmdb !== null && $otherTmdb !== null
+            ? $otherTmdb === $tmdb
+            : mb_strtolower(trim($m['series']['name'] ?? '')) === $name;
+        if ($same) {
+            return $slug;
+        }
+    }
+    return null;
+}
+
+/**
  * Slug des Eintrags mit dieser TMDB-ID oder null. TMDB zählt Filme und Serien getrennt (Film 1396 ist nicht
- * Serie 1396), deshalb gehört die Art dazu. $excludeSlug schließt den eigenen Eintrag beim Update aus.
+ * Serie 1396), deshalb gehört die Art dazu. Für Staffeln siehe find_season_slug(). $excludeSlug schließt den eigenen Eintrag beim Update aus.
  */
 function find_slug_by_tmdb_id(string $tmdbId, string $type = TYPE_MOVIE, ?string $excludeSlug = null): ?string
 {
@@ -184,10 +275,14 @@ function find_slug_by_tmdb_id(string $tmdbId, string $type = TYPE_MOVIE, ?string
     return null;
 }
 
-/** "Film" bzw. "Serie" für Meldungen. */
+/** "Film", "Staffel" bzw. "Serie" für Meldungen. */
 function type_label(string $type): string
 {
-    return $type === TYPE_SERIES ? 'Serie' : 'Film';
+    return match ($type) {
+        TYPE_SEASON => 'Staffel',
+        TYPE_SERIES => 'Serie',
+        default => 'Film',
+    };
 }
 
 /** @return string[] Fehlermeldungen, leer wenn valide. */
@@ -215,27 +310,34 @@ function validate_movie_input(array $data): array
             break;
         }
     }
+    foreach (['collection', 'series'] as $field) {
+        $group = $data[$field] ?? null;
+        if ($group !== null && !is_string($group)
+            && (!is_array($group) || !is_string($group['name'] ?? '') || !is_scalar($group['tmdb'] ?? ''))) {
+            $errors[] = "$field muss ein Text oder ein Objekt {name, tmdb} sein";
+        }
+    }
+    if (is_array($data['collection'] ?? null) && !valid_optional_int($data['collection']['part'] ?? null, 1, 999)) {
+        $errors[] = 'collection.part (Teil) muss eine ganze Zahl zwischen 1 und 999 sein';
+    }
     if (!empty($data['trailer']) && !preg_match('#^https?://#i', (string) $data['trailer'])) {
         $errors[] = 'trailer muss eine http(s)-URL sein';
     }
     // Pflicht bei Medium USB prüft das Formular (app.js: saveMovie()), nicht die API: Der TMDB-Import kennt
     // die Dateien nicht und muss einen Eintrag auch dann anlegen können, wenn IMPORT_DEFAULT_MEDIUM "USB" ist.
     array_push($errors, ...validate_files_input($data['files'] ?? null, 'files'));
-    if (isset($data['seasons'])) {
-        array_push($errors, ...validate_seasons_input($data['seasons']));
+    if (isset($data['episodes'])) {
+        array_push($errors, ...validate_episodes_input($data['episodes']));
     }
     foreach (['plot', 'notes'] as $field) {
         if (isset($data[$field]) && !is_string($data[$field])) {
             $errors[] = "$field muss ein Text sein";
         }
     }
-    foreach (['year' => [1880, 2100], 'yearEnd' => [1880, 2100], 'runtime' => [1, 1000]] as $field => [$min, $max]) {
+    foreach (['year' => [1880, 2100], 'runtime' => [1, 1000], 'season' => [0, 999]] as $field => [$min, $max]) {
         if (!valid_optional_int($data[$field] ?? null, $min, $max)) {
             $errors[] = "$field muss eine ganze Zahl zwischen $min und $max sein";
         }
-    }
-    if (!empty($data['year']) && !empty($data['yearEnd']) && (int) $data['yearEnd'] < (int) $data['year']) {
-        $errors[] = 'yearEnd darf nicht vor year liegen';
     }
 
     return $errors;
@@ -270,50 +372,27 @@ function validate_files_input(mixed $files, string $label): array
 }
 
 /**
- * Prüft seasons[] einer Serie: jede Staffel ein Objekt mit eindeutiger Nummer (0 = Specials), optional
- * name, year, episodes[] ({number?, title?, plot?}), medium und files.
+ * Prüft die Folgen einer Staffel: Liste von {number?, title?, plot?}, jede Nummer höchstens einmal.
  * @return string[]
  */
-function validate_seasons_input(mixed $seasons): array
+function validate_episodes_input(mixed $episodes): array
 {
-    if (!is_array($seasons) || !array_is_list($seasons)) {
-        return ['seasons muss ein Array sein'];
+    if (!is_array($episodes) || !array_is_list($episodes)) {
+        return ['episodes muss ein Array sein'];
     }
     $errors = [];
     $numbers = [];
-    foreach ($seasons as $i => $s) {
-        if (!is_array($s)) {
-            $errors[] = "seasons[$i] muss ein Objekt sein";
-            continue;
+    foreach ($episodes as $e) {
+        if (!is_array($e) || !valid_optional_int($e['number'] ?? null, 0, 9999)
+            || (isset($e['title']) && !is_string($e['title'])) || (isset($e['plot']) && !is_string($e['plot']))) {
+            $errors[] = 'Jede Folge braucht die Form {number, title, plot}';
+            break;
         }
-        $label = 'Staffel ' . (isset($s['number']) && is_scalar($s['number']) ? $s['number'] : '#' . ($i + 1));
-        if (!isset($s['number']) || $s['number'] === '' || !valid_optional_int($s['number'], 0, 999)) {
-            $errors[] = "$label: number muss eine ganze Zahl zwischen 0 und 999 sein";
-        } elseif (in_array((int) $s['number'], $numbers, true)) {
-            $errors[] = "$label ist doppelt vorhanden";
-        } else {
-            $numbers[] = (int) $s['number'];
-        }
-        if (!valid_optional_int($s['year'] ?? null, 1880, 2100)) {
-            $errors[] = "$label: year muss eine ganze Zahl zwischen 1880 und 2100 sein";
-        }
-        if (isset($s['medium']) && !is_array($s['medium']) && !is_string($s['medium'])) {
-            $errors[] = "$label: medium muss ein Array oder ein Text sein";
-        }
-        foreach (validate_files_input($s['files'] ?? null, 'files') as $e) {
-            $errors[] = "$label: $e";
-        }
-        $episodes = $s['episodes'] ?? [];
-        if (!is_array($episodes) || !array_is_list($episodes)) {
-            $errors[] = "$label: episodes muss ein Array sein";
-            continue;
-        }
-        foreach ($episodes as $e) {
-            if (!is_array($e) || !valid_optional_int($e['number'] ?? null, 0, 9999)
-                || (isset($e['title']) && !is_string($e['title'])) || (isset($e['plot']) && !is_string($e['plot']))) {
-                $errors[] = "$label: jede Folge braucht die Form {number, title, plot}";
-                break;
+        if (($e['number'] ?? '') !== '' && $e['number'] !== null) {
+            if (in_array((int) $e['number'], $numbers, true)) {
+                $errors[] = "Folge {$e['number']} ist doppelt vorhanden";
             }
+            $numbers[] = (int) $e['number'];
         }
     }
     return $errors;
@@ -346,6 +425,25 @@ function normalize_movie_media(mixed $media): array
     return array_values(array_unique(array_filter(array_map(fn($m) => trim((string) $m), $list), 'strlen')));
 }
 
+/**
+ * Reihe, zu der ein Film gehört (z. B. die Matrix-Filme): {name, tmdb, part} mit der TMDB-Collection-ID (nur bei
+ * Import aus TMDB, sonst null) und der Nummer des Films in der Reihe (part, von Hand, sonst null: dann zählt das
+ * Erscheinungsjahr). Ebenso die Serie einer Staffel ($withPart = false: {name, tmdb} mit der TMDB-ID der Serie, die
+ * Nummer steht dort in "season"). Akzeptiert auch nur den Namen als String. Ohne Namen: null.
+ * @return ?array{name: string, tmdb: ?string, part?: ?int}
+ */
+function normalize_collection(mixed $collection, bool $withPart = true): ?array
+{
+    if (is_string($collection)) {
+        $collection = ['name' => $collection];
+    }
+    if (!is_array($collection) || ($name = nullable_string($collection['name'] ?? null)) === null) {
+        return null;
+    }
+    $result = ['name' => $name, 'tmdb' => nullable_string($collection['tmdb'] ?? null)];
+    return $withPart ? $result + ['part' => nullable_int($collection['part'] ?? null)] : $result;
+}
+
 /** Leerer/fehlender Wert -> null, sonst getrimmter String. */
 function nullable_string(mixed $value): ?string
 {
@@ -361,7 +459,7 @@ function nullable_int(mixed $value): ?int
 
 /**
  * Baut aus rohen Request-Daten die vom Store verwalteten Felder, mit Defaults/Typumwandlung. Je nach Art
- * (type) kommen die Film- bzw. die Serienfelder dazu (TYPE_ONLY_FIELDS).
+ * (type) kommen die Film- bzw. die Staffelfelder dazu (TYPE_ONLY_FIELDS).
  * Nicht enthalten (und damit beim Update unverändert aus movie.json übernommen): slug, created,
  * uniqueids und die Bilddateien poster/thumb/fanart.
  */
@@ -380,49 +478,31 @@ function normalize_movie_fields(array $data): array
             'name' => trim((string) $c['name']),
             'role' => nullable_string($c['role'] ?? null),
             'profile' => nullable_string($c['profile'] ?? null),
-            'thumb' => nullable_string($c['thumb'] ?? null),
+            'thumb' => actor_photo_name($c['thumb'] ?? null),
         ], array_values($data['cast'] ?? [])),
         'trailer' => nullable_string($data['trailer'] ?? null),
         'plot' => nullable_string($data['plot'] ?? null),
         'notes' => nullable_string($data['notes'] ?? null),
-    ];
-    if ($type === TYPE_SERIES) {
-        return $common + [
-            'yearEnd' => nullable_int($data['yearEnd'] ?? null),
-            'creator' => nullable_string($data['creator'] ?? null),
-            'seasons' => normalize_seasons($data['seasons'] ?? []),
-        ];
-    }
-    return $common + [
-        'director' => nullable_string($data['director'] ?? null),
         'medium' => normalize_movie_media($data['medium'] ?? null),
         'files' => normalize_movie_files($data['files'] ?? []),
     ];
+    if ($type === TYPE_SEASON) {
+        return $common + [
+            'series' => normalize_collection($data['series'] ?? null, false),
+            'season' => nullable_int($data['season'] ?? null),
+            'creator' => nullable_string($data['creator'] ?? null),
+            'episodes' => normalize_episodes($data['episodes'] ?? []),
+        ];
+    }
+    return $common + [
+        'collection' => normalize_collection($data['collection'] ?? null),
+        'director' => nullable_string($data['director'] ?? null),
+    ];
 }
 
 /**
- * Staffeln einer Serie, nach Nummer sortiert: {number, name, year, episodes: [{number, title, plot}], medium, files}.
- * Eine Staffel mit leerem medium ist bekannt (z. B. von TMDB), aber nicht im eigenen Bestand.
- * files: Folgendateien relativ zu USB_ROOT, üblich <slug>/S01/E01.<ext> (Zuordnung zu den Folgen siehe
- * season_episode_files()).
- * @return array[]
- */
-function normalize_seasons(array $seasons): array
-{
-    $result = array_map(fn(array $s) => [
-        'number' => (int) $s['number'],
-        'name' => nullable_string($s['name'] ?? null),
-        'year' => nullable_int($s['year'] ?? null),
-        'episodes' => normalize_episodes($s['episodes'] ?? []),
-        'medium' => normalize_movie_media($s['medium'] ?? null),
-        'files' => normalize_movie_files($s['files'] ?? []),
-    ], array_values($seasons));
-    usort($result, fn(array $a, array $b) => $a['number'] <=> $b['number']);
-    return $result;
-}
-
-/**
- * Folgen einer Staffel, nach Nummer sortiert. Fehlt die Nummer, zählt die Position (1, 2, …).
+ * Folgen einer Staffel, nach Nummer sortiert. Fehlt die Nummer, zählt die Position (1, 2, …). Die Handlung enthält
+ * keine Leerzeilen (episode_plot()): Im Formular trennt eine Leerzeile die Folgen.
  * @return array<array{number: int, title: ?string, plot: ?string}>
  */
 function normalize_episodes(array $episodes): array
@@ -433,38 +513,23 @@ function normalize_episodes(array $episodes): array
         $result[$number] = [
             'number' => $number,
             'title' => nullable_string($e['title'] ?? null),
-            'plot' => nullable_string($e['plot'] ?? null),
+            'plot' => episode_plot($e['plot'] ?? null),
         ];
     }
     ksort($result);
     return array_values($result);
 }
 
-/**
- * Das Formular kennt bei Folgen nur die Titel. Damit die von TMDB übernommene Handlung einer Folge beim Bearbeiten
- * nicht verloren geht, wird sie (Zuordnung über Staffel- und Folgennummer) aus dem alten Stand übernommen.
- */
-function carry_over_episode_plots(array $newSeasons, array $oldSeasons): array
+/** Handlung einer Folge ohne Leerzeilen (auch für den Import aus TMDB), leer -> null. */
+function episode_plot(mixed $plot): ?string
 {
-    $old = [];
-    foreach ($oldSeasons as $s) {
-        foreach ($s['episodes'] ?? [] as $e) {
-            $old[$s['number'] . '/' . $e['number']] = $e['plot'] ?? null;
-        }
-    }
-    foreach ($newSeasons as &$s) {
-        foreach ($s['episodes'] as &$e) {
-            $e['plot'] ??= $old[$s['number'] . '/' . $e['number']] ?? null;
-        }
-        unset($e);
-    }
-    unset($s);
-    return $newSeasons;
+    $plot = nullable_string($plot);
+    return $plot === null ? null : preg_replace("/\n(?:[ \t]*\n)+/", "\n", str_replace("\r", '', $plot));
 }
 
 /**
- * Dateien einer Folge innerhalb von $season['files'] (in Abspielreihenfolge, mehrteilig z. B. E03-cd1, E03-cd2).
- * Zuordnung über die Folgennummer im Dateinamen ("E03", "S01E03", "e3"); trägt keine Datei der Staffel eine
+ * Dateien einer Folge innerhalb von $season['files'] einer Staffel (in Abspielreihenfolge, mehrteilig, z. B. E03-cd1,
+ * E03-cd2). Zuordnung über die Folgennummer im Dateinamen ("E03", "S01E03", "e3"); trägt keine Datei der Staffel eine
  * solche Nummer, zählt die Position (1. Datei = 1. Folge der Liste). Gegenstück in app.js: episodeFiles().
  * @return string[]
  */
@@ -485,23 +550,22 @@ function season_episode_files(array $season, int $episode): array
     return $pos !== false && isset($season['files'][$pos]) ? [$season['files'][$pos]] : [];
 }
 
-/**
- * Das Formular kennt nur Name und Rolle. Damit beim Bearbeiten TMDB-Porträtpfad (profile) und
- * heruntergeladenes Foto (thumb) nicht verloren gehen, werden sie anhand des Namens aus dem alten
- * Stand übernommen.
- */
-function carry_over_cast_profiles(array $newCast, array $oldCast): array
+/** Dateiname eines Darstellerfotos unter actors/ (ohne Pfad, Bildendung) oder null; alles andere wird verworfen. */
+function actor_photo_name(mixed $name): ?string
 {
-    $old = [];
-    foreach ($oldCast as $c) {
-        $old[mb_strtolower($c['name'])] = $c;
+    return is_string($name) && $name === basename($name) && !str_starts_with($name, '.')
+        && preg_match('/\.(jpe?g|png|webp)$/i', $name) ? $name : null;
+}
+
+/** Löscht Darstellerfotos unter actors/, auf die kein Darsteller in $movie mehr verweist. */
+function remove_unused_actor_photos(string $slug, array $movie): void
+{
+    $used = array_filter(array_column($movie['cast'] ?? [], 'thumb'));
+    foreach (glob(movie_dir($slug) . '/actors/*') ?: [] as $file) {
+        if (!in_array(basename($file), $used, true)) {
+            @unlink($file);
+        }
     }
-    return array_map(function (array $c) use ($old) {
-        $prev = $old[mb_strtolower($c['name'])] ?? [];
-        $c['profile'] ??= $prev['profile'] ?? null;
-        $c['thumb'] ??= $prev['thumb'] ?? null;
-        return $c;
-    }, $newCast);
 }
 
 /**
@@ -515,6 +579,20 @@ function actor_file_name(string $name): string
 }
 
 /**
+ * Titel einer Staffel als eigener Eintrag: "Die Tudors – Staffel 1" bzw. mit dem Namen der Staffel
+ * ("Die Tudors – Mätresse des Königs"); Specials (Nummer 0) heißen "Specials". Hat die Serie nur eine reguläre
+ * Staffel ($only, z. B. eine DVD, die TMDB als eigene Serie führt), heißt die Staffel wie die Serie.
+ */
+function season_entry_title(string $series, ?string $name, int $number, bool $only = false): string
+{
+    $name = trim((string) $name);
+    if ($name === '' || preg_match('/^(Staffel|Season)\s+\d+$/iu', $name)) {
+        $name = $number === 0 ? 'Specials' : "Staffel $number";
+    }
+    return $only && $number > 0 ? $series : "$series – $name";
+}
+
+/**
  * Slug aus Titel + Jahr, damit Remakes mit gleichem Titel sprechende, unterschiedliche Ordnernamen
  * bekommen ("ben-hur-1959", "ben-hur-2016") statt "ben-hur" und "ben-hur-2".
  */
@@ -524,7 +602,7 @@ function movie_base_slug(array $fields): string
 }
 
 /**
- * Legt einen neuen Film bzw. eine neue Serie an: validiert, vergibt Slug/created, erstellt den Ordner und schreibt movie.json.
+ * Legt einen neuen Film bzw. eine neue Staffel an: validiert, vergibt Slug/created, erstellt den Ordner und schreibt movie.json.
  * $uniqueids (z. B. ["tmdb" => "9340", "imdb" => "tt0089218"]) setzt nur der Import.
  * @throws ValidationException
  */
@@ -537,7 +615,11 @@ function create_movie(array $data, array $uniqueids = []): array
 
     $fields = normalize_movie_fields($data);
     $label = type_label($fields['type']);
-    if (isset($uniqueids['tmdb']) && ($existing = find_slug_by_tmdb_id((string) $uniqueids['tmdb'], $fields['type'])) !== null) {
+    // Staffeln teilen sich die TMDB-ID ihrer Serie, sie unterscheiden sich erst durch die Nummer.
+    $existing = $fields['type'] === TYPE_SEASON
+        ? find_season_slug($fields)
+        : (isset($uniqueids['tmdb']) ? find_slug_by_tmdb_id((string) $uniqueids['tmdb'], $fields['type']) : null);
+    if ($existing !== null) {
         throw new ValidationException(["$label bereits vorhanden ($existing)"]);
     }
     if (title_exists($fields['title'], $fields['year'], $fields['type'])) {
@@ -568,7 +650,7 @@ function create_movie(array $data, array $uniqueids = []): array
 }
 
 /**
- * Aktualisiert einen Film bzw. eine Serie (auch einen Wechsel der Art). Ändert sich Titel oder Jahr so, dass der Slug wechselt, wird der
+ * Aktualisiert einen Film bzw. eine Staffel (auch einen Wechsel der Art). Ändert sich Titel oder Jahr so, dass der Slug wechselt, wird der
  * Ordner atomar umbenannt – bei Fehlschlag bleibt der alte Zustand vollständig erhalten.
  *
  * @throws NotFoundException|ValidationException|ConflictException
@@ -580,20 +662,21 @@ function update_movie(string $slug, array $data): array
         throw new NotFoundException("Film '$slug' nicht gefunden");
     }
 
-    // Ohne "type" bleibt die bisherige Art (eine Serie wird nicht stillschweigend zum Film).
+    // Ohne "type" bleibt die bisherige Art (eine Staffel wird nicht stillschweigend zum Film).
     $data += ['type' => $existing['type']];
     $errors = validate_movie_input($data);
     if ($errors) {
         throw new ValidationException($errors);
     }
 
+    // Das Formular schickt alles mit, was es zeigt (auch Handlung der Folgen, Foto- und Cover-Dateinamen). Was
+    // fehlt, ist gewollt leer; nicht mehr benutzte Bilder werden unten aufgeräumt.
     $fields = normalize_movie_fields($data);
-    $fields['cast'] = carry_over_cast_profiles($fields['cast'], $existing['cast'] ?? []);
-    if (isset($fields['seasons'])) {
-        $fields['seasons'] = carry_over_episode_plots($fields['seasons'], $existing['seasons'] ?? []);
-    }
     if (title_exists($fields['title'], $fields['year'], $fields['type'], $slug)) {
         throw new ValidationException([type_label($fields['type']) . ' mit diesem Titel und Jahr bereits vorhanden']);
+    }
+    if (($other = find_season_slug($fields, $slug)) !== null) {
+        throw new ValidationException(["Diese Staffel der Serie gibt es schon ($other)"]);
     }
 
     $newBaseSlug = movie_base_slug($fields);
@@ -615,12 +698,17 @@ function update_movie(string $slug, array $data): array
     }
 
     $movie = array_merge($existing, $fields, ['slug' => $newSlug]);
-    // Art gewechselt (Film <-> Serie): Felder der anderen Art nicht mitschleppen.
-    foreach (TYPE_ONLY_FIELDS[$fields['type'] === TYPE_SERIES ? TYPE_MOVIE : TYPE_SERIES] as $field) {
-        unset($movie[$field]);
+    // Art gewechselt (Film <-> Staffel): Felder der anderen Art nicht mitschleppen.
+    foreach (TYPE_ONLY_FIELDS as $type => $typeFields) {
+        if ($type !== $fields['type']) {
+            foreach ($typeFields as $field) {
+                unset($movie[$field]);
+            }
+        }
     }
     $movie = order_movie_fields($movie);
     write_movie_json($newSlug, $movie);
+    remove_unused_actor_photos($newSlug, $movie);
     return $movie;
 }
 

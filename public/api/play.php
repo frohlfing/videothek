@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Play-Button für Filme und Serien mit Medium "USB": liefert eine Wiedergabeliste (.m3u) mit den vollständigen
+ * Play-Button für Filme und Staffeln mit Medium "USB": liefert eine Wiedergabeliste (.m3u) mit den vollständigen
  * Pfaden der Datei(en) – USB_ROOT (config.php) + files[] aus movie.json. Der Browser lädt sie herunter und das
  * Betriebssystem öffnet sie mit dem installierten Player (VLC, Windows Media Player, …); mehrteilige Filme
  * (cd1, cd2, …) bzw. alle Folgen einer Staffel laufen nacheinander.
@@ -11,9 +11,8 @@
  * Wiedergabeliste ist der einfachste Weg, den lokalen Player zu starten. Tipp: In Chrome/Edge beim
  * ersten Download "Dateien dieses Typs immer öffnen" wählen, dann startet der Film mit einem Klick.
  *
- * GET /api/play.php?slug=xyz                       -> Film: <slug>.m3u
- * GET /api/play.php?slug=xyz&season=1              -> Serie: alle Folgen von Staffel 1 (<slug>-s01.m3u)
- * GET /api/play.php?slug=xyz&season=1&episode=3    -> Serie: nur Folge 3 (<slug>-s01e03.m3u)
+ * GET /api/play.php?slug=xyz              -> Film: <slug>.m3u, Staffel: alle Folgen
+ * GET /api/play.php?slug=xyz&episode=3    -> Staffel: nur Folge 3 (<slug>-e03.m3u)
  *   404, falls keine passende Datei eingetragen ist.
  */
 
@@ -28,30 +27,26 @@ if ($movie === null) {
 
 /** @var array<array{0: string, 1: string}> $items [Titel in der Wiedergabeliste, relativer Pfad] */
 $items = [];
-if ($movie['type'] === TYPE_SERIES) {
-    $seasonNo = filter_var($_GET['season'] ?? null, FILTER_VALIDATE_INT);
+if ($movie['type'] === TYPE_SEASON) {
     $episodeNo = isset($_GET['episode']) ? filter_var($_GET['episode'], FILTER_VALIDATE_INT) : null;
-    if ($seasonNo === false || $episodeNo === false) {
-        json_error(400, 'season (und optional episode) müssen ganze Zahlen sein');
-    }
-    $season = current(array_filter($movie['seasons'] ?? [], fn($s) => $s['number'] === $seasonNo)) ?: null;
-    if ($season === null) {
-        json_error(404, "Staffel $seasonNo nicht gefunden");
+    if ($episodeNo === false) {
+        json_error(400, 'episode muss eine ganze Zahl sein');
     }
     // Ohne Folgenliste zählt jede Datei als eine Folge.
-    $season['episodes'] = $season['episodes'] ?: array_map(fn($i) => ['number' => $i + 1, 'title' => null], array_keys($season['files']));
+    $season = $movie;
+    $season['episodes'] = ($movie['episodes'] ?? []) ?: array_map(fn($i) => ['number' => $i + 1, 'title' => null], array_keys($movie['files'] ?? []));
     foreach ($season['episodes'] as $e) {
         if ($episodeNo !== null && $e['number'] !== $episodeNo) {
             continue;
         }
         $files = season_episode_files($season, $e['number']);
-        $code = sprintf('S%02dE%02d', $seasonNo, $e['number']);
+        $code = ($movie['season'] ?? null) !== null ? sprintf('S%02dE%02d', $movie['season'], $e['number']) : sprintf('Folge %d', $e['number']);
         foreach ($files as $i => $file) {
             $part = count($files) > 1 ? ' (Teil ' . ($i + 1) . ')' : '';
             $items[] = [$movie['title'] . " – $code" . ($e['title'] ? ' ' . $e['title'] : '') . $part, $file];
         }
     }
-    $name = $movie['slug'] . sprintf('-s%02d', $seasonNo) . ($episodeNo !== null ? sprintf('e%02d', $episodeNo) : '');
+    $name = $movie['slug'] . ($episodeNo !== null ? sprintf('-e%02d', $episodeNo) : '');
 } else {
     foreach ($movie['files'] ?? [] as $i => $file) {
         $part = count($movie['files']) > 1 ? ' (Teil ' . ($i + 1) . ')' : '';

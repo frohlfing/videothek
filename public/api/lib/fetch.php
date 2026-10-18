@@ -7,7 +7,7 @@ const HTTP_FETCH_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWe
  * verfügbar (realistischerer Browser-Fingerprint, manche Seiten blocken PHPs file_get_contents()-
  * Stream-Wrapper sonst als Bot), sonst file_get_contents() mit Stream-Context als Fallback
  * (allow_url_fopen ist praktisch überall aktiviert, curl dagegen nicht garantiert vorhanden).
- * Folgt Redirects.
+ * Folgt Redirects. $headers sind zusätzliche Request-Header ("Name: Wert"), z. B. ein API-Schlüssel.
  *
  * Bekanntes lokales Problem (dieses XAMPP, nicht der Code hier): Unter Apache (nicht CLI!) schlägt
  * das Laden von php_curl.dll fehl, extension_loaded('curl') liefert dort false, der Fallback auf
@@ -22,7 +22,7 @@ const HTTP_FETCH_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWe
  *
  * @throws RuntimeException bei ungültigem Schema, Netzwerkfehler oder HTTP-Fehlerstatus
  */
-function http_get(string $url, int $timeoutSeconds = 10, int $maxBytes = 8 * 1024 * 1024): string
+function http_get(string $url, int $timeoutSeconds = 10, int $maxBytes = 8 * 1024 * 1024, array $headers = []): string
 {
     $scheme = parse_url($url, PHP_URL_SCHEME);
     if (!in_array($scheme, ['http', 'https'], true)) {
@@ -30,11 +30,11 @@ function http_get(string $url, int $timeoutSeconds = 10, int $maxBytes = 8 * 102
     }
 
     return extension_loaded('curl')
-        ? http_get_curl($url, $timeoutSeconds, $maxBytes)
-        : http_get_stream($url, $timeoutSeconds, $maxBytes);
+        ? http_get_curl($url, $timeoutSeconds, $maxBytes, $headers)
+        : http_get_stream($url, $timeoutSeconds, $maxBytes, $headers);
 }
 
-function http_get_curl(string $url, int $timeoutSeconds, int $maxBytes): string
+function http_get_curl(string $url, int $timeoutSeconds, int $maxBytes, array $headers = []): string
 {
     $ch = curl_init($url);
     curl_setopt_array($ch, [
@@ -44,7 +44,7 @@ function http_get_curl(string $url, int $timeoutSeconds, int $maxBytes): string
         CURLOPT_TIMEOUT => $timeoutSeconds,
         CURLOPT_CONNECTTIMEOUT => $timeoutSeconds,
         CURLOPT_USERAGENT => HTTP_FETCH_USER_AGENT,
-        CURLOPT_HTTPHEADER => ['Accept-Language: de-DE,de;q=0.9,en;q=0.8'],
+        CURLOPT_HTTPHEADER => ['Accept-Language: de-DE,de;q=0.9,en;q=0.8', ...$headers],
         CURLOPT_RANGE => '0-' . $maxBytes, // Kulanz-Bremse, Server kann Range ignorieren
         CURLOPT_SSL_VERIFYPEER => true,
         // Leerstring = "alle von libcurl unterstützten Kodierungen anbieten und automatisch
@@ -69,14 +69,15 @@ function http_get_curl(string $url, int $timeoutSeconds, int $maxBytes): string
     return $body;
 }
 
-function http_get_stream(string $url, int $timeoutSeconds, int $maxBytes): string
+function http_get_stream(string $url, int $timeoutSeconds, int $maxBytes, array $headers = []): string
 {
     $context = stream_context_create([
         'http' => [
             'method' => 'GET',
             'header' => "User-Agent: " . HTTP_FETCH_USER_AGENT . "\r\n"
                 . "Accept-Language: de-DE,de;q=0.9,en;q=0.8\r\n"
-                . "Accept-Encoding: gzip, deflate\r\n",
+                . "Accept-Encoding: gzip, deflate\r\n"
+                . implode('', array_map(fn(string $h) => "$h\r\n", $headers)),
             'timeout' => $timeoutSeconds,
             'follow_location' => 1,
             'max_redirects' => 5,

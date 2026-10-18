@@ -9,7 +9,8 @@ require_once __DIR__ . '/tmdb.php';
  * movie.json ein. Arbeitet höchstens $timeBudget Sekunden, damit ein Request bei 50+ Darstellern nicht ins
  * PHP-Zeitlimit läuft – der Aufrufer wiederholt einfach, bis "remaining" 0 ist (siehe api/actors.php).
  * Darsteller ohne TMDB-Porträt (cast[].profile) werden übersprungen; ein fehlgeschlagener Download zählt
- * als "failed" und wird beim nächsten Aufruf nicht erneut versucht.
+ * als "failed" und wird beim nächsten Aufruf nicht erneut versucht. Bei einer Staffel wird ein Foto, das eine andere
+ * Staffel derselben Serie schon hat, nur kopiert (nach dem Import einer Serie also nur einmal heruntergeladen).
  *
  * @return array{movie: array, loaded: int, failed: int, remaining: int}
  * @throws NotFoundException
@@ -22,6 +23,8 @@ function download_actor_photos(string $slug, float $timeBudget = 10.0): array
     }
 
     $dir = movie_dir($slug) . '/actors';
+    $siblings = $movie['type'] === TYPE_SEASON && isset($movie['series']['tmdb'])
+        ? array_diff(seasons_by_series_tmdb_id($movie['series']['tmdb']), [$slug]) : [];
     $start = microtime(true);
     $loaded = 0;
     $failed = 0;
@@ -37,6 +40,11 @@ function download_actor_photos(string $slug, float $timeBudget = 10.0): array
         $fileName = actor_file_name($c['name']);
         if (!is_file($dir . '/' . $fileName)) {
             try {
+                if (copy_actor_photo_from($siblings, $fileName, $dir)) {
+                    $movie['cast'][$i]['thumb'] = $fileName;
+                    $loaded++;
+                    continue;
+                }
                 $data = http_get(tmdb_image_url($c['profile'], 'w185'));
                 if (@getimagesizefromstring($data) === false) {
                     throw new RuntimeException('keine Bilddatei');
@@ -64,6 +72,21 @@ function download_actor_photos(string $slug, float $timeBudget = 10.0): array
         'failed' => $failed,
         'remaining' => count(array_filter($movie['cast'], 'actor_photo_missing')),
     ];
+}
+
+/** Kopiert actors/$fileName aus dem ersten der Einträge $slugs, der es hat, nach $dir. */
+function copy_actor_photo_from(array $slugs, string $fileName, string $dir): bool
+{
+    foreach ($slugs as $other) {
+        $src = movie_dir($other) . '/actors/' . $fileName;
+        if (is_file($src)) {
+            if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+                throw new RuntimeException('Ordner actors/ konnte nicht angelegt werden');
+            }
+            return copy($src, $dir . '/' . $fileName);
+        }
+    }
+    return false;
 }
 
 /** Hat der Darsteller ein TMDB-Porträt, das noch nicht heruntergeladen wurde? */

@@ -44,3 +44,13 @@ const TMDB_LANGUAGE = 'de-DE';
 // USB_ROOT + der im Film eingetragenen relativen Datei, die der dort installierte Player öffnet.
 const USB_ROOT = 'D:\videothek';
 
+
+// Websuche für den Barcode-Scan beim Import (api/lib/ean.php): Die EAN einer DVD wird im Web gesucht, aus den
+// Titeln der Treffer ergibt sich der Filmtitel für die TMDB-Suche. Anbieter:
+//   'duckduckgo' – HTML-Version von DuckDuckGo, ohne Schlüssel (Voreinstellung). Braucht curl; bei zu vielen
+//                  Abfragen kurz hintereinander zeigt DuckDuckGo eine Bot-Prüfung, dann später erneut versuchen.
+//   'serpapi'    – Google-Ergebnisse über https://serpapi.com (Schlüssel nötig, kostenloses Monatskontingent)
+//   'brave'      – https://brave.com/search/api/ (Schlüssel nötig, monatliches Freiguthaben, Kreditkarte nötig)
+// Ergebnisse werden je EAN unter DATA_DIR/cache/ean/ zwischengespeichert.
+const EAN_SEARCH_PROVIDER = 'duckduckgo';
+const EAN_SEARCH_API_KEY = '';

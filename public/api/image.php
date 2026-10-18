@@ -10,7 +10,7 @@
  *   Darstellerfotos liegen wie bei Kodi als <Vorname>_<Nachname>.jpg, aber nicht in ".actors",
  *   sondern in data/movies/<slug>/actors/ (heruntergeladen von api/actors.php, Dateiname in cast[].thumb).
  *
- * Antwort: die Bilddatei mit passendem Content-Type, 404 falls Film/Bild fehlt.
+ * Antwort: die Bilddatei mit passendem Content-Type, 404, falls Film/Bild fehlt.
  */
 
 require_once __DIR__ . '/../../config.php';

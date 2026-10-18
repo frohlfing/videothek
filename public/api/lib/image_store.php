@@ -1,5 +1,7 @@
 <?php
 
+use Random\RandomException;
+
 require_once __DIR__ . '/thumbnail.php';
 
 /** Die Bilddatei entspricht nicht ALLOWED_IMAGE_TYPES (geprüft am tatsächlichen Dateiinhalt, nicht an Endung/Content-Type). */
@@ -63,5 +65,72 @@ function store_movie_image(string $slug, string $localPath, string $kind = 'post
     }
 
     write_movie_json($slug, $movie);
+    return order_movie_fields($movie);
+}
+
+/**
+ * Bildtyp (Endung) einer lokalen Datei nach ihrem Inhalt.
+ * @throws ImageValidationException wenn es kein erlaubtes Bild ist
+ */
+function image_file_ext(string $path): string
+{
+    $imageInfo = @getimagesize($path);
+    $extByImageType = [IMAGETYPE_JPEG => 'jpg', IMAGETYPE_PNG => 'png', IMAGETYPE_WEBP => 'webp'];
+    $ext = $imageInfo !== false ? ($extByImageType[$imageInfo[2]] ?? null) : null;
+    if ($ext === null || !isset(ALLOWED_IMAGE_TYPES[$ext])) {
+        throw new ImageValidationException('Nicht unterstützter Bildtyp (erlaubt: ' . implode(', ', array_keys(ALLOWED_IMAGE_TYPES)) . ')');
+    }
+    return $ext;
+}
+
+/**
+ * Entfernt Poster (samt Thumbnail) bzw. Hintergrundbild eines Eintrags.
+ * @param string $slug Ordnername des Eintrags unter MOVIES_DIR
+ * @param 'poster'|'fanart' $kind
+ * @return array Der aktualisierte Eintrag (movie.json) in kanonischer Feldreihenfolge
+ * @throws NotFoundException
+ */
+function remove_movie_image(string $slug, string $kind): array
+{
+    $movie = read_movie_json($slug);
+    if ($movie === null) {
+        throw new NotFoundException("Film '$slug' nicht gefunden");
+    }
+    foreach ($kind === 'poster' ? ['poster', 'thumb'] : ['fanart'] as $field) {
+        if (!empty($movie[$field])) {
+            @unlink(movie_dir($slug) . '/' . basename($movie[$field]));
+        }
+        $movie[$field] = null;
+    }
+    write_movie_json($slug, $movie);
+    return order_movie_fields($movie);
+}
+
+/**
+ * Setzt das Foto des Darstellers $name (actors/<Name>.<ext>, auf 300 × 450 zugeschnitten wie die TMDB-Porträts).
+ * Das TMDB-Porträt (profile) wird dabei verworfen, damit api/actors.php das eigene Foto nicht überschreibt.
+ * @throws ImageValidationException|NotFoundException|RuntimeException|RandomException
+ */
+function store_actor_photo(string $slug, string $name, string $localPath): array
+{
+    $movie = read_movie_json($slug);
+    $index = $movie === null ? false : array_search($name, array_column($movie['cast'] ?? [], 'name'), true);
+    if ($index === false) {
+        throw new NotFoundException("Darsteller '$name' nicht gefunden");
+    }
+    $ext = image_file_ext($localPath);
+    $dir = movie_dir($slug) . '/actors';
+    if (!is_dir($dir) && !mkdir($dir, 0775, true) && !is_dir($dir)) {
+        throw new RuntimeException('Ordner actors/ konnte nicht angelegt werden');
+    }
+    // Neuer Name mit Zufallsteil: Der Browser hat das alte Foto unter derselben URL eine Woche im Cache.
+    $file = preg_replace('/\.jpg$/', '', actor_file_name($name)) . '-' . bin2hex(random_bytes(3)) . ".$ext";
+    if (!generate_thumbnail($localPath, "$dir/$file", $ext, 300, 450) && !copy($localPath, "$dir/$file")) {
+        throw new RuntimeException('Foto konnte nicht gespeichert werden');
+    }
+    $movie['cast'][$index]['thumb'] = $file;
+    $movie['cast'][$index]['profile'] = null;
+    write_movie_json($slug, $movie);
+    remove_unused_actor_photos($slug, $movie);
     return order_movie_fields($movie);
 }
