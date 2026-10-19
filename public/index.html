@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Videothek</title>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="app.css?v=20261019h">
+<link rel="stylesheet" href="app.css?v=20261019l">
 </head>
 <body>
 
@@ -24,7 +24,7 @@
   </select>
   <select id="genreSel" aria-label="Nach Genre filtern"><option value="">Alle Genres</option></select>
   <select id="mediumSel" aria-label="Nach Medium filtern"><option value="">Alle Medien</option></select>
-  <select id="ownerSel" aria-label="Nach Besitzer filtern" hidden><option value="">Alle Besitzer</option></select>
+  <select id="personSel" aria-label="Nach Eigentümer, Ausleihe oder Wunschliste filtern" hidden><option value="">Alle Personen</option></select>
   <select id="sortSel" aria-label="Sortierung">
     <option value="title">Alphabetisch</option>
     <option value="year-desc">Erscheinungsjahr &darr;</option>
@@ -32,8 +32,7 @@
     <option value="created-desc">Zuletzt hinzugefügt</option>
     <option value="created-asc">Zuerst hinzugefügt</option>
   </select>
-  <button class="btn btn-primary" id="newMovieBtn" type="button">+ Neu</button>
-  <button class="btn" id="importMovieBtn" type="button">Importieren</button>
+  <button class="btn btn-primary" id="importMovieBtn" type="button">+ Neu</button>
 </div>
 <p class="count" id="resultCount"></p>
 
@@ -44,6 +43,6 @@
 </div>
 
 <script src="vendor/qrcode.js"></script>
-<script src="app.js?v=20261019h"></script>
+<script src="app.js?v=20261019l"></script>
 </body>
 </html>

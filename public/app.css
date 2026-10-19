@@ -10,6 +10,8 @@
   --danger:#d9534f;
   --accent-soft:#2c2618;
   --card:#1e1a23;
+  --ok:#43c463;
+  --ok-ink:#0b2412;
 }
 *{box-sizing:border-box;}
 html,body{margin:0;padding:0;}
@@ -51,7 +53,7 @@ header p.sub{
   font-size:.95rem;
 }
 .controls{
-  max-width:1220px;
+  max-width:1180px;
   margin:1.4rem auto 0;
   padding:0 1.5rem;
   display:flex;
@@ -62,7 +64,7 @@ header p.sub{
 }
 .controls input[type=search]{
   flex:1 1 270px;
-  max-width:420px;
+  max-width:330px;
   padding:.6rem .9rem;
   border:1px solid var(--rule);
   border-radius:4px;
@@ -190,6 +192,14 @@ header p.sub{
 }
 .card .collage-cover span{padding:.4rem; text-align:center; font-size:.7rem;}
 .card .type-badge{z-index:10;}
+/* Auf der eigenen Wunschliste: grünes Häkchen oben rechts auf dem Plakat */
+.card .wish-badge{
+  position:absolute; top:.45rem; right:.45rem; z-index:10;
+  width:1.6rem; height:1.6rem; border-radius:50%;
+  display:flex; align-items:center; justify-content:center;
+  background:var(--ok); color:var(--ok-ink); font-size:.95rem; font-weight:700;
+  box-shadow:0 2px 6px rgba(0,0,0,0.5);
+}
 .card.collection-card.expanded{border-color:var(--accent);}
 
 /* Aufgeklappte Reihe: über die volle Breite unter der Zeile ihrer Kachel */
@@ -367,6 +377,21 @@ header p.sub{
   color:var(--ink-soft); font:inherit; font-size:.85rem; text-decoration:underline; cursor:pointer;
 }
 .link-btn:hover{color:var(--accent);}
+/* Undo-Symbol: zurückgegeben bzw. doch nicht sehen */
+.icon-btn{
+  display:inline-flex; align-items:center; justify-content:center; vertical-align:middle;
+  width:1.6rem; height:1.6rem; margin-left:.5rem; padding:0;
+  background:none; border:1px solid var(--rule); border-radius:50%;
+  color:var(--ink-soft); cursor:pointer;
+}
+.icon-btn:hover{color:var(--accent); border-color:var(--accent);}
+.icon-btn:disabled, .link-btn:disabled{opacity:.5; cursor:progress;}
+/* Detailansicht: "möchte ich sehen" bzw. Häkchen, dazu die Wunschlisten der anderen */
+.sheet .wish-line{margin-top:.8rem; display:flex; flex-wrap:wrap; align-items:center; gap:.3rem .9rem;}
+.sheet .wish-line .link-btn{margin-left:0;}
+.sheet .wish-line .icon-btn{margin-left:-.4rem;}
+.sheet .wished{color:var(--ok); font-weight:600;}
+.sheet .wish-others{font-size:.85rem; color:var(--ink-soft);}
 /* Eigener Dialog (showDialog() in app.js) statt prompt(): Videothek-Ordner beim Abspielen, "An wen verliehen?" */
 .ask-dialog{
   width:min(440px, calc(100vw - 32px)); padding:1.2rem 1.3rem;
@@ -513,7 +538,7 @@ label.btn{text-transform:none; letter-spacing:0; color:var(--ink); margin:0; cur
 .form-field input[type=file]{color:var(--ink-soft);}
 .form-field textarea{min-height:4.2rem;}
 .form-field textarea.files-input{min-height:2.6rem;}
-/* Formular: Medien, je Zeile Besitzer, Art und "×", bei USB darunter die Dateien */
+/* Formular: Medien, je Zeile Eigentümer, Art und "×", bei USB darunter die Dateien */
 .media-rows{display:flex; flex-direction:column; gap:.5rem; margin-bottom:.6rem;}
 .media-rows:empty{display:none;}
 .medium-row{display:grid; grid-template-columns:1fr 1fr auto; gap:.5rem; align-items:center;}

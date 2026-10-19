@@ -2,7 +2,7 @@
 
 /**
  * Benutzer der Videothek. Angemeldet wird per HTTP Basic Auth (`public/.htaccess`, `.htpasswd`), die App liest nur den
- * Benutzernamen (Besitzer beim Import, "eingetragen von" bei Ausleihen). `data/users.json` ordnet ihm den
+ * Benutzernamen (Eigentümer beim Import, "eingetragen von" bei Ausleihen). `data/users.json` ordnet ihm den
  * Anzeigenamen zu:
  *
  *   {"frank": {"name": "Frank"}, "lilie": {"name": "Lilie"}}
@@ -12,7 +12,7 @@
  * mit `bin/remote.php --upload-account` (über `dev/sync.php`).
  */
 
-/** Erlaubte Benutzernamen: klein, ohne Leerzeichen (stehen in movie.json als Besitzer und in locations.json). */
+/** Erlaubte Benutzernamen: klein, ohne Leerzeichen (stehen in movie.json als Eigentümer und in locations.json). */
 const USER_LOGIN_PATTERN = '/^[a-z0-9][a-z0-9._-]{0,31}$/';
 
 function users_file(): string

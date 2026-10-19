@@ -16,7 +16,7 @@
  *
  * GET /api/play.php?slug=xyz[&root=D:\videothek]          -> Film: <slug>.m3u, Staffel: alle Folgen
  * GET /api/play.php?slug=xyz&episode=3[&root=…]           -> Staffel: nur Folge 3 (<slug>-e03.m3u)
- *   Optional owner=<login>: Dateien dieses Besitzers statt der eigenen.
+ *   Optional owner=<login>: Dateien dieses Eigentümers statt der eigenen.
  *   404, falls keine passende Datei eingetragen ist.
  */
 

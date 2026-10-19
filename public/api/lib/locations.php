@@ -6,18 +6,20 @@
  *
  *   {"matrix-1999": {"lilie/DVD": {"at": "frank", "since": "2026-10-18T20:15:00+02:00", "by": "frank"}}}
  *
- * Schlüssel ist der Slug und das Medium (Besitzer/Art, siehe medium_key()). "at" ist ein Benutzer (Login aus
+ * Schlüssel ist der Slug und das Medium (Eigentümer/Art, siehe medium_key()). "at" ist ein Benutzer (Login aus
  * users.json) oder ein beliebiger Name für jemanden ohne Zugang ("Oma Erna"). Ohne Eintrag liegt das Medium beim
- * Besitzer; "zurück beim Besitzer" löscht den Eintrag. "since" und "by" setzt der Server. Dateien (Medium USB) haben
- * keinen Standort.
+ * Eigentümer; "zurück beim Eigentümer" löscht den Eintrag. "since" und "by" setzt der Server. Dateien (Medium USB)
+ * haben keinen Standort.
  */
+
+require_once __DIR__ . '/jsonfile.php';
 
 function locations_file(): string
 {
     return DATA_DIR . '/locations.json';
 }
 
-/** "lilie/DVD": ein Medium innerhalb eines Eintrags (je Besitzer jede Art höchstens einmal). */
+/** "lilie/DVD": ein Medium innerhalb eines Eintrags (je Eigentümer jede Art höchstens einmal). */
 function medium_key(string $owner, string $type): string
 {
     return "$owner/$type";
@@ -26,44 +28,21 @@ function medium_key(string $owner, string $type): string
 /** @return array<string, array<string, array{at: string, since: string, by: ?string}>> */
 function read_locations(): array
 {
-    $file = locations_file();
-    $data = is_file($file) ? json_decode((string) file_get_contents($file), true) : null;
-    return is_array($data) ? $data : [];
+    return read_json_file(locations_file());
 }
 
 /**
- * Liest locations.json unter Sperre, lässt $change die Daten ändern und schreibt sie zurück (nur, wenn sich etwas
- * geändert hat). Liefert die neuen Daten.
+ * Ändert locations.json unter Sperre (update_json_file()). Liefert die neuen Daten.
  * @param callable(array): array $change
  */
 function update_locations(callable $change): array
 {
-    $fh = fopen(locations_file(), 'c+');
-    if ($fh === false) {
-        throw new RuntimeException('locations.json konnte nicht geöffnet werden');
-    }
-    try {
-        flock($fh, LOCK_EX);
-        $before = json_decode((string) stream_get_contents($fh), true);
-        $before = is_array($before) ? $before : [];
-        $data = array_filter($change($before));
-        ksort($data, SORT_STRING);
-        if ($data !== $before) {
-            ftruncate($fh, 0);
-            rewind($fh);
-            fwrite($fh, json_encode((object) $data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) . "\n");
-            fflush($fh);
-        }
-        return $data;
-    } finally {
-        flock($fh, LOCK_UN);
-        fclose($fh);
-    }
+    return update_json_file(locations_file(), $change);
 }
 
 /**
- * Setzt den Standort eines Mediums: $at ist der Benutzer bzw. Name, bei dem es jetzt ist; null oder der Besitzer selbst =
- * zurück beim Besitzer. Liefert die Standorte des Eintrags.
+ * Setzt den Standort eines Mediums: $at ist der Benutzer bzw. Name, bei dem es jetzt ist; null oder der Eigentümer
+ * selbst = zurück beim Eigentümer. Liefert die Standorte des Eintrags.
  */
 function set_location(string $slug, string $owner, string $type, ?string $at, ?string $by): array
 {
@@ -81,7 +60,7 @@ function set_location(string $slug, string $owner, string $type, ?string $at, ?s
 
 /**
  * Nach dem Speichern bzw. Löschen eines Eintrags: Standorte auf den neuen Slug umziehen ($newSlug null = gelöscht)
- * und die von Medien entfernen, die es nicht mehr gibt (Besitzer oder Art geändert, Medium entfernt).
+ * und die von Medien entfernen, die es nicht mehr gibt (Eigentümer oder Art geändert, Medium entfernt).
  * @param array<array{owner: string, type: string}> $media
  */
 function move_locations(string $oldSlug, ?string $newSlug, array $media = []): void

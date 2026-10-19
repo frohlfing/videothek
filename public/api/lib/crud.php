@@ -5,6 +5,7 @@ require_once __DIR__ . '/thumbnail.php';
 require_once __DIR__ . '/image_store.php';
 require_once __DIR__ . '/users.php';
 require_once __DIR__ . '/locations.php';
+require_once __DIR__ . '/wishes.php';
 
 class ValidationException extends RuntimeException
 {
@@ -63,8 +64,8 @@ function movie_dir(string $slug): string
 /**
  * Liest und dekodiert movie.json eines Films bzw. einer Staffel. Null, wenn Ordner/Datei fehlt oder JSON ungültig ist.
  * Ältere Dateien kennen noch kein "type" (= Film) und statt "media" nur "medium" und "files" (Exemplare ohne
- * Besitzer); beides wird hier ergänzt bzw. umgewandelt (legacy_media()), damit alle Aufrufer nur das aktuelle Format
- * sehen. Gespeichert wird es so beim nächsten Schreiben bzw. mit `bin/migrate_media.php`.
+ * Eigentümer); beides wird hier ergänzt bzw. umgewandelt (legacy_media()), damit alle Aufrufer nur das aktuelle
+ * Format sehen. Gespeichert wird es so beim nächsten Schreiben bzw. mit `bin/migrate_media.php`.
  */
 function read_movie_json(string $slug): ?array
 {
@@ -355,9 +356,9 @@ function valid_optional_int(mixed $value, int $min, int $max): bool
 }
 
 /**
- * Prüft die Medien: Liste von {owner, type, files?}, je Besitzer und pro Art höchstens einmal. Dass bei USB Dateien
- * eingetragen sind, prüft das Formular (app.js: saveMovie()), nicht die API: Ein Import bzw. ein Freund kann das
- * Medium auch erst eintragen und die Dateien später.
+ * Prüft die Medien: Liste von {owner, type, files?}, je Eigentümer und pro Art höchstens einmal. Dass bei USB
+ * Dateien eingetragen sind, prüft das Formular (app.js: saveMovie()), nicht die API: Ein Import bzw. ein Freund kann
+ * das Medium auch erst eintragen und die Dateien später.
  * @return string[]
  */
 function validate_media_input(mixed $media): array
@@ -377,7 +378,7 @@ function validate_media_input(mixed $media): array
         }
         $owner = trim($m['owner']);
         if (!preg_match(USER_LOGIN_PATTERN, $owner)) {
-            $errors[] = "Besitzer '$owner' ist kein gültiger Benutzername";
+            $errors[] = "Eigentümer '$owner' ist kein gültiger Benutzername";
         }
         $key = medium_key($owner, trim($m['type']));
         if (isset($seen[$key])) {
@@ -454,7 +455,7 @@ function normalize_movie_files(array $files): array
 /**
  * Medien eines Eintrags: Wem welches Exemplar gehört, z. B. [{"owner": "lilie", "type": "DVD"}, {"owner": "frank",
  * "type": "USB", "files": ["movie.avi"]}]. Leer = nicht im Bestand. Dateien gibt es nur bei DIGITAL_MEDIA; doppelte
- * Medien (gleicher Besitzer und gleiche Art) fallen weg.
+ * Medien (gleicher Eigentümer und gleiche Art) fallen weg.
  * @return array<array{owner: string, type: string, files?: string[]}>
  */
 function normalize_media(array $media): array
@@ -784,6 +785,7 @@ function update_movie(string $slug, array $data): array
     write_movie_json($newSlug, $movie);
     remove_unused_actor_photos($newSlug, $movie);
     move_locations($slug, $newSlug, $movie['media']);
+    move_wishes($slug, $newSlug);
     return $movie;
 }
 
@@ -796,6 +798,7 @@ function delete_movie(string $slug): void
     }
     remove_directory_recursive($dir);
     move_locations($slug, null);
+    move_wishes($slug, null);
 }
 
 /**

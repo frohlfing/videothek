@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Wer angemeldet ist und welche Benutzer es gibt (für Besitzer und Standorte der Medien).
+ * Wer angemeldet ist und welche Benutzer es gibt (für Eigentümer und Standorte der Medien).
  *
  * GET /api/users.php -> {"me": "frank", "users": {"frank": {"name": "Frank"}, …}, "usbRoot": "D:\\videothek"}
  *   me: angemeldeter Benutzer oder null (ohne Basic Auth). usbRoot: USB_ROOT aus config.php (Vorgabe für den

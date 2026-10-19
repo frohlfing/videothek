@@ -7,7 +7,7 @@
  *
  *   php bin/add_account.php <login> [<Anzeigename>] [--password=<passwort>]
  *
- *   login         klein, ohne Leerzeichen (a-z, 0-9, . _ -), z. B. "lilie"; steht als Besitzer an den Medien
+ *   login         klein, ohne Leerzeichen (a-z, 0-9, . _ -), z. B. "lilie"; steht als Eigentümer an den Medien
  *   Anzeigename   z. B. "Lilie" (Vorgabe: bisheriger Name bzw. login mit großem Anfangsbuchstaben); "Lilies DVD"
  */
 
