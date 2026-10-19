@@ -115,8 +115,8 @@ const mediumSel = document.getElementById('mediumSel');
 const personSel = document.getElementById('personSel');
 /** Wert der Medium-Auswahl für Einträge ohne Medium; kann kein echtes Medium sein, der Server entfernt Leerzeichen am Rand. */
 const NOT_OWNED = ' none';
-/** Wert der Art-Auswahl für die eigene Wunschliste (nur mit Anmeldung, siehe init()). */
-const MY_WISHES = 'wish';
+/** Werte der Art-Auswahl für Wunschlisten: WISH_PREFIX + Login ("wish:lilli"), siehe refreshTypeFilter(). */
+const WISH_PREFIX = 'wish:';
 const resultCount = document.getElementById('resultCount');
 const subCount = document.getElementById('subCount');
 const importMovieBtn = document.getElementById('importMovieBtn');
@@ -177,7 +177,7 @@ function mediaOf(m){
   return [...new Set(m.media.map(md => md.type))];
 }
 
-/** Eigentümer der Medien eines Eintrags. @param {Movie} m @returns {string[]} */
+/** Eigentümer (Kennungen) der Medien eines Eintrags. @param {Movie} m @returns {string[]} */
 function ownersOf(m){
   return [...new Set(m.media.map(md => md.owner))];
 }
@@ -207,6 +207,20 @@ function userName(login){
   return USERS[login]?.name || login;
 }
 
+/**
+ * Eigentümer der Medien eines Benutzers: gemeinsamer ("rohlfing" für Frank und Tinka, siehe api/lib/users.php) bzw.
+ * sein Login.
+ * @param {?string} login
+ */
+function ownerOf(login){
+  return login ? USERS[login]?.owner || login : null;
+}
+
+/** Anzeigename eines Eigentümers ("Rohlfing", "Lilli"). @param {string} owner */
+function ownerName(owner){
+  return OWNERS[owner] || userName(owner);
+}
+
 /** Genitiv vor dem Medium: "Lilies", aber "Klaus’", "Max’". @param {string} name */
 function possessive(name){
   return /[sßxz]$/i.test(name) ? `${name}’` : `${name}s`;
@@ -214,13 +228,13 @@ function possessive(name){
 
 /** "Lilies DVD", bei Dateien "Franks Datei (USB)". @param {Medium} md */
 function mediumLabel(md){
-  const who = possessive(userName(md.owner));
+  const who = possessive(ownerName(md.owner));
   return isDigital(md.type) ? `${who} Datei (${md.type})` : `${who} ${md.type}`;
 }
 
 /** Dateien des angemeldeten Benutzers zu einem Eintrag (zum Abspielen), sonst leer. @param {Movie} m @returns {string[]} */
 function myFiles(m){
-  const md = m.media.find(x => x.owner === ME && isDigital(x.type) && x.files.length);
+  const md = m.media.find(x => x.owner === ownerOf(ME) && isDigital(x.type) && x.files.length);
   return md ? md.files : [];
 }
 
@@ -321,6 +335,21 @@ function askText({title, text = '', value = '', placeholder = '', ok = 'OK'}){
 }
 
 /**
+ * "ausleihen" bei einer Scheibe, die einem anderen gehört (showDialog()): nur bestätigen, eingetragen wird der
+ * angemeldete Benutzer. Liefert seinen Login bzw. null bei Abbruch.
+ * @param {Medium} md
+ * @returns {Promise<?string>}
+ */
+function askBorrowSelf(md){
+  return new Promise(resolve => {
+    showDialog(`<h3>${escapeHtml(mediumLabel(md))} ausleihen?</h3>
+      <p>Eingetragen wird „hat ${escapeHtml(userName(ME))} seit heute“.</p>`,
+      'Ausleihen',
+      d => resolve(d.returnValue === 'ok' ? ME : null));
+  });
+}
+
+/**
  * "An wen verliehen?" (showDialog()): je Benutzer und je Name, bei dem gerade etwas ausgeliehen ist, ein Knopf (ein
  * Klick wählt), dazu ein Feld "Andere Person" (ohne Knöpfe, etwa so lange es nur einen Benutzer gibt, nur "Name").
  * Ein eingetippter Anzeigename eines Benutzers ("Thomas") wird
@@ -330,7 +359,7 @@ function askText({title, text = '', value = '', placeholder = '', ok = 'OK'}){
  */
 function askBorrower(md){
   return new Promise(resolve => {
-    const people = [...new Set([...Object.keys(USERS), ...borrowerNames()])].filter(u => u !== md.owner);
+    const people = [...new Set([...Object.keys(USERS), ...borrowerNames()])].filter(u => u !== md.owner && ownerOf(u) !== md.owner);
     let chosen = null;
     const dialog = showDialog(`<h3>An wen verliehen?</h3>
       ${people.length ? `<div class="borrower-choices">${people.map(u => `<button class="btn" type="button" data-at="${escapeHtml(u)}">${escapeHtml(userName(u))}</button>`).join('')}</div>` : ''}
@@ -483,7 +512,9 @@ function groupCatalog(members){
 }
 
 /** Benutzer (Login => {name}) aus data/users.json, siehe api/users.php. */
-let USERS = /** @type {Object<string, {name: string}>} */ ({});
+let USERS = /** @type {Object<string, {name: string, owner: string}>} */ ({});
+/** Eigentümer: Kennung => Anzeigename ("rohlfing" => "Rohlfing"), siehe api/users.php. */
+let OWNERS = /** @type {Object<string, string>} */ ({});
 /** @type {?string} angemeldeter Benutzer (Basic Auth), null ohne Anmeldung */
 let ME = null;
 /** USB_ROOT aus config.php: Vorgabe für den USB-Ordner, solange dieses Gerät keinen eigenen hat. */
@@ -496,9 +527,10 @@ async function loadUsers(){
   try {
     const res = await fetch('api/users.php');
     if(!res.ok) return;
-    /** @type {{users?: Object<string, {name: string}>, me?: ?string, usbRoot?: string}} */
+    /** @type {{users?: Object<string, {name: string, owner: string}>, owners?: Object<string, string>, me?: ?string, usbRoot?: string}} */
     const data = await res.json();
     USERS = data.users || {};
+    OWNERS = data.owners || {};
     ME = data.me || null;
     DEFAULT_USB_ROOT = data.usbRoot || '';
   } catch(err) {
@@ -506,7 +538,7 @@ async function loadUsers(){
   }
 }
 
-/** Wunschliste je Slug: Login => Zeitpunkt, siehe api/wishes.php. */
+/** Wunschlisten je Slug: Login => Zeitpunkt, siehe api/wishes.php. */
 let WISHES = /** @type {Object<string, Object<string, string>>} */ ({});
 
 /** Lädt WISHES (nach dem Laden und nach dem Speichern: Umbenennen zieht die Wünsche mit). */
@@ -520,6 +552,32 @@ async function loadWishes(){
   } catch(err) {
     console.warn('Wunschliste nicht geladen', err);
   }
+}
+
+/** Bewertungen je Slug: Login => 1 (Daumen hoch) bzw. -1 (Daumen runter), siehe api/ratings.php. */
+let RATINGS = /** @type {Object<string, Object<string, number>>} */ ({});
+
+/** Lädt RATINGS (nach dem Laden und nach dem Speichern: Umbenennen zieht die Bewertungen mit). */
+async function loadRatings(){
+  try {
+    const res = await fetch('api/ratings.php');
+    if(!res.ok) return;
+    /** @type {{ratings?: Object<string, Object<string, number>>}} */
+    const data = await res.json();
+    RATINGS = data.ratings || {};
+  } catch(err) {
+    console.warn('Bewertungen nicht geladen', err);
+  }
+}
+
+/**
+ * Daumen hoch minus Daumen runter, null ohne Bewertung (zum Sortieren nach Bewertung).
+ * @param {Movie} m
+ * @returns {?number}
+ */
+function ratingScore(m){
+  const values = Object.values(RATINGS[m.slug] || {});
+  return values.length ? values.reduce((sum, v) => sum + v, 0) : null;
 }
 
 /** Lädt LOCATIONS (nach dem Laden und nach dem Speichern eines Eintrags: Umbenennen zieht seine Standorte mit). */
@@ -657,10 +715,23 @@ function cardHtml(m, idx, extraClass = '', k = null){
     <div class="body">
       <h3>${escapeHtml(inPanel ? shortTitle(m) : m.title)}</h3>
       <div class="meta">${escapeHtml(metaLine(m))}</div>
+      ${ratingTagHtml([m])}
       ${m.genres.slice(0, 2).map(g => `<div class="cat-tag">${escapeHtml(g)}</div>`).join('')}
       ${mediaTagsHtml([m])}
     </div>
   </div>`;
+}
+
+/**
+ * Bewertung auf der Karte ("👍 2 · 👎 1"), nur bei Sortierung nach Bewertung; bei Reihen und Serien zusammengezählt.
+ * Ohne Stimmen leer.
+ * @param {Movie[]} movies
+ */
+function ratingTagHtml(movies){
+  if(!sortSel.value.startsWith('rating')) return '';
+  const values = movies.flatMap(m => Object.values(RATINGS[m.slug] || {}));
+  const up = values.filter(v => v > 0).length, down = values.length - up;
+  return values.length ? `<div class="rating-tag">&#128077; ${up} · &#128078; ${down}</div>` : '';
 }
 
 /** Häkchen auf der Karte: steht auf der eigenen Wunschliste. */
@@ -791,6 +862,7 @@ function groupCardHtml(group){
     <div class="body">
       <h3>${escapeHtml(groupOf(first).name)}</h3>
       <div class="meta">${escapeHtml([count, span].filter(Boolean).join(' · '))}</div>
+      ${ratingTagHtml(movies)}
       ${mediaTagsHtml(movies)}
     </div>
   </div>`;
@@ -852,20 +924,38 @@ function refreshFilters(){
   };
   fill(genreSel, m => m.genres, 'Alle Genres');
   fill(mediumSel, mediaOf, 'Alle Medien', MOVIES.some(m => !isOwned(m)) ? [[NOT_OWNED, '(nicht im Bestand)']] : []);
+  refreshTypeFilter();
   refreshPersonFilter();
 }
 
 /**
+ * Wunschlisten in der Art-Auswahl, nach "Nur Serien": "Meine Wunschliste" (mit Anmeldung immer), dann die der
+ * anderen, die etwas wünschen ("Lillis Wunschliste"). Zusammen mit "Rohlfings Medien" in der Personen-Auswahl zeigt
+ * das, welche eigenen DVDs man für Lilli einpacken kann.
+ */
+function refreshTypeFilter(){
+  const current = typeSel.value;
+  [...typeSel.options].filter(o => o.value.startsWith(WISH_PREFIX)).forEach(o => o.remove());
+  const others = [...new Set(Object.values(WISHES).flatMap(Object.keys))]
+    .filter(login => login !== ME && MOVIES.some(m => isWished(m, login)))
+    .sort((a, b) => userName(a).localeCompare(userName(b), 'de'));
+  for(const login of [...(ME ? [ME] : []), ...others]){
+    typeSel.add(new Option(login === ME ? 'Meine Wunschliste' : `${possessive(userName(login))} Wunschliste`, WISH_PREFIX + login));
+  }
+  typeSel.value = [...typeSel.options].some(o => o.value === current) ? current : '';
+}
+
+/**
  * Personen-Auswahl: Eigentümer ("Franks Medien"), Ausleihen ("Lilli hat von Frank", bei mehreren Eigentümern auch
- * "Lilli hat" für alles) und Wunschlisten der anderen, jeweils nur, was es gerade gibt. Werte sind JSON (personFilter()).
- * Ohne Ausleihen und Wünsche erscheint sie erst bei mehreren Eigentümern.
+ * "Lilli hat" für alles), jeweils nur, was es gerade gibt. Werte sind JSON (personFilter()). Ohne Ausleihen erscheint
+ * sie erst bei mehreren Eigentümern. Die Wunschlisten stehen in der Art-Auswahl (refreshTypeFilter()).
  */
 function refreshPersonFilter(){
   const byName = (a, b) => userName(a).localeCompare(userName(b), 'de');
   const option = (value, label) => `<option value="${escapeHtml(JSON.stringify(value))}">${escapeHtml(label)}</option>`;
   const group = (label, options) => options.length ? `<optgroup label="${label}">${options.join('')}</optgroup>` : '';
 
-  const owners = knownValues(ownersOf).sort(byName);
+  const owners = knownValues(ownersOf).sort((a, b) => ownerName(a).localeCompare(ownerName(b), 'de'));
   /** @type {Map<string, Set<string>>} bei wem => von welchen Eigentümern */
   const lent = new Map();
   for(const m of MOVIES){
@@ -875,28 +965,22 @@ function refreshPersonFilter(){
     }
   }
   const lentOptions = [...lent.keys()].sort(byName).flatMap(at => {
-    const from = [...lent.get(at)].sort(byName);
-    const each = from.map(owner => option(['lent', owner, at], `${userName(at)} hat von ${userName(owner)}`));
+    const from = [...lent.get(at)].sort((a, b) => ownerName(a).localeCompare(ownerName(b), 'de'));
+    const each = from.map(owner => option(['lent', owner, at], `${userName(at)} hat von ${ownerName(owner)}`));
     return from.length > 1 ? [option(['lent', null, at], `${userName(at)} hat`), ...each] : each;
   });
-  // Die eigene Wunschliste steht in der Art-Auswahl (MY_WISHES), hier nur die der anderen.
-  const wishers = [...new Set(Object.values(WISHES).flatMap(Object.keys))]
-    .filter(login => login !== ME && MOVIES.some(m => isWished(m, login)))
-    .sort(byName);
-  const wishOptions = wishers.map(login => option(['wish', login], `${possessive(userName(login))} Wunschliste`));
 
   const current = personSel.value;
-  personSel.hidden = owners.length < 2 && !lentOptions.length && !wishOptions.length;
+  personSel.hidden = owners.length < 2 && !lentOptions.length;
   personSel.innerHTML = '<option value="">Alle Personen</option>'
-    + group('Eigentümer', owners.map(login => option(['owner', login], `${possessive(userName(login))} Medien`)))
-    + group('Ausgeliehen', lentOptions)
-    + group('Wunschliste', wishOptions);
+    + group('Eigentümer', owners.map(owner => option(['owner', owner], `${possessive(ownerName(owner))} Medien`)))
+    + group('Ausgeliehen', lentOptions);
   personSel.value = !personSel.hidden && [...personSel.options].some(o => o.value === current) ? current : '';
 }
 
 /**
  * Auswahl der Personen-Liste: {kind: 'owner', login} (seine Medien), {kind: 'lent', owner, at} (bei at, von owner;
- * owner null = von allen) oder {kind: 'wish', login}; null = alle.
+ * owner null = von allen); null = alle.
  * @returns {?{kind: string, login?: string, owner?: ?string, at?: string}}
  */
 function personFilter(){
@@ -950,7 +1034,8 @@ function renderGrid(){
   let items = MOVIES.map((m, i) => ({m, i}));
 
   if(type){
-    items = items.filter(({m}) => type === MY_WISHES ? isWished(m) : m.type === type);
+    const wisher = type.startsWith(WISH_PREFIX) ? type.slice(WISH_PREFIX.length) : null;
+    items = items.filter(({m}) => wisher ? isWished(m, wisher) : m.type === type);
   }
   if(genre){
     items = items.filter(({m}) => m.genres.includes(genre));
@@ -958,23 +1043,20 @@ function renderGrid(){
   // Medium und Person zusammen: "Blu-ray" + "Lilies Medien" = Lilies Blu-rays, nicht irgendeine Blu-ray bei Lilies
   // Filmen; "DVD" + "Lilli hat von Frank" = Franks DVDs bei Lilli.
   const mediumFits = md => !medium || md.type === medium;
-  const personFits = (m, md) => !person || person.kind === 'wish'
+  const personFits = (m, md) => !person
     || (person.kind === 'owner' ? md.owner === person.login
       : (!person.owner || md.owner === person.owner) && locationOf(m, md)?.at === person.at);
   if(medium === NOT_OWNED){
     items = items.filter(({m}) => !isOwned(m));
-  } else if(medium || (person && person.kind !== 'wish')){
+  } else if(medium || person){
     items = items.filter(({m}) => m.media.some(md => mediumFits(md) && personFits(m, md)));
-  }
-  if(person && person.kind === 'wish'){
-    items = items.filter(({m}) => isWished(m, person.login));
   }
 
   if(q){
     // Bei Staffeln zählen auch die Folgentitel ("Felina" findet Breaking Bad).
     const episodeTitles = m => isSeason(m) ? m.episodes.map(e => e.title) : [];
     items = items.filter(({m}) =>
-      [m.title, m.originalTitle, groupOf(m)?.name, m.director, m.creator, m.plot, m.year && String(m.year), ...m.genres, ...mediaOf(m), ...ownersOf(m).map(userName), ...episodeTitles(m)]
+      [m.title, m.originalTitle, groupOf(m)?.name, m.director, m.creator, m.plot, m.year && String(m.year), ...m.genres, ...mediaOf(m), ...ownersOf(m).map(ownerName), ...episodeTitles(m)]
         .some(v => (v || '').toLowerCase().includes(q))
       || m.cast.some(c => c.name.toLowerCase().includes(q) || (c.role || '').toLowerCase().includes(q))
     );
@@ -993,6 +1075,19 @@ function renderGrid(){
     case 'created-asc':
       items.sort((a,b) => createdTime(a.m) - createdTime(b.m));
       break;
+    case 'rating':
+    case 'rating-asc': {
+      // Bester (bzw. schlechtester) Saldo zuerst, bei Gleichstand die mit mehr Stimmen; ohne Bewertung ans Ende,
+      // sonst alphabetisch.
+      const dir = sortSel.value === 'rating' ? 1 : -1;
+      const votes = m => Object.keys(RATINGS[m.slug] || {}).length;
+      items.sort((a, b) => {
+        const sa = ratingScore(a.m), sb = ratingScore(b.m);
+        if(sa === null || sb === null) return Number(sa === null) - Number(sb === null) || compareTitles(a.m.title, b.m.title);
+        return dir * (sb - sa) || votes(b.m) - votes(a.m) || compareTitles(a.m.title, b.m.title);
+      });
+      break;
+    }
     case 'created-desc':
     default:
       items.sort((a,b) => createdTime(b.m) - createdTime(a.m));
@@ -1162,6 +1257,7 @@ function printableSheetHtml(m){
         <div class="meta-line">${escapeHtml(metaLine(m))}</div>
         ${factsHtml}
         ${wishLineHtml(m)}
+        ${ratingLineHtml(m)}
         ${createdHtml}
       </div>
     </div>
@@ -1175,20 +1271,16 @@ function printableSheetHtml(m){
 }
 
 /**
- * Detailansicht: "möchte ich sehen" (Link) bzw. grünes Häkchen mit Undo-Symbol; dazu, auf wessen Wunschliste der
- * Eintrag sonst noch steht. Den Link gibt es nur mit Anmeldung (ME). Nicht im Ausdruck.
+ * Detailansicht: "möchte ich sehen" (Link) bzw. grünes Häkchen mit Undo-Symbol, nur die eigene Wunschliste (die
+ * der anderen zeigt die Personen-Auswahl). Nur mit Anmeldung (ME), nicht im Ausdruck.
  * @param {Movie} m
  */
 function wishLineHtml(m){
-  const others = Object.keys(WISHES[m.slug] || {}).filter(login => login !== ME).map(userName)
-    .sort((a, b) => a.localeCompare(b, 'de'));
-  const mine = !ME ? '' : isWished(m)
+  if(!ME) return '';
+  const mine = isWished(m)
     ? `<span class="wished">&#10003; möchte ich sehen</span><button class="icon-btn unwish-btn" type="button" title="Doch nicht" aria-label="Von der Wunschliste nehmen">${UNDO_ICON}</button>`
     : '<button class="link-btn wish-btn" type="button">möchte ich sehen</button>';
-  const rest = others.length
-    ? `<span class="wish-others">${mine ? (isWished(m) ? 'auch ' : '') : ''}auf der Wunschliste von ${escapeHtml(others.join(', '))}</span>`
-    : '';
-  return mine || rest ? `<div class="wish-line screen-only" data-slug="${escapeHtml(m.slug)}">${mine}${rest}</div>` : '';
+  return `<div class="wish-line screen-only" data-slug="${escapeHtml(m.slug)}">${mine}</div>`;
 }
 
 /**
@@ -1215,6 +1307,62 @@ async function toggleWish(btn){
     alert('Nicht gespeichert: ' + err.message);
   }
   line.outerHTML = wishLineHtml(m);
+  refreshFilters();
+  renderGrid();
+}
+
+/**
+ * Detailansicht: Daumen hoch und runter mit der Zahl der Stimmen, wer so bewertet hat als Tooltip. Mit Anmeldung
+ * (ME) sind es Knöpfe, die eigene Wahl ist hervorgehoben, ein zweiter Klick nimmt sie zurück. Ohne Anmeldung nur
+ * die Zahlen, falls es Bewertungen gibt. Nicht im Ausdruck.
+ * @param {Movie} m
+ */
+function ratingLineHtml(m){
+  const ratings = RATINGS[m.slug] || {};
+  if(!ME && !Object.keys(ratings).length) return '';
+  const thumb = (value, icon, label) => {
+    const who = Object.keys(ratings).filter(login => ratings[login] === value).map(userName).sort((a, b) => a.localeCompare(b, 'de'));
+    const count = who.length ? `<span class="rate-count">${who.length}</span>` : '';
+    const title = escapeHtml(who.length ? `${label}: ${who.join(', ')}` : label);
+    return ME
+      ? `<button class="rate-btn" type="button" data-value="${value}" aria-pressed="${ratings[ME] === value}" title="${title}">${icon}${count}</button>`
+      : `<span class="rate-btn" title="${title}">${icon}${count}</span>`;
+  };
+  return `<div class="rating-line screen-only" data-slug="${escapeHtml(m.slug)}">
+    ${thumb(1, '&#128077;', 'Daumen hoch')}${thumb(-1, '&#128078;', 'Daumen runter')}
+  </div>`;
+}
+
+/**
+ * Klick auf einen Daumen: setzt die eigene Bewertung bzw. nimmt sie beim zweiten Klick zurück (api/ratings.php).
+ * Eine Bewertung nimmt den Eintrag von der eigenen Wunschliste (der Server liefert die Wünsche mit); zeigt Wunsch-
+ * und Bewertungszeile neu und aktualisiert die Übersicht.
+ * @param {HTMLElement} btn
+ */
+async function rateMovie(btn){
+  const line = /** @type {HTMLElement} */ (btn.closest('.rating-line'));
+  const slug = line.dataset.slug;
+  const m = MOVIES.find(x => x.slug === slug);
+  if(!m || !ME) return;
+  const value = parseInt(btn.dataset.value, 10);
+  line.querySelectorAll('button').forEach(b => { b.disabled = true; });
+  try {
+    /** @type {{ratings: Object<string, number>, wishes: Object<string, string>}} */
+    const res = await apiWrite('api/ratings.php', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({slug, rating: (RATINGS[slug] || {})[ME] === value ? 0 : value}),
+    });
+    if(Object.keys(res.ratings).length) RATINGS[slug] = res.ratings;
+    else delete RATINGS[slug];
+    if(Object.keys(res.wishes).length) WISHES[slug] = res.wishes;
+    else delete WISHES[slug];
+  } catch(err){
+    alert('Nicht gespeichert: ' + err.message);
+  }
+  line.outerHTML = ratingLineHtml(m);
+  const wishLine = sheet.querySelector('.wish-line');
+  if(wishLine) wishLine.outerHTML = wishLineHtml(m);
   refreshFilters();
   renderGrid();
 }
@@ -1259,17 +1407,18 @@ function mediumItemHtml(m, md){
   const data = `data-owner="${escapeHtml(md.owner)}" data-type="${escapeHtml(md.type)}"`;
   const loc = locationOf(m, md);
   if(!loc){
-    return `<li ${data}>${label} <button class="link-btn lend-btn screen-only" type="button">ausleihen</button></li>`;
+    const verb = md.owner === ownerOf(ME) ? 'verleihen' : 'ausleihen'; // eigene Scheibe verleihen, fremde ausleihen
+    return `<li ${data}>${label} <button class="link-btn lend-btn screen-only" type="button">${verb}</button></li>`;
   }
   const title = [`seit ${new Date(loc.since).toLocaleDateString('de-DE')}`, loc.by ? `eingetragen von ${userName(loc.by)}` : null]
     .filter(Boolean).join(' · ');
   return `<li ${data}>${label} <span class="lent" title="${escapeHtml(title)}">hat ${escapeHtml(userName(loc.at))} ${sinceText(loc.since)}</span>`
-    + `<button class="icon-btn return-btn screen-only" type="button" title="Zurückgegeben" aria-label="Zurückgegeben, wieder bei ${escapeHtml(userName(md.owner))}">${UNDO_ICON}</button></li>`;
+    + `<button class="icon-btn return-btn screen-only" type="button" title="Zurückgegeben" aria-label="Zurückgegeben, wieder bei ${escapeHtml(ownerName(md.owner))}">${UNDO_ICON}</button></li>`;
 }
 
 /**
- * Klick auf "ausleihen" bzw. "zurückgeben" in der Medienliste: fragt beim Ausleihen, an wen (askBorrower()),
- * speichert den Standort (api/locations.php; zurückgeben = wieder beim Eigentümer) und zeigt die Zeile neu.
+ * Klick auf "verleihen", "ausleihen" bzw. das Undo-Symbol in der Medienliste: fragt beim Verleihen der eigenen
+ * Scheibe, an wen (askBorrower()), beim Ausleihen einer fremden nur nach Bestätigung (askBorrowSelf()), speichert den Standort (api/locations.php; zurückgeben = wieder beim Eigentümer) und zeigt die Zeile neu.
  * @param {HTMLElement} btn
  */
 async function lendMedium(btn){
@@ -1279,7 +1428,8 @@ async function lendMedium(btn){
   const m = MOVIES.find(x => x.slug === slug);
   const md = m && m.media.find(x => x.owner === li.dataset.owner && x.type === li.dataset.type);
   if(!md) return;
-  const at = btn.classList.contains('return-btn') ? md.owner : await askBorrower(md);
+  const at = btn.classList.contains('return-btn') ? md.owner
+    : ME && md.owner !== ownerOf(ME) ? await askBorrowSelf(md) : await askBorrower(md);
   if(!at) return;
   btn.disabled = true;
   try {
@@ -1607,7 +1757,7 @@ function openEditForm(m){
   // Medien: Zeile hinzufügen (eigenes Exemplar, DVD) bzw. entfernen.
   const mediaRows = document.getElementById('mediaRows');
   document.getElementById('addMediumBtn').addEventListener('click', () => {
-    mediaRows.insertAdjacentHTML('beforeend', mediumRowHtml({owner: ME || Object.keys(USERS)[0] || '', type: 'DVD'}, isEdit ? m.slug : null));
+    mediaRows.insertAdjacentHTML('beforeend', mediumRowHtml({owner: ownerOf(ME) || Object.keys(OWNERS)[0] || '', type: 'DVD'}, isEdit ? m.slug : null));
     mediaRows.lastElementChild.querySelector('.medium-type').focus();
   });
   mediaRows.addEventListener('click', e => {
@@ -1674,12 +1824,12 @@ function formType(){
  * @param {?string} slug  Ordner des Eintrags; null bei einem neuen (entsteht beim Speichern aus Titel und Jahr)
  */
 function mediumRowHtml(md, slug){
-  const owners = [...new Set([md.owner, ...Object.keys(USERS), ...(ME ? [ME] : [])])].filter(Boolean);
+  const owners = [...new Set([md.owner, ...Object.keys(OWNERS), ownerOf(ME)])].filter(Boolean);
   const types = [...new Set([...MEDIUM_OPTIONS, ...knownValues(mediaOf), md.type])];
   const option = (value, label, selected) => `<option value="${escapeHtml(value)}"${selected ? ' selected' : ''}>${escapeHtml(label)}</option>`;
   const files = isDigital(md.type) ? md.files || [] : [];
   return `<div class="medium-row">
-    <select class="medium-owner" aria-label="Eigentümer">${owners.map(u => option(u, userName(u), u === md.owner)).join('')}</select>
+    <select class="medium-owner" aria-label="Eigentümer">${owners.map(o => option(o, ownerName(o), o === md.owner)).join('')}</select>
     <select class="medium-type" aria-label="Art">${types.map(t => option(t, t, t === md.type)).join('')}</select>
     <button class="btn btn-small medium-remove" type="button" title="Medium entfernen" aria-label="Medium entfernen">&times;</button>
     <div class="form-field files-field"${isDigital(md.type) ? '' : ' hidden'}>
@@ -2024,7 +2174,7 @@ async function saveMovie(slug){
   MOVIES = MOVIES.filter(x => x.slug !== slug && x.slug !== saved.slug);
   MOVIES.push(saved);
   const renameErrors = before ? await renameGroupSiblings(before, saved) : [];
-  await Promise.all([loadLocations(), loadWishes()]); // der Server zieht Standorte und Wünsche beim Umbenennen mit
+  await Promise.all([loadLocations(), loadWishes(), loadRatings()]); // der Server zieht alles beim Umbenennen mit
   refreshFilters();
   updateHeaderCount();
   renderGrid();
@@ -2036,7 +2186,7 @@ async function saveMovie(slug){
     alert('Gespeichert, aber nicht alle Teile umbenannt:\n' + renameErrors.join('\n'));
   }
   // Der Ordner auf dem USB-Speicher heißt wie der Eintrag: Nach einer Titel- oder Jahresänderung muss er mit.
-  const usbOwners = saved.media.filter(md => isDigital(md.type)).map(md => userName(md.owner));
+  const usbOwners = saved.media.filter(md => isDigital(md.type)).map(md => ownerName(md.owner));
   if(before && before.slug !== saved.slug && usbOwners.length){
     alert(`Der Ordner des Eintrags heißt jetzt „${saved.slug}“. Bitte auf dem USB-Speicher den Ordner „${before.slug}“ `
       + `genauso umbenennen (${usbOwners.join(', ')}), sonst findet der Player die Datei nicht.`);
@@ -2051,6 +2201,7 @@ async function deleteMovieUI(m){
     MOVIES = MOVIES.filter(x => x.slug !== m.slug);
     delete LOCATIONS[m.slug];
     delete WISHES[m.slug];
+    delete RATINGS[m.slug];
     refreshFilters();
     updateHeaderCount();
     closeMovie();
@@ -2102,6 +2253,12 @@ sheet.addEventListener('click', e => {
   const wish = e.target.closest('.wish-btn, .unwish-btn');
   if(wish){
     void toggleWish(wish);
+    return;
+  }
+  // Bewertung: Daumen hoch bzw. runter, zweiter Klick nimmt sie zurück
+  const rate = e.target.closest('button.rate-btn');
+  if(rate){
+    void rateMovie(rate);
     return;
   }
   const part = e.target.closest('.collection-parts li[data-idx]');
@@ -2189,7 +2346,7 @@ function openImportForm(){
     <div id="searchResults"></div>
     <p class="tmdb-note">
       Daten und Bilder stammen von <a href="https://www.themoviedb.org" target="_blank" rel="noopener">The Movie Database (TMDB)</a>.
-      Als Medium wird ${escapeHtml(ME ? `${possessive(userName(ME))} DVD` : 'eine DVD')} eingetragen (im Formular änderbar).
+      Als Medium wird ${escapeHtml(ME ? `${possessive(ownerName(ownerOf(ME)))} DVD` : 'eine DVD')} eingetragen (im Formular änderbar).
       Eine Serie wird zu einem Eintrag pro Staffel; vorhandene Staffeln bleiben, wie sie sind, fehlende kommen dazu.
     </p>
   `;
@@ -2581,7 +2738,7 @@ async function loadActorPhotos(entry, progress, warnings){
 async function init(){
   try {
     const movies = loadMovies();
-    await Promise.all(/** @type {Promise<unknown>[]} */ ([movies, loadCatalog(), loadUsers(), loadLocations(), loadWishes()]));
+    await Promise.all(/** @type {Promise<unknown>[]} */ ([movies, loadCatalog(), loadUsers(), loadLocations(), loadWishes(), loadRatings()]));
     MOVIES = await movies;
   } catch(err) {
     console.error(err);
@@ -2590,8 +2747,6 @@ async function init(){
     return;
   }
 
-  // Eigene Wunschliste in der Art-Auswahl, nur mit Anmeldung (die Wünsche gehören dem angemeldeten Benutzer).
-  if(ME) typeSel.add(new Option('Meine Wunschliste', MY_WISHES));
   refreshFilters();
   updateHeaderCount();
 

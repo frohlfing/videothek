@@ -52,3 +52,11 @@ function move_wishes(string $oldSlug, ?string $newSlug): void
         return $data;
     });
 }
+
+/** Entfernt alle Wünsche eines Benutzers (beim Entfernen seines Zugangs). */
+function remove_user_wishes(string $login): void
+{
+    if (is_file(wishes_file())) {
+        update_json_file(wishes_file(), fn(array $data) => array_map(fn(array $entry) => array_diff_key($entry, [$login => 0]), $data));
+    }
+}

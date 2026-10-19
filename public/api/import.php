@@ -39,11 +39,14 @@ require_once __DIR__ . '/lib/tmdb.php';
 // Abweichendes (Blu-ray, ...) nach dem Import im Formular ändern.
 const IMPORT_DEFAULT_MEDIUM = 'DVD';
 
-/** Das importierte Exemplar: IMPORT_DEFAULT_MEDIUM des angemeldeten Benutzers (ohne Anmeldung: der erste aus users.json). */
+/**
+ * Das importierte Exemplar: IMPORT_DEFAULT_MEDIUM des Eigentümers (owner_of()) des angemeldeten Benutzers, ohne
+ * Anmeldung des ersten aus users.json.
+ */
 function import_media(): array
 {
-    $owner = current_user() ?? first_user();
-    return $owner !== null ? [['owner' => $owner, 'type' => IMPORT_DEFAULT_MEDIUM]] : [];
+    $user = current_user() ?? first_user();
+    return $user !== null ? [['owner' => owner_of($user), 'type' => IMPORT_DEFAULT_MEDIUM]] : [];
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {

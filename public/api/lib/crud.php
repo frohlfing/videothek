@@ -6,6 +6,7 @@ require_once __DIR__ . '/image_store.php';
 require_once __DIR__ . '/users.php';
 require_once __DIR__ . '/locations.php';
 require_once __DIR__ . '/wishes.php';
+require_once __DIR__ . '/ratings.php';
 
 class ValidationException extends RuntimeException
 {
@@ -65,7 +66,7 @@ function movie_dir(string $slug): string
  * Liest und dekodiert movie.json eines Films bzw. einer Staffel. Null, wenn Ordner/Datei fehlt oder JSON ungültig ist.
  * Ältere Dateien kennen noch kein "type" (= Film) und statt "media" nur "medium" und "files" (Exemplare ohne
  * Eigentümer); beides wird hier ergänzt bzw. umgewandelt (legacy_media()), damit alle Aufrufer nur das aktuelle
- * Format sehen. Gespeichert wird es so beim nächsten Schreiben bzw. mit `bin/migrate_media.php`.
+ * Format sehen. Gespeichert wird es so beim nächsten Schreiben.
  */
 function read_movie_json(string $slug): ?array
 {
@@ -81,7 +82,7 @@ function read_movie_json(string $slug): ?array
         $data = ['type' => TYPE_MOVIE] + $data;
     }
     if (!isset($data['media']) && (array_key_exists('medium', $data) || array_key_exists('files', $data))) {
-        $data['media'] = legacy_media($data, $slug, first_user() ?? current_user() ?? '')[0];
+        $data['media'] = legacy_media($data, $slug, owner_of(first_user() ?? current_user() ?? ''))[0];
     }
     unset($data['medium'], $data['files']);
     return $data;
@@ -786,6 +787,7 @@ function update_movie(string $slug, array $data): array
     remove_unused_actor_photos($newSlug, $movie);
     move_locations($slug, $newSlug, $movie['media']);
     move_wishes($slug, $newSlug);
+    move_ratings($slug, $newSlug);
     return $movie;
 }
 
@@ -799,6 +801,7 @@ function delete_movie(string $slug): void
     remove_directory_recursive($dir);
     move_locations($slug, null);
     move_wishes($slug, null);
+    move_ratings($slug, null);
 }
 
 /**

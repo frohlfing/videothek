@@ -10,8 +10,8 @@
  * GET  /dev/sync.php                          -> {"files": {<pfad>: {size, mtime, md5}}}, alles unter data/ außer cache/
  * GET  /dev/sync.php?file=<pfad>              -> Inhalt der Datei, Änderungszeit (Unix) im Header X-Mtime
  * PUT  /dev/sync.php?file=<pfad>&mtime=<unix> -> schreibt die Datei (Body = Inhalt) mit dieser Änderungszeit
- * POST /dev/sync.php?account                  -> Body {"login", "hash", "name"}: Eintrag in .htpasswd (Passwort-Hash,
- *                                                siehe htpasswd_file()) und users.json
+ * POST /dev/sync.php?account                  -> Body {"login", "hash", "name", "owner"}: Eintrag in .htpasswd
+ *                                                (Passwort-Hash, siehe htpasswd_file()) und users.json
  */
 
 require_once __DIR__ . '/../../config.php';
@@ -69,9 +69,10 @@ if ($method === 'POST' && isset($_GET['account'])) {
         json_error(400, 'Ungültiger Passwort-Hash');
     }
     $name = trim((string) ($body['name'] ?? '')) ?: (string) (read_users()[$login]['name'] ?? $login);
+    $owner = trim((string) ($body['owner'] ?? ''));
     try {
         save_htpasswd_entry($login, $hash);
-        save_user($login, ['name' => $name]);
+        save_user($login, ['name' => $name, 'owner' => $owner !== '' ? $owner : null]); // ohne: selbst Eigentümer
     } catch (RuntimeException $e) {
         json_error(500, $e->getMessage());
     }

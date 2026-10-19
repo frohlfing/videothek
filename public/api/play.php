@@ -16,7 +16,7 @@
  *
  * GET /api/play.php?slug=xyz[&root=D:\videothek]          -> Film: <slug>.m3u, Staffel: alle Folgen
  * GET /api/play.php?slug=xyz&episode=3[&root=…]           -> Staffel: nur Folge 3 (<slug>-e03.m3u)
- *   Optional owner=<login>: Dateien dieses Eigentümers statt der eigenen.
+ *   Optional owner=<kennung>: Dateien dieses Eigentümers statt der eigenen (owner_of() des Benutzers).
  *   404, falls keine passende Datei eingetragen ist.
  */
 
@@ -29,7 +29,8 @@ if ($movie === null) {
     json_error(404, 'Eintrag nicht gefunden');
 }
 
-$owner = (string) ($_GET['owner'] ?? current_user() ?? first_user() ?? '');
+$user = current_user() ?? first_user();
+$owner = (string) ($_GET['owner'] ?? ($user !== null ? owner_of($user) : ''));
 $medium = null;
 foreach ($movie['media'] ?? [] as $m) {
     if ($m['owner'] === $owner && in_array($m['type'], DIGITAL_MEDIA, true) && !empty($m['files'])) {

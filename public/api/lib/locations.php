@@ -41,14 +41,14 @@ function update_locations(callable $change): array
 }
 
 /**
- * Setzt den Standort eines Mediums: $at ist der Benutzer bzw. Name, bei dem es jetzt ist; null oder der Eigentümer
- * selbst = zurück beim Eigentümer. Liefert die Standorte des Eintrags.
+ * Setzt den Standort eines Mediums: $at ist der Benutzer bzw. Name, bei dem es jetzt ist; null, der Eigentümer
+ * selbst oder ein Benutzer, der zu ihm gehört (Tinka bei Rohlfings DVD), = zurück beim Eigentümer. Liefert die Standorte des Eintrags.
  */
 function set_location(string $slug, string $owner, string $type, ?string $at, ?string $by): array
 {
     $key = medium_key($owner, $type);
     $data = update_locations(function (array $data) use ($slug, $key, $owner, $at, $by) {
-        if ($at === null || $at === $owner) {
+        if ($at === null || $at === $owner || (isset(read_users()[$at]) && owner_of($at) === $owner)) {
             unset($data[$slug][$key]);
         } elseif (($data[$slug][$key]['at'] ?? null) !== $at) {
             $data[$slug][$key] = ['at' => $at, 'since' => date('c'), 'by' => $by];

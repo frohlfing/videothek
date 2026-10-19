@@ -31,7 +31,7 @@ if (count($actions) !== 1 || $password === '') {
         . "    Lädt Daten auf den Server, die dort fehlen oder älter sind. Auf dem Server wird nichts gelöscht.\n"
         . "\n"
         . "php bin/remote.php --upload-account <login> --password=<passwort>\n"
-        . "    Überträgt den Benutzer der lokalen .htpasswd und der users.json zum Server.\n"
+        . "    Überträgt den Benutzer der lokalen .htpasswd und der users.json (Name, Eigentümer) zum Server.\n"
         . "\n"
         . "Argumente:\n"
         . "--url        Adresse der Videothek, Vorgabe \"" . REMOTE_URL . "\"\n"
@@ -202,12 +202,13 @@ function run_upload_account(array $positional): int
     $login = $positional[0];
     $hash = htpasswd_hash($login);
     if ($hash === null) {
-        fwrite(STDERR, "$login: nicht in " . htpasswd_file() . " (erst php bin/add_account.php $login)\n");
+        fwrite(STDERR, "$login: nicht in " . htpasswd_file() . " (erst php bin/account.php --add $login)\n");
         return 1;
     }
     $name = read_users()[$login]['name'] ?? '';
+    $owner = read_users()[$login]['owner'] ?? '';
     echo 'Benutzer übertragen nach ' . $GLOBALS['remote']['url'] . "\n";
-    $res = remote_json('POST', ['account' => 1], ['login' => $login, 'hash' => $hash, 'name' => $name]);
+    $res = remote_json('POST', ['account' => 1], ['login' => $login, 'hash' => $hash, 'name' => $name, 'owner' => $owner]);
     echo "  $login" . ($name !== '' ? " ($name)" : '') . ": übertragen ({$res['htpasswd']} und users.json)\n";
     return 0;
 }

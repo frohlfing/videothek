@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Videothek</title>
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
-<link rel="stylesheet" href="app.css?v=20261019n">
+<link rel="stylesheet" href="app.css?v=20261019v">
 </head>
 <body>
 
@@ -27,10 +27,12 @@
   <select id="personSel" aria-label="Nach Eigentümer, Ausleihe oder Wunschliste filtern" hidden><option value="">Alle Personen</option></select>
   <select id="sortSel" aria-label="Sortierung">
     <option value="title">Alphabetisch</option>
-    <option value="year-desc">Erscheinungsjahr &darr;</option>
-    <option value="year-asc">Erscheinungsjahr &uarr;</option>
-    <option value="created-desc">Zuletzt hinzugefügt</option>
-    <option value="created-asc">Zuerst hinzugefügt</option>
+    <option value="year-desc">Erscheinungsjahr &uarr;</option>
+    <option value="year-asc">Erscheinungsjahr &darr;</option>
+    <option value="created-desc">Hinzugefügt &uarr;</option>
+    <option value="created-asc">Hinzugefügt &darr;</option>
+    <option value="rating">Bewertung &uarr;</option>
+    <option value="rating-asc">Bewertung &darr;</option>
   </select>
   <button class="btn btn-primary" id="importMovieBtn" type="button">+ Neu</button>
 </div>
@@ -43,6 +45,6 @@
 </div>
 
 <script src="vendor/qrcode.js"></script>
-<script src="app.js?v=20261019n"></script>
+<script src="app.js?v=20261019v"></script>
 </body>
 </html>

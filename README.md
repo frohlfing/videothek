@@ -3,7 +3,7 @@
 Eine private Familien-Videothek: die Sammlung an Filmen und Serien (DVD, Blu-ray, USB, ...) als kleine
 PHP/JSON-API mit einer statischen One-Page-Frontend-App. Mehrere Freunde können ihre Sammlungen gemeinsam pflegen:
 Jedes Exemplar hat einen Eigentümer und bei DVDs und Blu-rays steht, wer sie gerade ausgeliehen hat. Jeder User kann
-Filme auf seine Wunschliste setzen.
+Filme auf seine Wunschliste setzen und mit Daumen hoch oder runter bewerten.
 
 ## Voraussetzungen
 
@@ -50,7 +50,7 @@ Filme auf seine Wunschliste setzen.
    gitignored und müssen auf jedem Rechner/Server separat eingerichtet werden.
 
    Jeder Benutzer der `.htpasswd` ist zugleich Benutzer der App (Eigentümer von Medien, "eingetragen von" bei
-   Ausleihen). Weitere Benutzer legt `php bin/add_account.php` an, siehe "Benutzer und Abgleich mit dem Server".
+   Ausleihen). Weitere Benutzer legt `php bin/account.php --add` an, siehe "Benutzer und Abgleich mit dem Server".
    Für Änderungen braucht jeder User zusätzlich das API-Token.
 
 6. Seite aufrufen – die Filmliste lädt sich selbst über `GET /api/movies.php`.
@@ -68,8 +68,9 @@ dort wieder löschen. `remote.php` erinnert am Ende daran; fehlt `dev/sync.php` 
 | `php bin/remote.php --download-data --password=…`        | Gleicht das lokale `data/` mit dem Server ab (lokal danach genau wie dort); auf dem Server wird nichts verändert |
 | `php bin/remote.php --upload-data --password=…`          | Lädt nach `data/` auf dem Server, was dort fehlt oder lokal neuer ist; auf dem Server wird nichts gelöscht       |
 | `php bin/remote.php --upload-account lilie --password=…` | Überträgt einen Benutzer auf den Server (`.htpasswd` und `users.json` dort)                                      |
-| `php bin/add_account.php <login> [<Name>]`               | Legt **lokal** einen Benutzer an bzw. setzt ein neues Passwort: `.htpasswd` und `users.json`                     |
-| `php bin/migrate_media.php [--owner=frank] [--apply]`    | Einmalig: `medium`/`files` auf `media` umstellen (siehe "Mehrere Eigentümer, Medien und Ausleihe")               |
+| `php bin/account.php --add <login> …`                    | Legt **lokal** einen Benutzer an (`.htpasswd`, `users.json`): `--name=…`, `--password=…`, `--owner=…`            |
+| `php bin/account.php --change <login> …`                 | Ändert nur, was angegeben ist: `--name=…`, `--password[=…]`, `--owner=[…]` (leer: selbst Eigentümer)             |
+| `php bin/account.php --remove <login>`                   | Entfernt ihn lokal, samt Wünschen und Bewertungen                                                                |
 
 **Zugang zum Server:** `--password` ist das Basic-Auth-Passwort auf dem Server (Pflicht), `--user` der Benutzer
 (Vorgabe `frank`), `--url` die Adresse (Vorgabe `REMOTE_URL` oben in `bin/remote.php`). Als Token dient
@@ -84,11 +85,27 @@ neuer (z. B. `locations.json` nach einer Ausleihe auf dem Server), bleibt sie un
 ohne Rückfrage). `data/cache/` bleibt außen vor. Übertragen wird nur `data/`, den Code lädt man weiter per FTP
 hoch. Üblicher Ablauf: erst `--download-data`, dann lokal arbeiten (Skripte, Importe), dann `--upload-data`.
 
-**`add_account.php`** ändert nur lokal. Ohne `--password=…` erzeugt es ein Passwort und zeigt es einmal an. Der
-Login (klein, ohne Leerzeichen, z. B. `lilie`) steht später als Eigentümer an den Medien, der Anzeigename ("Lilie",
-Vorgabe: Login mit großem Anfangsbuchstaben) erscheint in der App ("Lilies DVD"). **`--upload-account`** schickt
-danach den Passwort-Hash aus der lokalen `.htpasswd` und den Anzeigenamen an den Server; das Passwort selbst geht
-nicht über das Netz. Es überträgt nur den genannten Benutzer, nie alle, weil der eigene lokale Zugang ein anderes
+**`account.php`** ändert nur lokal, z. B.:
+
+```
+php bin/account.php --add paul --name=Paul --password=xyz --owner="WG Kiel"
+php bin/account.php --change paul --password=foo --owner=   # neues Passwort, wieder selbst Eigentümer
+php bin/account.php --remove paul
+```
+
+Ohne Passwort (bei `--add`) bzw. mit `--password` ohne Wert erzeugt es eines und zeigt es einmal an. Der Login
+(klein, ohne Leerzeichen, z. B. `lilie`) steht später als Eigentümer an den Medien, der Anzeigename ("Lilie",
+Vorgabe: Login mit großem Anfangsbuchstaben) erscheint in der App ("Lilies DVD"). Mit `--owner=Rohlfing` gehört der
+Benutzer zu einer gemeinsamen Sammlung (siehe "Gemeinsame Sammlung"). Die Medien in `movie.json` ändert es nicht;
+gehören nach einer Änderung Medien keinem Benutzer mehr, meldet es das.
+
+**Entfernen auf dem Server**: `--remove` ändert nur lokal und sagt danach, was auf dem Server zu tun ist: in der
+dortigen `.htpasswd` die Zeile des Benutzers per FTP löschen; `users.json`, `wishes.json` und `ratings.json`
+überträgt `--upload-data`, weil sie lokal neuer sind. Am besten vorher `--download-data`, sonst sind Wünsche oder
+Bewertungen, die inzwischen auf dem Server dazukamen, dort neuer und werden nicht überschrieben.
+
+**`--upload-account`** schickt nach `--add` bzw. `--change` den Passwort-Hash aus der lokalen `.htpasswd`, den
+Anzeigenamen und den Eigentümer an den Server; das Passwort selbst geht nicht über das Netz. Es überträgt nur den genannten Benutzer, nie alle, weil der eigene lokale Zugang ein anderes
 Passwort haben kann als der auf dem Server. Welche `.htpasswd` der Server benutzt, liest `dev/sync.php` aus
 `AuthUserFile` in `public/.htaccess` (oder `HTPASSWD_FILE` in `config.php`); PHP muss sie schreiben dürfen.
 
@@ -174,8 +191,9 @@ videothek/                                            # Projektroot
  │    ├── cache/sync_md5.json                         # MD5 je Datei für den Abgleich (bin/remote.php)
  │    ├── collections.json                            # Alle Filme je Reihe laut TMDB (siehe "Filmreihen und Serien")
  │    ├── locations.json                              # Wo DVDs und Blu-rays gerade sind (siehe "Mehrere Eigentümer, Medien und Ausleihe")
+ │    ├── ratings.json                                # Bewertungen: Daumen hoch/runter je Benutzer (siehe "Bewertungen")
  │    ├── series.json                                 # Alle Staffeln je Serie laut TMDB
- │    ├── users.json                                  # Anzeigename und Rolle je Benutzer der .htpasswd
+ │    ├── users.json                                  # Anzeigename und ggf. gemeinsamer Eigentümer je Benutzer der .htpasswd
  │    ├── wishes.json                                 # Wunschliste: wer welchen Eintrag sehen möchte (siehe "Wunschliste")
  │    └── movies/                                     # Ein Unterordner pro Film bzw. Staffel
  │         └── <slug>/                                # Slug aus Titel + Jahr, z. B. "die-goonies-1985", "breaking-bad-staffel-1-2008"
@@ -185,8 +203,7 @@ videothek/                                            # Projektroot
  │              ├── fanart.<ext>                      # Hintergrundbild (nur per TMDB-Import)
  │              └── thumb.<ext>                       # automatisch generierte Miniatur des Posters (Hochformat 2:3)
  ├── bin/                                             # Skripte für die Kommandozeile (lokal, php bin/…), siehe "Benutzer und Abgleich mit dem Server"
- │    ├── add_account.php                             # Benutzer lokal anlegen (.htpasswd, users.json)
- │    ├── migrate_media.php                           # Einmalig: medium/files -> media
+ │    ├── account.php                                 # Benutzer lokal anlegen, ändern, entfernen (.htpasswd, users.json)
  │    └── remote.php                                  # Abgleich mit dem Server: --download-data, --upload-data, --upload-account
  ├── public/                                          # Document Root
  │    ├── api/                                        # API-Endpunkte
@@ -200,6 +217,7 @@ videothek/                                            # Projektroot
  │    │    │    ├── image_store.php                   # Poster/Hintergrundbild/Darstellerfoto speichern + Thumbnail
  │    │    │    ├── jsonfile.php                      # Kleine JSON-Dateien lesen und unter Sperre ändern
  │    │    │    ├── locations.php                     # locations.json lesen und schreiben (Standorte der Scheiben)
+ │    │    │    ├── ratings.php                       # ratings.json lesen und schreiben (Bewertungen)
  │    │    │    ├── slug.php                          # slugify() + Eindeutigkeits-Check
  │    │    │    ├── sync.php                          # Abgleich von data/: Dateiliste mit MD5, Datei schreiben
  │    │    │    ├── thumbnail.php                     # Thumbnail-Erzeugung per GD (Center-Crop) + Lazy-Fallback
@@ -214,6 +232,7 @@ videothek/                                            # Projektroot
  │    │    ├── locations.php                          # Standorte der Scheiben lesen und setzen (Ausleihe)
  │    │    ├── movies.php                             # Filme und Staffeln lesen, anlegen, bearbeiten, löschen
  │    │    ├── play.php                               # Play-Button: Wiedergabeliste (.m3u) mit den lokalen Dateipfaden
+ │    │    ├── ratings.php                            # Bewertungen lesen und setzen
  │    │    ├── search.php                             # Suche nach Filmen und Serien in TMDB (Titel, IMDb-ID, Barcode)
  │    │    ├── upload.php                             # Poster-/Hintergrundbild-Upload, zum Poster inkl. Thumbnail
  │    │    ├── users.php                              # Angemeldeter Benutzer und Anzeigenamen
@@ -274,6 +293,8 @@ selbst mit abdeckt. Ausnahme: `dev/sync.php` verlangt das Token auch zum Lesen.
 | PUT          | `/api/locations.php`                                 | Standort einer Scheibe setzen (Body: `{"slug", "owner", "type", "at"}`; `at` = Login oder freier Name, leer oder der Eigentümer = zurück)                                          |
 | GET          | `/api/wishes.php`                                    | Wunschlisten aller Benutzer (`data/wishes.json`): je Slug Login und Zeitpunkt                                                                                                      |
 | PUT          | `/api/wishes.php`                                    | Eigenen Wunsch setzen bzw. entfernen (Body: `{"slug", "wish": true\|false}`; Anmeldung nötig)                                                                                      |
+| GET          | `/api/ratings.php`                                   | Bewertungen aller Benutzer (`data/ratings.json`): je Slug Login und 1 bzw. -1 |
+| PUT          | `/api/ratings.php`                                   | Eigene Bewertung setzen (Body: `{"slug", "rating": 1\|-1\|0}`, 0 = entfernen; Anmeldung nötig) |
 | GET/PUT/POST | `/dev/sync.php`                                      | Nur für `bin/`, Token nötig: Dateiliste von `data/` mit MD5, Datei lesen/schreiben, Benutzer übertragen (`?account`)                                                               |
 | POST         | `/api/actors.php`                                    | Fehlende Darstellerfotos laden, ~10 s pro Aufruf, bis `remaining` 0 ist (Body: `{"slug": "..."}`)                                                                                  |
 | GET          | `/api/catalog.php`                                   | Alle Teile je Reihe und Staffeln je Serie laut TMDB (`collections`, `series`, siehe "Filmreihen und Serien")                                                                       |
@@ -358,8 +379,8 @@ auf dem USB-Speicher des Eigentümers (`<USB-Ordner>/<slug>/`), bei mehrteiligen
 `movie-cd2.avi`) mehrere in Abspielreihenfolge, immer mit `/` gespeichert. Absolute Pfade und `..` lehnt die API
 ab. Wo eine DVD bzw. Blu-ray gerade ist, steht nicht hier, sondern in `data/locations.json` (siehe "Mehrere
 Eigentümer, Medien und Ausleihe"). Ältere `movie.json` mit `medium` und `files` (relativ zu `USB_ROOT`) liest
-`read_movie_json()` als Medien des ersten Benutzers aus `users.json` (`legacy_media()`); umgeschrieben werden sie
-beim nächsten Speichern bzw. mit `bin/migrate_media.php`. `fsk` ist die Altersfreigabe als freier Text, das
+`read_movie_json()` als Medien des Eigentümers des ersten Benutzers aus `users.json` (`legacy_media()`);
+umgeschrieben werden sie beim nächsten Speichern. `fsk` ist die Altersfreigabe als freier Text, das
 Formular schlägt die üblichen Werte vor. `uniqueids`, `poster`,
 `thumb` und `fanart` setzen nur Import und Upload (`upload.php`, dort auch Entfernen); das Formular schickt sie nicht
 mit, sie bleiben beim Bearbeiten erhalten. Anders bei den Darstellern: Das Formular schickt `profile` (TMDB-Pfad)
@@ -396,8 +417,8 @@ Beim Aufruf von `index.html` laufen die Requests in dieser Reihenfolge:
    - **`GET api/movies.php`** lädt die komplette Filmliste als JSON. Das ist der einzige zwingende Request beim 
      Start; schlägt er fehl, wird eine Fehlermeldung angezeigt und die Initialisierung bricht ab.
    - Gleichzeitig laden `api/catalog.php` (Teile je Reihe), `api/users.php` (wer angemeldet ist, Anzeigenamen),
-     `api/locations.php` (Standorte der Scheiben) und `api/wishes.php` (Wunschlisten). Fehlt einer davon, fehlen
-     nur die Hinweise bzw. Namen.
+     `api/locations.php` (Standorte der Scheiben), `api/wishes.php` (Wunschlisten) und `api/ratings.php`
+     (Bewertungen). Fehlt einer davon, fehlen nur die Hinweise bzw. Namen.
    - Beim Rendern des Kartenrasters bekommt jeder Film mit Poster ein
      `<img src="api/image.php?slug=…&type=thumb" loading="lazy">`. Dadurch fordert der Browser die Thumbnails an, 
      aber wegen `loading="lazy"` nur die Thumbnails, die tatsächlich (nahe) im sichtbaren Viewport liegen; der Rest 
@@ -405,27 +426,28 @@ Beim Aufruf von `index.html` laufen die Requests in dieser Reihenfolge:
      eines einzelnen Films nachgeladen.
 
 Kein Token-Request/Prompt beim Laden: `requireToken()` wird ausschließlich bei schreibenden Aktionen (Speichern/
-Löschen/Importieren/Ausleihen/Wunschliste) aufgerufen, siehe "Token-Authentifizierung".
+Löschen/Importieren/Ausleihen/Wunschliste/Bewerten) aufgerufen, siehe "Token-Authentifizierung".
 
 ### Suchen, Filtern, Sortieren
 
 Die Suche durchsucht Titel, Originaltitel, Jahr, Genres, Regie bzw. Idee, Darsteller (Name und Rolle), Handlung,
 Medium, Eigentümer, Reihe bzw. Serie und bei Staffeln die Folgentitel. Gefiltert wird nach Art (Filme und Serien, nur
-Filme, nur Serien, mit Anmeldung auch "Meine Wunschliste"), nach Genre (alle Einträge, die das gewählte Genre
+Filme, nur Serien; dazu die Wunschlisten: "Meine Wunschliste", "Lillis Wunschliste", …), nach Genre (alle Einträge, die das gewählte Genre
 enthalten), nach Medium (DVD, Blu-ray, ...; ein Eintrag mit mehreren Medien erscheint unter jedem, dazu "(nicht im
-Bestand)") und nach Person. Die Personen-Auswahl bündelt drei Dinge, damit es bei einer Auswahlliste bleibt:
+Bestand)") und nach Person. Die Personen-Auswahl bündelt zwei Dinge, damit es bei einer Auswahlliste bleibt:
 
 - **Eigentümer** ("Franks Medien"): nur Einträge mit Medien von Frank, auf der Karte nur seine Medien. Sind alle seine
   Medien eines Eintrags verliehen, ist die Karte blass wie "nicht im Bestand", das Schlagwort heißt dann "DVD bei
   Lilli". So ist auf einen Blick zu sehen, was gerade in seinem Regal steht.
 - **Ausgeliehen** ("Lilli hat von Frank"): Was Lilli gerade von Frank hat. Hat sie Medien von mehreren Eigentümern,
   gibt es zusätzlich "Lilli hat" für alles.
-- **Wunschliste** der anderen ("Lillis Wunschliste"); die eigene steht in der Art-Auswahl, siehe "Wunschliste".
 
-Angeboten wird nur, was es gerade gibt; ohne Ausleihen und Wünsche erscheint die Auswahl erst bei mehreren
+Angeboten wird nur, was es gerade gibt; ohne Ausleihen erscheint die Auswahl erst bei mehreren
 Eigentümern. Medium und Person gelten zusammen: "Blu-ray" + "Lilies Medien" zeigt Lilies Blu-rays. Die Filter
 lassen sich kombinieren und bieten nur Werte an, die im Bestand tatsächlich vorkommen. Sortiert wird alphabetisch,
-nach Erscheinungsjahr (Einträge ohne Jahr am Ende) oder nach Hinzufügedatum. Alphabetisch zählt der Titel ohne
+nach Erscheinungsjahr (Einträge ohne Jahr am Ende), nach Hinzufügedatum oder nach Bewertung (Saldo aus Daumen hoch und
+runter, bei Gleichstand mehr Stimmen zuerst, ohne Bewertung am Ende; die Karten zeigen dann "👍 2 · 👎 1"). Der Pfeil
+nach oben heißt: Neuestes bzw. Bestes zuerst. Alphabetisch zählt der Titel ohne
 führenden Artikel ("The Big Lebowski" steht bei B, wie in Kodi); welche Artikel, legt `SORT_IGNORE_ARTICLES` oben in
 `app.js` fest (der, die, das, the, ein, eine, a, an; leere Liste = aus). Suchbegriff, Filter und Sortierung werden
 in `localStorage` unter `videothek_view_state` gemerkt und überstehen so einen Reload.
@@ -488,19 +510,21 @@ Jedes Exemplar ist ein Eintrag in `media` mit Eigentümer und Art. Haben zwei Fr
 Eintrag mit zwei Medien (ein Ordner, ein Poster). In der Detailansicht stehen die Medien unter den Eckdaten:
 
 ```
-Medien   Lilies DVD  hat Thomas seit 48 Tagen  ↶
-         Franks DVD  ausleihen
-         Franks Datei (USB)
+Medien   Lilies DVD     hat Thomas seit 48 Tagen  ↶
+         Rohlfings DVD  verleihen
+         Rohlfings Datei (USB)
 ```
 
-**Ausleihen**: Liegt eine DVD bzw. Blu-ray beim Eigentümer, steht daneben der Link "ausleihen". Er fragt "An wen
-verliehen?" (`askBorrower()`): je Benutzer ein Knopf, ebenso für jeden Namen, bei dem gerade etwas ausgeliehen ist,
+**Ausleihen**: Liegt eine DVD bzw. Blu-ray beim Eigentümer, steht daneben der Link "verleihen" (eigene Scheibe)
+bzw. "ausleihen" (die eines anderen). "ausleihen" fragt nur nach Bestätigung ("Rohlfings DVD ausleihen?",
+`askBorrowSelf()`) und trägt den angemeldeten Benutzer ein. "verleihen" fragt "An wen verliehen?" (`askBorrower()`):
+je Benutzer ein Knopf (ohne die, denen die Scheibe gehört), ebenso für jeden Namen, bei dem gerade etwas ausgeliehen ist,
 dazu ein Feld für eine andere Person ohne Zugang (ihr Name steht dann als `at` in `locations.json`, bis 60 Zeichen;
 ein eingetippter Anzeigename eines Benutzers wird zu seinem Login). Gespeichert wird sofort (`PUT
 api/locations.php`, mit API-Token wie jede Änderung). Danach steht dort "hat Thomas seit 48 Tagen" (bzw. "seit
 heute", "seit gestern"; Datum und wer es eingetragen hat als Tooltip) und ein Undo-Symbol (↶, Tooltip
-"Zurückgegeben"), das das Medium wieder beim Eigentümer einträgt. Zeitpunkt und welcher User es eingetragen hat (angemeldeter Benutzer), setzt der Server.
-Dateien (USB) werden nicht verliehen. Im Ausdruck fehlen Links und Symbole.
+"Zurückgegeben"), das das Medium wieder beim Eigentümer einträgt. Zeitpunkt und welcher User es eingetragen hat (angemeldeter
+Benutzer), setzt der Server. Dateien (USB) werden nicht verliehen. Im Ausdruck fehlen Links und Symbole.
 
 Die Standorte stehen in **`data/locations.json`**, nicht in `movie.json`: So überschreibt ein Hochladen geänderter
 Filmordner keine Ausleihen, und ein Klick schreibt nur diese kleine Datei (unter Sperre wie die Kataloge):
@@ -521,18 +545,42 @@ die DVD des angemeldeten Benutzers ein (`import_media()` in `import.php`).
 Namen (siehe "Abspielen"). Gespeichert sind deshalb nur die Dateinamen im Ordner, nicht der ganze Pfad. Ändert sich
 der Slug (Titel oder Jahr), erinnert das Formular daran, den Ordner auf dem USB-Speicher umzubenennen.
 
-**Umstellung des Bestands**: `php bin/migrate_media.php --owner=frank` zeigt, was sich ändert, `--apply` schreibt
-es (alle Medien gehören dann `frank`, `frank` kommt in `users.json`). Dateien, die nicht im Ordner des
-Eintrags liegen, meldet das Skript; diese Ordner sind auf dem USB-Speicher umzubenennen.
+### Gemeinsame Sammlung
+
+Teilen sich mehrere eine Sammlung (ein Haushalt, ein Standort, ein USB-Speicher), steht in `data/users.json` bei
+jedem derselbe Eigentümer:
+
+```json
+{ "frank": { "name": "Frank", "owner": "Rohlfing" },
+  "tinka": { "name": "Tinka", "owner": "Rohlfing" },
+  "lilie": { "name": "Lilie" } }
+```
+
+An den Medien steht dann die Kennung `rohlfing` (aus dem Namen, `owner_key()` in `lib/users.php`), angezeigt als
+"Rohlfings DVD", "Rohlfings Medien" bzw. "Lilie hat von Rohlfing". Ohne `owner` ist der Benutzer selbst Eigentümer
+(Kennung = Login). Für Frank und Tinka gleichermaßen gilt, was Rohlfing gehört, als eigen: Abspielen der Dateien,
+"verleihen" statt "ausleihen", Import als "Rohlfings DVD"; im Ausleih-Dialog erscheinen sie bei Rohlfings Scheiben
+nicht, und hat einer von beiden eine davon, liegt sie zu Hause. Wunschliste, Bewertungen und "hat Tinka" bleiben bei
+der Person. Im Formular stehen die Eigentümer zur Wahl ("Rohlfing", "Lilie"), nicht die Personen.
+
+Eingerichtet wird das lokal:
+
+1. `php bin/account.php --change frank --owner=Rohlfing` bzw. `--add tinka --name=Tinka --owner=Rohlfing`.
+2. Hatte jemand schon eigene Medien, gehören sie noch seinem Login (`frank`); das Skript meldet sie. Für den
+   Bestand ist das einmalig geschehen (`frank` -> `rohlfing` in jeder `movie.json` und in `locations.json`), einzelne
+   Medien stellt man im Formular um.
+3. Mit dem Server: vorher `--download-data`, danach `--upload-data` und `--upload-account tinka`. Dazwischen sollte
+   auf dem Server niemand ausleihen, sonst ist die `locations.json` dort neuer und wird nicht überschrieben.
 
 ### Wunschliste
 
 In der Detailansicht steht unter den Eckdaten der Link "möchte ich sehen". Ein Klick setzt den Eintrag auf die eigene
 Wunschliste: Dort steht dann ein grünes "✓ möchte ich sehen" mit Undo-Symbol (↶, "Doch nicht"), auf der Karte in
-der Übersicht ein grünes Häkchen (bei Reihen und Serien, sobald ein Teil gewünscht ist). Daneben steht, auf wessen
-Wunschliste der Eintrag sonst noch steht ("auch auf der Wunschliste von Lilli"). Gefiltert wird über die Art-Auswahl
-("Meine Wunschliste"), die Wunschlisten der anderen stehen in der Personen-Auswahl ("Lillis Wunschliste"). Auch
-Einträge, die nicht im Bestand sind, lassen sich wünschen.
+der Übersicht ein grünes Häkchen (bei Reihen und Serien, sobald ein Teil gewünscht ist). Die Detailansicht zeigt nur
+die eigene Wunschliste. Gefiltert wird über die Art-Auswahl: "Meine Wunschliste", darunter die der anderen
+("Lillis Wunschliste"). Zusammen mit "Rohlfings Medien" in der Personen-Auswahl zeigt das, welche eigenen DVDs man
+zum Besuch bei Lilli einpacken kann. Auch Einträge, die nicht im Bestand sind, lassen sich
+wünschen; die Zeile gibt es nur mit Anmeldung.
 
 Gespeichert wird sofort (`PUT api/wishes.php`, mit API-Token wie jede Änderung und nur mit Anmeldung, weil der Wunsch
 dem angemeldeten Benutzer gehört) in **`data/wishes.json`**, getrennt von `movie.json` und `users.json` aus demselben
@@ -545,6 +593,23 @@ Grund wie bei `locations.json`: Wünsche entstehen auf dem Server, ein Hochladen
 
 Wird ein Eintrag umbenannt, ziehen seine Wünsche mit; mit dem Eintrag verschwinden sie (`move_wishes()` in
 `lib/wishes.php`).
+
+### Bewertungen
+
+Unter "möchte ich sehen" stehen in der Detailansicht 👍 und 👎 mit der Zahl der Stimmen; wer so bewertet hat, steht im
+Tooltip. Ein Klick bewertet, die eigene Wahl ist hervorgehoben, ein zweiter Klick auf denselben Daumen nimmt sie
+zurück. Die erste Bewertung nimmt den Eintrag von der eigenen Wunschliste (gesehen). Man kann ihn danach wieder
+wünschen; eine geänderte Bewertung lässt den Wunsch dann stehen. Ohne Anmeldung erscheinen nur die Zahlen.
+
+Gespeichert wird sofort (`PUT api/ratings.php`, mit API-Token und Anmeldung wie bei der Wunschliste) in
+**`data/ratings.json`**, aus denselben Gründen getrennt von `movie.json`:
+
+```json
+{ "matrix-1999": { "frank": 1, "lilie": -1 } }
+```
+
+Umbenennen und Löschen eines Eintrags ziehen die Bewertungen mit (`move_ratings()` in `lib/ratings.php`). Die
+Sortierung "Bewertung ↑/↓" nutzt den Saldo; nur dann zeigen die Karten die Bewertung.
 
 ### Detailansicht
 
@@ -788,7 +853,8 @@ externen Dienst. Der Browser-Dialog "Drucken → Als PDF speichern" reicht für 
 - ✅ Mehrere Medien pro Film (z. B. DVD und USB)
 - ✅ Mehrere Benutzer: Eigentümer je Medium, Ausleihe mit einem Klick (`locations.json`), eigener USB-Ordner je Gerät
 - ✅ Wunschliste (`wishes.json`) mit Häkchen auf der Karte; Filter nach Eigentümer, Ausleihe und Wunschliste
-- ✅ Abgleich von `data/` und Benutzer ohne Terminal auf dem Server (`bin/remote.php`, `bin/add_account.php`)
+- ✅ Bewertungen mit Daumen hoch/runter (`ratings.json`), Sortierung nach Bewertung
+- ✅ Abgleich von `data/` und Benutzer ohne Terminal auf dem Server (`bin/remote.php`, `bin/account.php`)
 - ✅ Serien: jede Staffel ein eigener Eintrag (Cover, Medium, Folgen), gruppiert wie Reihen; Import ergänzt fehlende Staffeln
 - ✅ Import per Barcode-Scan mit dem Smartphone (Websuche über DuckDuckGo, wahlweise SerpApi oder Brave)
 - ✅ Filmreihen als gemeinsame Kachel mit Cover-Collage, Teile aufklappbar
