@@ -23,7 +23,7 @@
  *   Body: {"tmdb": 9340, "type": "movie"} (aus GET /api/search.php; ohne type: Film)
  *     -> 201 mit dem neu angelegten Film
  *   Body: {"tmdb": 1396, "type": "series", "seasons": [1, 2]}
- *     seasons: Nummern der zu importierenden Staffeln (0 = Specials), sie bekommen IMPORT_DEFAULT_MEDIUM
+ *     seasons: Nummern der zu importierenden Staffeln (0 = Specials), sie bekommen wie ein Film das Medium aus import_media()
  *     -> 201 mit {"entries": [neue Staffeln], "skipped": [angegebene, schon vorhandene Staffeln]}
  *   400, wenn der Film bzw. alle angegebenen Staffeln schon vorhanden sind oder TMDB eine Staffel nicht kennt.
  */
@@ -38,6 +38,13 @@ require_once __DIR__ . '/lib/tmdb.php';
 // TMDB kennt das Format des eigenen Exemplars nicht; die meisten Filme der Sammlung sind DVDs.
 // Abweichendes (Blu-ray, ...) nach dem Import im Formular ändern.
 const IMPORT_DEFAULT_MEDIUM = 'DVD';
+
+/** Das importierte Exemplar: IMPORT_DEFAULT_MEDIUM des angemeldeten Benutzers (ohne Anmeldung: der erste aus users.json). */
+function import_media(): array
+{
+    $owner = current_user() ?? first_user();
+    return $owner !== null ? [['owner' => $owner, 'type' => IMPORT_DEFAULT_MEDIUM]] : [];
+}
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     json_error(405, 'Nur POST erlaubt');
@@ -65,7 +72,7 @@ if ($type === TYPE_MOVIE) {
     } catch (RuntimeException $e) {
         json_error(422, 'Import fehlgeschlagen: ' . $e->getMessage());
     }
-    $details['medium'] = IMPORT_DEFAULT_MEDIUM;
+    $details['media'] = import_media();
     // Gibt es schon Teile derselben Reihe, dann deren Namen übernehmen (er kann im Formular geändert worden sein); die
     // Teilnummer gehört zum anderen Film und bleibt leer.
     if ($details['collection'] !== null) {
@@ -124,7 +131,7 @@ foreach ($new as $season) {
         $season['title'] = $series['name'] . substr($season['title'], strlen($season['series']['name']));
     }
     $season['series'] = $series;
-    $season['medium'] = IMPORT_DEFAULT_MEDIUM;
+    $season['media'] = import_media();
     try {
         [$entry, $entryWarnings] = import_entry($season);
     } catch (ValidationException $e) {

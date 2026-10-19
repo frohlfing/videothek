@@ -8,7 +8,7 @@
  *                                       "thumbHash" (siehe list_movies()). Kein Token nötig.
  * GET    /api/movies.php?slug=xyz   -> einzelner Eintrag. Kein Token nötig. 404, falls unbekannt.
  * POST   /api/movies.php            -> legt einen neuen Eintrag an. Body: JSON-Objekt mit title (Pflicht), type,
- *                                       originalTitle, year, runtime, fsk, genres, medium, files, plot, trailer,
+ *                                       originalTitle, year, runtime, fsk, genres, media, plot, trailer,
  *                                       cast, notes;
  *                                       Filme zusätzlich collection, director; Staffeln series, season, creator,
  *                                       episodes.

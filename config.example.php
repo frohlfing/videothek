@@ -39,9 +39,10 @@ const TMDB_API_KEY = 'f090bb54758cabf231fb605d3e3e0468';
 // Das Land für die Altersfreigabe (hier: DE -> FSK) wird daraus abgeleitet.
 const TMDB_LANGUAGE = 'de-DE';
 
-// Ordner mit den Filmdateien für Medium "USB" (USB-Platte/-Stick). Der Pfad gilt auf dem Rechner, der den
-// Film abspielt (nicht auf dem Webserver): Der Play-Button liefert eine Wiedergabeliste (.m3u) mit
-// USB_ROOT + der im Film eingetragenen relativen Datei, die der dort installierte Player öffnet.
+// Vorgabe für den Ordner mit den Filmdateien für Medium "USB" (USB-Platte/-Stick). Der Pfad gilt auf dem Rechner,
+// der den Film abspielt (nicht auf dem Webserver): Der Play-Button liefert eine Wiedergabeliste (.m3u) mit
+// <USB-Ordner>/<slug>/<Datei>, die der dort installierte Player öffnet. Jeder hat seinen eigenen USB-Speicher und
+// bestätigt bzw. ändert den Ordner beim Abspielen (gemerkt je Gerät im Browser).
 const USB_ROOT = 'D:\videothek';
 
 

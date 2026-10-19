@@ -1,7 +1,8 @@
 # Videothek
 
-Eine private Familien-Videothek: die eigene Sammlung an Filmen und Serien (DVD, Blu-ray, USB, ...) als kleine
-PHP/JSON-API mit einer statischen One-Page-Frontend-App.
+Eine private Familien-Videothek: die Sammlung an Filmen und Serien (DVD, Blu-ray, USB, ...) als kleine
+PHP/JSON-API mit einer statischen One-Page-Frontend-App. Mehrere Freunde können ihre Sammlungen gemeinsam pflegen:
+Jedes Exemplar hat einen Besitzer und bei DVDs und Blu-rays steht, wer sie gerade ausgeliehen hat.
 
 ## Voraussetzungen
 
@@ -47,7 +48,48 @@ PHP/JSON-API mit einer statischen One-Page-Frontend-App.
    absoluten Pfad zur `.htpasswd` auf diesem Server anpassen. Beide Dateien (`.htpasswd`, `public/.htaccess`) sind 
    gitignored und müssen auf jedem Rechner/Server separat eingerichtet werden.
 
+   Jeder Benutzer der `.htpasswd` ist zugleich Benutzer der App (Besitzer von Medien, "eingetragen von" bei
+   Ausleihen). Weitere Benutzer legt `php bin/add_account.php` an, siehe "Benutzer und Abgleich mit dem Server".
+   Für Änderungen braucht jeder User zusätzlich das API-Token.
+
 6. Seite aufrufen – die Filmliste lädt sich selbst über `GET /api/movies.php`.
+
+## Benutzer und Abgleich mit dem Server
+
+Auf dem Server (Hetzner-Webspace) gibt es kein Terminal. Die Skripte in `bin/` laufen deshalb lokal;
+`bin/remote.php` spricht den Server über `dev/sync.php` an (Token nötig, auch zum Lesen). Wer das Token kennt,
+könnte darüber alle Daten lesen und überschreiben und Zugänge anlegen. Deshalb liegt `sync.php` unter
+`public/dev/` und kommt **nur zum Abgleichen** auf den Server: vorher den Ordner `dev/` per FTP hochladen, danach
+dort wieder löschen. `remote.php` erinnert am Ende daran; fehlt `dev/sync.php` auf dem Server, sagt es das.
+
+| Aufruf                                                   | Zweck                                                                                                            |
+|----------------------------------------------------------|------------------------------------------------------------------------------------------------------------------|
+| `php bin/remote.php --download-data --password=…`        | Gleicht das lokale `data/` mit dem Server ab (lokal danach genau wie dort); auf dem Server wird nichts verändert |
+| `php bin/remote.php --upload-data --password=…`          | Lädt nach `data/` auf dem Server, was dort fehlt oder lokal neuer ist; auf dem Server wird nichts gelöscht       |
+| `php bin/remote.php --upload-account lilie --password=…` | Überträgt einen Benutzer auf den Server (`.htpasswd` und `users.json` dort)                                      |
+| `php bin/add_account.php <login> [<Name>]`               | Legt **lokal** einen Benutzer an bzw. setzt ein neues Passwort: `.htpasswd` und `users.json`                     |
+| `php bin/migrate_media.php [--owner=frank] [--apply]`    | Einmalig: `medium`/`files` auf `media` umstellen (siehe "Mehrere Besitzer, Medien und Ausleihe")                 |
+
+**Zugang zum Server:** `--password` ist das Basic-Auth-Passwort auf dem Server (Pflicht), `--user` der Benutzer
+(Vorgabe `frank`), `--url` die Adresse (Vorgabe `REMOTE_URL` oben in `bin/remote.php`). Als Token dient
+`API_TOKEN` aus der lokalen `config.php`; es muss mit dem des Servers übereinstimmen. Weitere Zugangsdaten werden
+nirgends gespeichert.
+
+**Download und Upload** vergleichen jede Datei über ihren Inhalt (MD5); die Kopie bekommt danach die
+Änderungszeit des Originals, damit der nächste Vergleich stimmt. Der **Download** übernimmt den Stand des Servers
+vollständig: Er überschreibt auch lokal neuere Dateien (in der Liste als "lokal neuer" markiert) und löscht lokal,
+was es auf dem Server nicht gibt. Der **Upload** überschreibt nur, was auf dem Server älter ist; ist die Datei dort
+neuer (z. B. `locations.json` nach einer Ausleihe auf dem Server), bleibt sie und wird nur gemeldet. Beide zeigen erst, was passieren würde, und fragen dann nach (`--yes`:
+ohne Rückfrage). `data/cache/` bleibt außen vor. Übertragen wird nur `data/`, den Code lädt man weiter per FTP
+hoch. Üblicher Ablauf: erst `--download-data`, dann lokal arbeiten (Skripte, Importe), dann `--upload-data`.
+
+**`add_account.php`** ändert nur lokal. Ohne `--password=…` erzeugt es ein Passwort und zeigt es einmal an. Der
+Login (klein, ohne Leerzeichen, z. B. `lilie`) steht später als Besitzer an den Medien, der Anzeigename ("Lilie",
+Vorgabe: Login mit großem Anfangsbuchstaben) erscheint in der App ("Lilies DVD"). **`--upload-account`** schickt
+danach den Passwort-Hash aus der lokalen `.htpasswd` und den Anzeigenamen an den Server; das Passwort selbst geht
+nicht über das Netz. Es überträgt nur den genannten Benutzer, nie alle, weil der eigene lokale Zugang ein anderes
+Passwort haben kann als der auf dem Server. Welche `.htpasswd` der Server benutzt, liest `dev/sync.php` aus
+`AuthUserFile` in `public/.htaccess` (oder `HTPASSWD_FILE` in `config.php`); PHP muss sie schreiben dürfen.
 
 ## Lokalen Testserver unter XAMPP (Windows) einrichten
 
@@ -128,8 +170,11 @@ PHP/JSON-API mit einer statischen One-Page-Frontend-App.
 videothek/                                            # Projektroot
  ├── data/                                            # Außerhalb des Document Root, kein direkter Browser-Zugriff möglich
  │    ├── cache/ean/                                  # Treffertitel der Websuche je Barcode (siehe "Barcode scannen")
+ │    ├── cache/sync_md5.json                         # MD5 je Datei für den Abgleich (bin/remote.php)
  │    ├── collections.json                            # Alle Filme je Reihe laut TMDB (siehe "Filmreihen und Serien")
+ │    ├── locations.json                              # Wo DVDs und Blu-rays gerade sind (siehe "Mehrere Besitzer, Medien und Ausleihe")
  │    ├── series.json                                 # Alle Staffeln je Serie laut TMDB
+ │    ├── users.json                                  # Anzeigename und Rolle je Benutzer der .htpasswd
  │    └── movies/                                     # Ein Unterordner pro Film bzw. Staffel
  │         └── <slug>/                                # Slug aus Titel + Jahr, z. B. "die-goonies-1985", "breaking-bad-staffel-1-2008"
  │              ├── actors/                           # Darstellerfotos wie bei Kodi benannt (Sean_Astin.jpg), aber nicht versteckt
@@ -137,10 +182,10 @@ videothek/                                            # Projektroot
  │              ├── poster.<ext>                      # Poster (Upload oder TMDB)
  │              ├── fanart.<ext>                      # Hintergrundbild (nur per TMDB-Import)
  │              └── thumb.<ext>                       # automatisch generierte Miniatur des Posters (Hochformat 2:3)
- ├── bin/                                             # Einmalige Skripte für die Kommandozeile (lokal, php bin/…)
- │    ├── build_catalog.php                           # collections.json/series.json für den Bestand füllen
- │    └── collections_from_list.php                   # Reihen aus docs/filmreihen.md in die Filme eintragen
- ├── docs/                                            # Projektdokumentation (Markdown)
+ ├── bin/                                             # Skripte für die Kommandozeile (lokal, php bin/…), siehe "Benutzer und Abgleich mit dem Server"
+ │    ├── add_account.php                             # Benutzer lokal anlegen (.htpasswd, users.json)
+ │    ├── migrate_media.php                           # Einmalig: medium/files -> media
+ │    └── remote.php                                  # Abgleich mit dem Server: --download-data, --upload-data, --upload-account
  ├── public/                                          # Document Root
  │    ├── api/                                        # API-Endpunkte
  │    │    └── lib/                                   # Gemeinsam genutzte Hilfsfunktionen der API-Endpunkte
@@ -149,24 +194,30 @@ videothek/                                            # Projektroot
  │    │    │    ├── crud.php                          # Read/Write/Rename/Delete-Logik + Validierung
  │    │    │    ├── ean.php                           # Barcode (EAN) → Websuche → Suchbegriff für TMDB
  │    │    │    ├── fetch.php                         # http_get(): curl, sonst file_get_contents()-Fallback
- │    │    │    ├── http.php                          # JSON-Response- und Token-Check-Helper
+ │    │    │    ├── http.php                          # JSON-Response-Helper
  │    │    │    ├── image_store.php                   # Poster/Hintergrundbild/Darstellerfoto speichern + Thumbnail
+ │    │    │    ├── locations.php                     # locations.json lesen und schreiben (Standorte der Scheiben)
  │    │    │    ├── slug.php                          # slugify() + Eindeutigkeits-Check
+ │    │    │    ├── sync.php                          # Abgleich von data/: Dateiliste mit MD5, Datei schreiben
  │    │    │    ├── thumbnail.php                     # Thumbnail-Erzeugung per GD (Center-Crop) + Lazy-Fallback
  │    │    │    ├── tmdb.php                          # TMDB-API: Suche, Film-/Seriendetails, Zuordnung zu movie.json
+ │    │    │    ├── users.php                         # Angemeldeter Benutzer, users.json, .htpasswd
  │    │    │    └── youtube.php                       # Verfügbarkeit von YouTube-Videos prüfen (oEmbed)
  │    │    ├── actors.php                             # Darstellerfotos eines Eintrags herunterladen (mehrere Aufrufe)
  │    │    ├── catalog.php                            # Welche Teile/Staffeln es laut TMDB gibt (für "2 von 7")
  │    │    ├── image.php                              # Liefert Poster, Thumbnail, Hintergrundbild, Darstellerfoto
  │    │    ├── import.php                             # Film oder Serie (je Staffel ein Eintrag) aus TMDB importieren
+ │    │    ├── locations.php                          # Standorte der Scheiben lesen und setzen (Ausleihe)
  │    │    ├── movies.php                             # Filme und Staffeln lesen, anlegen, bearbeiten, löschen
  │    │    ├── play.php                               # Play-Button: Wiedergabeliste (.m3u) mit den lokalen Dateipfaden
  │    │    ├── search.php                             # Suche nach Filmen und Serien in TMDB (Titel, IMDb-ID, Barcode)
- │    │    └── upload.php                             # Poster-/Hintergrundbild-Upload, zum Poster inkl. Thumbnail
+ │    │    ├── upload.php                             # Poster-/Hintergrundbild-Upload, zum Poster inkl. Thumbnail
+ │    │    └── users.php                              # Angemeldeter Benutzer und Anzeigenamen
  │    ├── dev/                                        # Admin-/Wartungsskripte – NICHT dauerhaft auf dem Produktivserver lassen (siehe unten)
  │    │    ├── info.php                               # phpinfo()
  │    │    ├── scan-test.html                         # PoC: Barcode-Erkenner auf denselben Kamerabildern vergleichen
- │    │    └── scan-test.js                           # JavaScript dazu
+ │    │    ├── scan-test.js                           # JavaScript dazu
+ │    │    └── sync.php                               # Für bin/: data/ abgleichen, Benutzer übertragen (nur vorübergehend hochladen)
  │    ├── .htaccess                                   # Apache Zugriffsschutz
  │    ├── .htaccess.example                           # Vorlage für Apache Zugriffsschutz
  │    ├── app.css                                     # CSS-Styles für das Frontend
@@ -198,23 +249,27 @@ sollen keine Dauereinrichtung sein.
 Alle schreibenden Endpunkte (`POST`/`PUT`/`DELETE`) erwarten den Header `X-API-Token: <token>`, sonst `401`. 
 Lesende Endpunkte (`GET`) sind ohne eigenes Token offen — Schutz vor öffentlichem Zugriff übernimmt stattdessen 
 die HTTP Basic Auth vor der gesamten `public/`-Domain (siehe Setup, Schritt 5), die auch die statische `index.html` 
-selbst mit abdeckt.
+selbst mit abdeckt. Ausnahme: `dev/sync.php` verlangt das Token auch zum Lesen.
 
-| Methode | Endpunkt                                             | Beschreibung                                                                                                                                                                       |
-|---------|------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| GET     | `/api/movies.php`                                    | Alle Filme und Staffeln, alphabetisch nach Titel (das Frontend sortiert ggf. um); dazu je `thumbHash` (Prüfsumme des Thumbnails)                                                   |
-| GET     | `/api/movies.php?slug=xyz`                           | Einzelner Eintrag                                                                                                                                                                  |
-| POST    | `/api/movies.php`                                    | Neuen Film bzw. neue Staffel anlegen (JSON-Body, `type` = `movie`\|`season`)                                                                                                       |
-| PUT     | `/api/movies.php?slug=xyz`                           | Eintrag bearbeiten (JSON-Body, ohne `type` bleibt die Art). Ändert sich der Slug (Titel/Jahr), wird der Ordner atomar umbenannt.                                                   |
-| DELETE  | `/api/movies.php?slug=xyz`                           | Eintrag samt Ordner (Bilder inklusive) löschen                                                                                                                                     |
-| POST    | `/api/upload.php`                                    | Bild hochladen (`multipart/form-data`: `slug`, `image`, `kind` = `poster`\|`fanart`\|`actor` + `actor`); mit `remove=1` Poster bzw. Hintergrundbild entfernen                      |
-| GET     | `/api/image.php?slug=xyz&type=poster\|thumb\|fanart` | Poster, Thumbnail bzw. Hintergrundbild ausliefern                                                                                                                                  |
-| GET     | `/api/image.php?slug=xyz&actor=Sean%20Astin`         | Darstellerfoto ausliefern                                                                                                                                                          |
-| GET     | `/api/search.php?query=…&year=…`                     | Suche nach Filmen und Serien in TMDB (Titel, IMDb-ID oder EAN, Jahr optional), markiert bereits vorhandene                                                                         |
-| POST    | `/api/import.php`                                    | Film bzw. Serie (je Staffel ein Eintrag) aus TMDB importieren inkl. Bilder (Body: `{"tmdb": 9340, "type": "movie"}`, Serie: `{"tmdb": 1396, "type": "series", "seasons": [1, 2]}`) |
-| GET     | `/api/play.php?slug=xyz[&episode=3]`                 | Wiedergabeliste (`.m3u`) mit USB_ROOT + `files` für den lokalen Player: Film, alle Folgen einer Staffel bzw. eine Folge                                                            |
-| POST    | `/api/actors.php`                                    | Fehlende Darstellerfotos laden, ~10 s pro Aufruf, bis `remaining` 0 ist (Body: `{"slug": "..."}`)                                                                                  |
-| GET     | `/api/catalog.php`                                   | Alle Teile je Reihe und Staffeln je Serie laut TMDB (`collections`, `series`, siehe "Filmreihen und Serien")                                                                       |
+| Methode      | Endpunkt                                             | Beschreibung                                                                                                                                                                       |
+|--------------|------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| GET          | `/api/movies.php`                                    | Alle Filme und Staffeln, alphabetisch nach Titel (das Frontend sortiert ggf. um); dazu je `thumbHash` (Prüfsumme des Thumbnails)                                                   |
+| GET          | `/api/movies.php?slug=xyz`                           | Einzelner Eintrag                                                                                                                                                                  |
+| POST         | `/api/movies.php`                                    | Neuen Film bzw. neue Staffel anlegen (JSON-Body, `type` = `movie`\|`season`)                                                                                                       |
+| PUT          | `/api/movies.php?slug=xyz`                           | Eintrag bearbeiten (JSON-Body, ohne `type` bleibt die Art). Ändert sich der Slug (Titel/Jahr), wird der Ordner atomar umbenannt.                                                   |
+| DELETE       | `/api/movies.php?slug=xyz`                           | Eintrag samt Ordner (Bilder inklusive) löschen                                                                                                                                     |
+| POST         | `/api/upload.php`                                    | Bild hochladen (`multipart/form-data`: `slug`, `image`, `kind` = `poster`\|`fanart`\|`actor` + `actor`); mit `remove=1` Poster bzw. Hintergrundbild entfernen                      |
+| GET          | `/api/image.php?slug=xyz&type=poster\|thumb\|fanart` | Poster, Thumbnail bzw. Hintergrundbild ausliefern                                                                                                                                  |
+| GET          | `/api/image.php?slug=xyz&actor=Sean%20Astin`         | Darstellerfoto ausliefern                                                                                                                                                          |
+| GET          | `/api/search.php?query=…&year=…`                     | Suche nach Filmen und Serien in TMDB (Titel, IMDb-ID oder EAN, Jahr optional), markiert bereits vorhandene                                                                         |
+| POST         | `/api/import.php`                                    | Film bzw. Serie (je Staffel ein Eintrag) aus TMDB importieren inkl. Bilder (Body: `{"tmdb": 9340, "type": "movie"}`, Serie: `{"tmdb": 1396, "type": "series", "seasons": [1, 2]}`) |
+| GET          | `/api/play.php?slug=xyz[&episode=3][&root=D:\…]`     | Wiedergabeliste (`.m3u`) mit den eigenen Dateien (`<root>/<slug>/<Datei>`, ohne `root`: USB_ROOT) für den lokalen Player: Film, alle Folgen einer Staffel bzw. eine Folge          |
+| GET          | `/api/users.php`                                     | Angemeldeter Benutzer (`me`), alle Benutzer mit Anzeigenamen, Vorgabe für den USB-Ordner                                                                                           |
+| GET          | `/api/locations.php`                                 | Standorte aller Scheiben, die nicht beim Besitzer sind (`data/locations.json`)                                                                                                     |
+| PUT          | `/api/locations.php`                                 | Standort einer Scheibe setzen (Body: `{"slug", "owner", "type", "at"}`; `at` = Login oder freier Name, leer oder der Besitzer = zurück)                                            |
+| GET/PUT/POST | `/dev/sync.php`                                      | Nur für `bin/`, Token nötig: Dateiliste von `data/` mit MD5, Datei lesen/schreiben, Benutzer übertragen (`?account`)                                                               |
+| POST         | `/api/actors.php`                                    | Fehlende Darstellerfotos laden, ~10 s pro Aufruf, bis `remaining` 0 ist (Body: `{"slug": "..."}`)                                                                                  |
+| GET          | `/api/catalog.php`                                   | Alle Teile je Reihe und Staffeln je Serie laut TMDB (`collections`, `series`, siehe "Filmreihen und Serien")                                                                       |
 
 `movie.json`-Schema eines Films:
 
@@ -229,8 +284,10 @@ selbst mit abdeckt.
   "genres": ["Abenteuer", "Komödie", "Familie"],
   "collection": null,
   "director": "Richard Donner",
-  "medium": ["USB"],
-  "files": ["die-goonies-1985/movie.avi"],
+  "media": [
+    { "owner": "frank", "type": "USB", "files": ["movie.avi"] },
+    { "owner": "lilie", "type": "DVD" }
+  ],
   "poster": "poster.jpg",
   "thumb": "thumb.jpg",
   "fanart": "fanart.jpg",
@@ -247,7 +304,7 @@ selbst mit abdeckt.
 }
 ```
 
-Eine **Staffel** einer Serie (`"type": "season"`) ist ein Eintrag wie ein Film, mit eigenem Cover, Medium, Dateien,
+Eine **Staffel** einer Serie (`"type": "season"`) ist ein Eintrag wie ein Film, mit eigenem Cover, Medien,
 Handlung und Darstellern. Statt `collection` und `director` hat sie `series` (die Serie, aufgebaut wie die Reihe
 eines Films, siehe "Filmreihen und Serien"), `season` (Nummer, `0` = Specials), `creator` ("Idee") und `episodes`
 (gekürzt):
@@ -264,8 +321,10 @@ eines Films, siehe "Filmreihen und Serien"), `season` (Nummer, `0` = Specials), 
   "series": { "name": "Breaking Bad", "tmdb": "1396" },
   "season": 1,
   "creator": "Vince Gilligan",
-  "medium": ["DVD", "USB"],
-  "files": ["breaking-bad-staffel-1-2008/E01.mkv", "breaking-bad-staffel-1-2008/E02.mkv"],
+  "media": [
+    { "owner": "frank", "type": "DVD" },
+    { "owner": "frank", "type": "USB", "files": ["E01.mkv", "E02.mkv"] }
+  ],
   "episodes": [
     { "number": 1, "title": "Der Einstieg", "plot": "Ein Chemielehrer mit Lungenkrebs im Endstadium ..." },
     { "number": 2, "title": "Die Katze ist im Sack ...", "plot": "..." }
@@ -285,13 +344,16 @@ Liste von Strings, `cast` eine Liste von Darstellern. Dort sind `profile` (TMDB-
 Download) und `thumb` (Dateiname unter `actors/`) nur bei importierten Filmen gesetzt. Die übrigen Felder sind
 Strings oder `null`.
 
-`medium` ist die Liste der Formate, in denen der Film vorhanden ist (`["DVD"]`, bei doppeltem Bestand z. B.
-`["DVD", "USB"]`); im Formular per Checkbox gewählt (DVD, Blu-ray, USB plus alle schon verwendeten Werte). Die API
-nimmt auch einen String an (`"DVD, USB"`, kommagetrennt), ältere `movie.json` mit `"medium": "USB"` werden beim
-Lesen zur Liste und beim nächsten Speichern so geschrieben (`normalize_movie_media()` in `crud.php`). `fsk` ist
-die Altersfreigabe als freier Text, das Formular schlägt die üblichen Werte vor. `files` gibt es nur bei Medium
-USB: die Filmdatei(en) relativ zu `USB_ROOT`, bei mehrteiligen Filmen (`cd1`, `cd2`, …) mehrere in
-Abspielreihenfolge, immer mit `/` gespeichert. Absolute Pfade und `..` lehnt die API ab. `uniqueids`, `poster`,
+`media` sind die Exemplare: je eines mit Besitzer (`owner`, Login aus `users.json`) und Art (`type`: DVD, Blu-ray,
+USB plus alle schon verwendeten Werte); je Besitzer jede Art höchstens einmal, leer = nicht im Bestand. `files` gibt
+es nur bei Dateien (`DIGITAL_MEDIA` in `crud.php`, also USB): die Filmdatei(en) relativ zum Ordner des Eintrags
+auf dem USB-Speicher des Besitzers (`<USB-Ordner>/<slug>/`), bei mehrteiligen Filmen (`movie-cd1.avi`,
+`movie-cd2.avi`) mehrere in Abspielreihenfolge, immer mit `/` gespeichert. Absolute Pfade und `..` lehnt die API
+ab. Wo eine DVD bzw. Blu-ray gerade ist, steht nicht hier, sondern in `data/locations.json` (siehe "Mehrere
+Besitzer, Medien und Ausleihe"). Ältere `movie.json` mit `medium` und `files` (relativ zu `USB_ROOT`) liest
+`read_movie_json()` als Medien des ersten Benutzers aus `users.json` (`legacy_media()`); umgeschrieben werden sie
+beim nächsten Speichern bzw. mit `bin/migrate_media.php`. `fsk` ist die Altersfreigabe als freier Text, das
+Formular schlägt die üblichen Werte vor. `uniqueids`, `poster`,
 `thumb` und `fanart` setzen nur Import und Upload (`upload.php`, dort auch Entfernen); das Formular schickt sie nicht
 mit, sie bleiben beim Bearbeiten erhalten. Anders bei den Darstellern: Das Formular schickt `profile` (TMDB-Pfad)
 und `thumb` (Foto unter `actors/`) jeder Zeile mit, ein entferntes Foto fehlt also danach, und `update_movie()`
@@ -301,9 +363,10 @@ vollständiger Stand** wie im Formular: Was fehlt (z. B. die Handlung einer Folg
 
 Bei Staffeln ist `year` das Jahr der Staffel und `runtime` die Länge einer Folge; `uniqueids` sind die IDs der
 Serie. `episodes` hat `number`, `title` und `plot`, die Nummern sind eindeutig (doppelte lehnt die API mit Meldung
-ab). `files` sind die Folgendateien relativ zu `USB_ROOT`, üblich `<slug>/E01.<ext>`; zugeordnet werden sie über die
-Folgennummer im Dateinamen (`E03`, `S01E03`, mehrteilig `E03-cd1`, `E03-cd2`), trägt keine Datei eine solche Nummer,
-über die Position (`season_episode_files()` in `crud.php`, gleiche Regel in `app.js`: `episodeFiles()`).
+ab). `files` eines Mediums USB sind die Folgendateien im Ordner der Staffel, üblich `E01.<ext>`; zugeordnet werden
+sie über die Folgennummer im Dateinamen (`E03`, `S01E03`, mehrteilig `E03-cd1`, `E03-cd2`), trägt keine Datei eine
+solche Nummer, über die Position (`season_episode_files()` in `crud.php`, gleiche Regel in `app.js`:
+`episodeFiles()`).
 
 Alte Serien-Einträge (`"type": "series"`, alle Staffeln in `seasons[]`) blendet die Übersicht aus und nennt nur ihre
 Zahl im Kopf; sie werden neu importiert (alten Ordner vorher löschen, sonst bekommt der neue Slug ein `-2`).
@@ -325,6 +388,8 @@ Beim Aufruf von `index.html` laufen die Requests in dieser Reihenfolge:
    ohnehin erst am Body-Ende geladen wird):
    - **`GET api/movies.php`** lädt die komplette Filmliste als JSON. Das ist der einzige zwingende Request beim 
      Start; schlägt er fehl, wird eine Fehlermeldung angezeigt und die Initialisierung bricht ab.
+   - Gleichzeitig laden `api/catalog.php` (Teile je Reihe), `api/users.php` (wer angemeldet ist, Anzeigenamen) und
+     `api/locations.php` (Standorte der Scheiben). Fehlt einer davon, fehlen nur die Hinweise bzw. Namen.
    - Beim Rendern des Kartenrasters bekommt jeder Film mit Poster ein
      `<img src="api/image.php?slug=…&type=thumb" loading="lazy">`. Dadurch fordert der Browser die Thumbnails an, 
      aber wegen `loading="lazy"` nur die Thumbnails, die tatsächlich (nahe) im sichtbaren Viewport liegen; der Rest 
@@ -332,19 +397,20 @@ Beim Aufruf von `index.html` laufen die Requests in dieser Reihenfolge:
      eines einzelnen Films nachgeladen.
 
 Kein Token-Request/Prompt beim Laden: `requireToken()` wird ausschließlich bei schreibenden Aktionen (Speichern/
-Löschen/Importieren) aufgerufen, siehe nächsten Abschnitt.
+Löschen/Importieren/Ausleihen) aufgerufen, siehe "Token-Authentifizierung".
 
 ### Suchen, Filtern, Sortieren
 
 Die Suche durchsucht Titel, Originaltitel, Jahr, Genres, Regie bzw. Idee, Darsteller (Name und Rolle), Handlung,
-Medium, Reihe bzw. Serie und bei Staffeln die Folgentitel. Gefiltert wird nach Art (Filme und Serien, nur Filme, nur
-Serien), nach Genre (alle Einträge, die das gewählte Genre enthalten) und nach Medium (DVD, Blu-ray, ...; ein Eintrag
-mit mehreren Medien erscheint unter jedem, dazu "(nicht im Bestand)"); die Filter lassen sich kombinieren und
-bieten nur Werte an, die im Bestand tatsächlich vorkommen. Sortiert wird alphabetisch, nach Erscheinungsjahr
-(Einträge ohne Jahr am Ende) oder nach Hinzufügedatum. Alphabetisch zählt der Titel ohne führenden Artikel ("The Big
-Lebowski" steht bei B, wie in Kodi); welche Artikel, legt `SORT_IGNORE_ARTICLES` oben in `app.js` fest (der, die,
-das, the, ein, eine, a, an; leere Liste = aus). Suchbegriff, Filter und Sortierung werden in `localStorage`
-unter `videothek_view_state` gemerkt und überstehen so einen Reload.
+Medium, Besitzer, Reihe bzw. Serie und bei Staffeln die Folgentitel. Gefiltert wird nach Art (Filme und Serien, nur
+Filme, nur Serien), nach Genre (alle Einträge, die das gewählte Genre enthalten), nach Medium (DVD, Blu-ray, ...; ein
+Eintrag mit mehreren Medien erscheint unter jedem, dazu "(nicht im Bestand)") und nach Besitzer (erscheint erst,
+wenn es mehrere gibt). Medium und Besitzer gelten zusammen: "Blu-ray" + "Lilie" zeigt Lilies Blu-rays. Die Filter
+lassen sich kombinieren und bieten nur Werte an, die im Bestand tatsächlich vorkommen. Sortiert wird alphabetisch,
+nach Erscheinungsjahr (Einträge ohne Jahr am Ende) oder nach Hinzufügedatum. Alphabetisch zählt der Titel ohne
+führenden Artikel ("The Big Lebowski" steht bei B, wie in Kodi); welche Artikel, legt `SORT_IGNORE_ARTICLES` oben in
+`app.js` fest (der, die, das, the, ein, eine, a, an; leere Liste = aus). Suchbegriff, Filter und Sortierung werden
+in `localStorage` unter `videothek_view_state` gemerkt und überstehen so einen Reload.
 
 Staffeln zeigen auf der Karte Jahr, Folgenzahl und Folgenlänge ("2008 · 7 Folgen · 48 Min./Folge · FSK 16").
 
@@ -363,7 +429,7 @@ Auch bei Suche und Filtern (Art, Genre, Medium) steht ein Treffer als Kachel sei
 Stelle des ersten Treffers. Die Kachel zeigt immer die ganze Gruppe; beim Auffächern sind die Treffer hervorgehoben
 und die übrigen Teile abgeschwächt ("1 Treffer"). Eine Gruppe mit nur einem Eintrag bleibt ein einzelner Eintrag.
 
-**Nicht im Bestand** ist ein Eintrag ohne angehaktes Medium (von Hand angelegt; der Import legt nur an, was man
+**Nicht im Bestand** ist ein Eintrag ohne Medium (von Hand angelegt; der Import legt nur an, was man
 hat). Solche Einträge erscheinen überall blass mit gestricheltem Rahmen und dem Schlagwort "nicht im Bestand", bleiben 
 aber anklickbar. Der Filter "Medium" hat dafür den Eintrag "(nicht im Bestand)". Die Reihe zählt mit ("2 von 3 im 
 Bestand"), beim Aufklappen und in der Detailansicht, wo alle Teile als Zeile kleiner Plakate stehen (ein Klick öffnet 
@@ -373,8 +439,7 @@ den Teil; im Ausdruck fehlt der Abschnitt). TMDB wird dafür nicht gefragt, nur 
 `data/series.json` (`api/lib/catalog.php`), nicht in den einzelnen Einträgen: je TMDB-ID Name, Datum der Abfrage
 (`updated`) und die Teile (`tmdb`, `title`, `year`, `date`) bzw. Staffeln (`season`, `title`, `year`, `date`,
 `episodes`, ohne Specials). Der Import aktualisiert den Eintrag nebenbei (Serie: aus dem ohnehin geladenen Abruf;
-Film einer Reihe: ein zusätzlicher Abruf `collection/{id}`), `php bin/build_catalog.php` füllt ihn einmalig für den
-vorhandenen Bestand (`--refresh`: alle neu holen, etwa wegen neuer Fortsetzungen). Was davon im Bestand ist, rechnet
+Film einer Reihe: ein zusätzlicher Abruf `collection/{id}`). Was davon im Bestand ist, rechnet
 das Frontend aus (`groupCatalog()`: Filme über `uniqueids.tmdb`, Staffeln über `series.tmdb` + `season`), damit die
 Dateien bei Änderungen am Bestand nicht mitgepflegt werden müssen. Angezeigt wird das bewusst neutral: Kachel
 "2 von 7 Filmen", in der Detailansicht über den Teilen "Filmteile (2 von 7)" bzw. "Staffeln (2 von 11)", vollständig 
@@ -395,18 +460,58 @@ ein vorhandener Name übernimmt dessen TMDB-ID; beim Umbenennen behält der Eint
 Eintrag mit neuem Namen bekommt keine (`formGroup()`). Zusammengefasst wird über den Namen (ohne
 Groß-/Kleinschreibung), eine Gruppe lässt sich also auch von Hand bilden, z. B. drei DVDs, die TMDB als eigene Serien
 führt, unter "Shaun das Schaf". Wird der Name bei einem Teil geändert, fragt das Formular nach dem Speichern, ob die
-übrigen Teile der bisherigen Gruppe mit umbenannt werden sollen (`renameGroupSiblings()`; jeder behält TMDB-ID und
+übrigen Teile der bisherigen Gruppe mit umbenannt werden sollen (`renameGroupSiblings()`; jeder Film behält TMDB-ID und
 Teilnummer). So bleibt es bei einem Namen je TMDB-ID, und der Import einer Fortsetzung übernimmt diesen Namen. Die
 Ordner bleiben flach unter `data/movies/`.
 
-Filme, die vor dieser Funktion importiert wurden, haben noch keine Reihe. Welche dazugehören, steht in
-`docs/filmreihen.md` (einmalig über TMDB ermittelt, Stand 17.10.2026); eingetragen wird von Hand im Formular.
+### Mehrere Besitzer, Medien und Ausleihe
+
+Jedes Exemplar ist ein Eintrag in `media` mit Besitzer und Art. Besitzen zwei Freunde denselben Film, bleibt es ein
+Eintrag mit zwei Medien (ein Ordner, ein Poster). In der Detailansicht stehen die Medien unter den Eckdaten:
+
+```
+Medien   Lilies DVD  hat Thomas seit 48 Tagen  zurückgegeben
+         Franks DVD  ausleihen
+         Franks Datei (USB)
+```
+
+**Ausleihen**: Liegt eine DVD bzw. Blu-ray beim Besitzer, steht daneben der Link "ausleihen". Er fragt "An wen
+verliehen?" (`askBorrower()`): je Benutzer ein Knopf, ebenso für jeden Namen, bei dem gerade etwas ausgeliehen ist,
+dazu ein Feld für eine andere Person ohne Zugang (ihr Name steht dann als `at` in `locations.json`, bis 60 Zeichen;
+ein eingetippter Anzeigename eines Benutzers wird zu seinem Login). Gespeichert wird sofort (`PUT
+api/locations.php`, mit API-Token wie jede Änderung). Danach steht dort "hat Thomas seit 48 Tagen" (bzw. "seit
+heute", "seit gestern"; Datum und wer es eingetragen hat als Tooltip) und der Link "zurückgegeben", der das Medium
+wieder beim Besitzer einträgt. Zeitpunkt und welcher User es eingetragen hat (angemeldeter Benutzer), setzt der Server.
+Dateien (USB) werden nicht verliehen. Im Ausdruck fehlen die Links.
+
+Die Standorte stehen in **`data/locations.json`**, nicht in `movie.json`: So überschreibt ein Hochladen geänderter
+Filmordner keine Ausleihen, und ein Klick schreibt nur diese kleine Datei (unter Sperre wie die Kataloge):
+
+```json
+{ "matrix-1999": { "lilie/DVD": { "at": "frank", "since": "2026-10-18T20:15:00+02:00", "by": "frank" } } }
+```
+
+Ohne Eintrag liegt das Medium beim Besitzer. Wird ein Eintrag umbenannt, zieht sein Standort mit; wird ein Medium
+entfernt oder bekommt es einen anderen Besitzer bzw. eine andere Art, fällt sein Standort weg; mit dem Eintrag
+verschwindet auch sein Standort (`move_locations()` in `lib/locations.php`).
+
+Im **Bearbeiten-Formular** ist jedes Medium eine Zeile mit Besitzer, Art und "×", dazu "+ Medium" (neu: eigene DVD).
+**Abgeben** heißt dort den Besitzer ändern. Bei USB erscheint darunter das Feld für die Dateien. Der Import trägt
+die DVD des angemeldeten Benutzers ein (`import_media()` in `import.php`).
+
+**Wem welche Datei gehört**: Jeder Usre hat seinen eigenen USB-Speicher, darauf je Eintrag ein Ordner mit dem Slug als
+Namen (siehe "Abspielen"). Gespeichert sind deshalb nur die Dateinamen im Ordner, nicht der ganze Pfad. Ändert sich
+der Slug (Titel oder Jahr), erinnert das Formular daran, den Ordner auf dem USB-Speicher umzubenennen.
+
+**Umstellung des Bestands**: `php bin/migrate_media.php --owner=frank` zeigt, was sich ändert, `--apply` schreibt
+es (alle Medien gehören dann `frank`, `frank` kommt in `users.json`). Dateien, die nicht im Ordner des
+Eintrags liegen, meldet das Skript; diese Ordner sind auf dem USB-Speicher umzubenennen.
 
 ### Detailansicht
 
-Poster, Titel und Eckdaten, darüber abgedunkelt das Hintergrundbild (`fanart`). Darunter Handlung, Trailer, die
-**vollständige** Darstellerliste mit Fotos und Rollen (scrollt in einem eigenen Bereich, Fotos per `loading="lazy"`)
-und die Notizen.
+Poster, Titel und Eckdaten (mit den Medien, siehe oben), darüber abgedunkelt das Hintergrundbild (`fanart`).
+Darunter Handlung, Trailer, die **vollständige** Darstellerliste mit Fotos und Rollen (scrollt in einem eigenen
+Bereich, Fotos per `loading="lazy"`) und die Notizen.
 
 Der Trailer läuft als eingebetteter Player (`youtube-nocookie.com`); YouTube wird dadurch schon beim Öffnen der
 Detailansicht geladen. Im Ausdruck erscheint stattdessen ein QR-Code mit der Trailer-URL (siehe "Druckfunktion").
@@ -442,32 +547,38 @@ Bilder werden erst nach dem Speichern der Textfelder hochgeladen; schlägt eines
 
 ### Abspielen (Medium USB)
 
-Filme mit Medium **USB** liegen als Dateien auf einer USB-Platte bzw. lokal unter `USB_ROOT` (config.php,
-z. B. `D:\videothek`), ein Unterordner pro Film mit dem Slug als Namen und darin nur die Filmdatei `movie.<ext>`
-(`am-sonntag-bist-du-tot-2014\movie.mkv`; mehrteilig `verblendung-2011\movie-cd1.flv`, `movie-cd2.flv`, …), keine
-Poster oder NFOs. Im Formular erscheint bei angehaktem Medium USB (auch zusammen mit DVD o. Ä.) das Pflichtfeld
-"Dateien (relativ zum USB-Ordner)", vorbelegt mit `<slug>/movie.` (Endung ergänzen); in der Detailansicht der
-Button **"▶ Abspielen"**.
+Jeder User hat seinen eigenen USB-Speicher. Darauf liegt unter dem **USB-Ordner** (z. B. `D:\videothek`) ein 
+Unterordner pro Film mit dem Slug als Namen und darin nur die Filmdatei `movie.<ext>` 
+(`am-sonntag-bist-du-tot-2014\movie.mkv`; mehrteilig `act-of-valor-2012\movie-cd1.flv`, `movie-cd2.flv`, …), keine 
+Poster oder NFOs. Im Formular erscheint bei einem Medium USB das Pflichtfeld für die Dateien, vorbelegt mit `movie.` 
+(Endung ergänzen). Hat der angemeldete Benutzer den Film als Datei, zeigt die Detailansicht den Button 
+**"▶ Abspielen"**; Dateien anderer lassen sich nicht abspielen (sie liegen ja auf deren Speicher).
 
 Staffeln liegen nach demselben Muster in einem Ordner pro Staffel, eine Datei pro Folge:
-`breaking-bad-staffel-1-2008\E01.mkv`, `E02.mkv`, ... Das Formular schlägt eine Zeile pro Folge vor (`<slug>/E01.`
-usw.); wird die Endung in einer Zeile ergänzt, übernehmen die übrigen sie beim Verlassen des Feldes. In der
-Detailansicht gibt es dann **"▶ Alle Folgen abspielen"** und neben jeder Folge, der eine Datei zugeordnet ist, ein ▶
-für genau diese Folge (`play.php?…&episode=3`). Früher eingetragene Pfade (z. B. `breaking-bad-2008/S01/E01.mkv`)
-gelten weiter, die Zuordnung läuft über die Folgennummer im Dateinamen.
+`breaking-bad-staffel-1-2008\E01.mkv`, `E02.mkv`, ... Das Formular schlägt eine Zeile pro Folge vor (`E01.` usw.);
+wird die Endung in einer Zeile ergänzt, übernehmen die übrigen sie beim Verlassen des Feldes. In der Detailansicht
+gibt es dann **"▶ Alle Folgen abspielen"** und neben jeder Folge, der eine Datei zugeordnet ist, ein ▶ für genau
+diese Folge (`play.php?…&episode=3`).
+
+Der USB-Ordner gilt auf dem Gerät, das abspielt. Beim Klick auf "▶ Abspielen" (bzw. ▶ an einer Folge) fragt die
+App jedes Mal nach dem Ordner, vorbelegt mit dem zuletzt bestätigten Ordner (gespeichert im Browser unter
+`videothek_usb_root`) bzw. mit `USB_ROOT` aus `config.php`; "Abbrechen" spielt nichts ab. Der Play-Link schickt
+den Ordner als `root` mit. Die Abfrage ist ein eigener Dialog (`showDialog()` in `app.js`, ebenso "An wen
+verliehen?"), nicht `prompt()`: Darüber schreibt der Browser sonst "<Adresse> meldet".
 
 Der Button öffnet keinen `file:///`-Link, denn den blockieren Chrome, Edge und Firefox auf einer http(s)-Seite
 kommentarlos. Stattdessen liefert `api/play.php` eine Wiedergabeliste (`<slug>.m3u`) mit dem vollständigen Pfad
-(`USB_ROOT` + `files`), die das Betriebssystem mit dem installierten Player öffnet (VLC, Windows Media Player, …);
-mehrteilige Filme laufen nacheinander. Abgespielt wird also nicht im Browser, ein Player wird vorausgesetzt.
-Tipp: In Chrome/Edge beim ersten Mal im Download-Menü "Dateien dieses Typs immer öffnen" wählen, dann startet der
-Film mit einem Klick. `USB_ROOT` gilt auf dem Rechner, der abspielt, nicht auf dem Webserver.
+(`<USB-Ordner>/<slug>/<Datei>`), die das Betriebssystem mit dem installierten Player öffnet (VLC, Windows Media
+Player, …); mehrteilige Filme laufen nacheinander. Abgespielt wird also nicht im Browser, ein Player wird
+vorausgesetzt. Tipp: In Chrome/Edge beim ersten Mal im Download-Menü "Dateien dieses Typs immer öffnen" wählen,
+dann startet der Film mit einem Klick.
 
 ### Token-Authentifizierung
 
-Für Änderungen (Film anlegen/bearbeiten/löschen, Bild-Upload) fragt das Frontend beim ersten Schreibversuch per 
-`prompt()` nach dem API-Token und legt es danach in `localStorage` unter dem Schlüssel `videothek_api_token` ab. 
-Jeder weitere Schreibversuch liest das gespeicherte Token wieder aus und fragt nicht erneut nach.
+Für Änderungen (Film anlegen/bearbeiten/löschen, Bild-Upload, Ausleihe) fragt das Frontend beim ersten
+Schreibversuch per `prompt()` nach dem API-Token und legt es danach in `localStorage` unter dem Schlüssel
+`videothek_api_token` ab. Jeder weitere Schreibversuch liest das gespeicherte Token wieder aus und fragt nicht
+erneut nach.
 
 Es wird nur dann wieder nachgefragt, wenn 
 a) der Server das gespeicherte Token ablehnt (401) – dann wird es automatisch aus `localStorage` gelöscht, oder 
@@ -475,7 +586,9 @@ b) du es manuell löschst, z. B. in den Browser-DevTools mit `localStorage.remov
    über "Website-Daten löschen".
 
 Lesezugriffe (Filmliste, Bilder) brauchen kein App-Token — Schutz vor öffentlichem Zugriff übernimmt die 
-HTTP Basic Auth vor der gesamten `public/`-Domain (siehe Setup, Schritt 5).
+HTTP Basic Auth vor der gesamten `public/`-Domain (siehe Setup, Schritt 5). Die Anmeldung bestimmt nur, wer man
+ist (Besitzer beim Import, "eingetragen von" bei Ausleihen); unter CGI/FastCGI (Hetzner) kommt der Benutzername aus
+`REMOTE_USER` statt `PHP_AUTH_USER` (`current_user()` in `lib/users.php`).
 
 ### Import-Funktion
 
@@ -490,15 +603,15 @@ Ablauf im Import-Dialog ("Importieren" neben "+ Neu"):
    "Film" bzw. "Serie" gekennzeichnet. Exakte Titeltreffer kommen nach oben, darin nach Popularität sortiert.
    Bereits vorhandene Filme sind markiert und öffnen sich beim Anklicken; bei Serien steht da, wie viele Staffeln
    schon vorhanden sind. Statt des Titels geht auch der **Barcode** der DVD (siehe unten).
-2. **Treffer anklicken** (`POST /api/import.php`, Token nötig): lädt die Details in `TMDB_LANGUAGE` und legt den
-   Eintrag über dieselbe Validierungs-/Anlege-Funktion wie `POST /api/movies.php` an (`create_movie()`). Als Medium
-   wird `DVD` eingetragen (`IMPORT_DEFAULT_MEDIUM` in `import.php`), da TMDB das Format des eigenen Exemplars nicht
-   kennt. Danach werden Poster und Hintergrundbild heruntergeladen (`store_movie_image()`, dieselbe Funktion wie
-   beim Upload). Schlägt nur ein Bild fehl, bleibt der Eintrag gespeichert, die Antwort enthält dann
-   `"import_warning"`.
+2. **Treffer anklicken** (`POST /api/import.php`, Token nötig): lädt die Details in `TMDB_LANGUAGE` und legt
+   den Eintrag über dieselbe Validierungs-/Anlege-Funktion wie `POST /api/movies.php` an (`create_movie()`). Als
+   Medium wird die DVD des angemeldeten Benutzers eingetragen (`IMPORT_DEFAULT_MEDIUM` in `import.php`), da TMDB das
+   Format des eigenen Exemplars nicht kennt. Danach werden Poster und Hintergrundbild heruntergeladen
+   (`store_movie_image()`, dieselbe Funktion wie beim Upload). Schlägt nur ein Bild fehl, bleibt der Eintrag
+   gespeichert, die Antwort enthält dann `"import_warning"`.
 
    Bei einer **Serie** fragt der Treffer zuerst ab, welche Staffel(n) importiert werden (z. B. `2` oder `1-3, 5`,
-   `0` = Specials). Nur diese legt der Import an, je Staffel ein Eintrag mit Medium DVD; von TMDB werden auch nur
+   `0` = Specials). Nur diese legt der Import an, je Staffel ein Eintrag mit der eigenen DVD; von TMDB werden auch nur
    ihre Folgen abgerufen. Staffeln, die es schon gibt (gleiche TMDB-ID der Serie und Nummer), bleiben unverändert;
    später gekaufte Staffeln ergänzt man genauso. Titel: "Serie – Staffel 1" bzw. mit dem Namen der
    Staffel; hat die Serie nur eine reguläre Staffel (etwa eine DVD, die TMDB als eigene Serie führt), heißt die
@@ -634,10 +747,11 @@ externen Dienst. Der Browser-Dialog "Drucken → Als PDF speichern" reicht für 
 - ✅ Film-Import aus TMDB wie bei Kodi (deutsche Titel/Handlung, FSK, Poster, Hintergrundbild, Darstellerfotos, Trailer)
 - ✅ Trailer als eingebetteter Player
 - ✅ Mehrere Medien pro Film (z. B. DVD und USB)
+- ✅ Mehrere Benutzer: Besitzer je Medium, Ausleihe mit einem Klick (`locations.json`), eigener USB-Ordner je Gerät
+- ✅ Abgleich von `data/` und Benutzer ohne Terminal auf dem Server (`bin/remote.php`, `bin/add_account.php`)
 - ✅ Serien: jede Staffel ein eigener Eintrag (Cover, Medium, Folgen), gruppiert wie Reihen; Import ergänzt fehlende Staffeln
 - ✅ Import per Barcode-Scan mit dem Smartphone (Websuche über DuckDuckGo, wahlweise SerpApi oder Brave)
 - ✅ Filmreihen als gemeinsame Kachel mit Cover-Collage, Teile aufklappbar
-- ⬜ Reihen der vorhandenen Filme eintragen (Liste: `docs/filmreihen.md`)
 - ⬜ Eigenen TMDB-API-Key eintragen
 - ✅ Einmaliger Import der Kodi-Sammlung (289 Filme, Filmdateien nach USB_ROOT)
 - ⬜ Bestand erfassen
