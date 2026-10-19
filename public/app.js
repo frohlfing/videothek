@@ -272,7 +272,8 @@ async function playWithFolder(link){
 
 /**
  * Eigener Dialog statt prompt() (darüber schreibt der Browser "<Adresse> meldet"): $body (HTML) mit Bestätigen und
- * Abbrechen darunter. Enter im Eingabefeld bestätigt (returnValue "ok"), Escape bzw. Abbrechen schließt ohne. Ruft
+ * Abbrechen darunter, × oben rechts. Enter im Eingabefeld bestätigt (returnValue "ok"), Escape, × bzw. Abbrechen
+ * schließt ohne. Ruft
  * onClose(dialog) beim Schließen auf und entfernt ihn danach.
  * @param {string} body
  * @param {string} ok  Beschriftung des Bestätigen-Knopfs
@@ -282,7 +283,8 @@ async function playWithFolder(link){
 function showDialog(body, ok, onClose){
   const dialog = document.createElement('dialog');
   dialog.className = 'ask-dialog';
-  dialog.innerHTML = `<form method="dialog">
+  dialog.innerHTML = `<button class="dialog-close dialog-cancel" type="button" aria-label="Schließen">&times;</button>
+  <form method="dialog">
     ${body}
     <div class="btn-row">
       <button class="btn btn-primary" value="ok">${escapeHtml(ok)}</button>
@@ -291,7 +293,7 @@ function showDialog(body, ok, onClose){
   </form>`;
   // Escape schließt nur den Dialog, nicht auch die Detailansicht darunter (keydown-Handler am document).
   dialog.addEventListener('keydown', e => { if(e.key === 'Escape') e.stopPropagation(); });
-  dialog.querySelector('.dialog-cancel').addEventListener('click', () => dialog.close());
+  dialog.querySelectorAll('.dialog-cancel').forEach(btn => btn.addEventListener('click', () => dialog.close()));
   dialog.addEventListener('close', () => {
     onClose(dialog);
     dialog.remove();

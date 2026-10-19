@@ -341,7 +341,7 @@ header p.sub{
   display:block;
 }
 .sheet .hero .titles{flex:1 1 260px;}
-.sheet h2{margin:.1rem 0 .2rem;font-size:1.9rem;line-height:1.15;}
+.sheet h2{margin:.1rem 0 1rem;font-size:1.9rem;line-height:1.15;}
 .sheet .original-title{
   color:var(--ink-soft);
   font-style:italic;
@@ -400,7 +400,16 @@ header p.sub{
   box-shadow:0 20px 50px rgba(0,0,0,.6);
 }
 .ask-dialog::backdrop{background:rgba(0,0,0,.55);}
-.ask-dialog h3{margin:0 0 .8rem; font-size:1.1rem;}
+.ask-dialog h3{margin:0 0 .8rem; padding-right:2rem; font-size:1.1rem;}
+/* × oben rechts wie bei .sheet .close, 44px Tippfläche */
+.ask-dialog .dialog-close{
+  position:absolute; top:.25rem; right:.25rem;
+  width:44px; height:44px; padding:0;
+  display:flex; align-items:center; justify-content:center;
+  background:none; border:none; font-size:1.6rem; line-height:1;
+  color:var(--ink-soft); cursor:pointer; touch-action:manipulation;
+}
+.ask-dialog .dialog-close:hover{color:var(--accent);}
 .ask-dialog p{margin:0 0 .8rem; font-size:.9rem; color:var(--ink-soft); line-height:1.4;}
 .ask-dialog input{
   width:100%; padding:.55rem .7rem;
@@ -459,7 +468,7 @@ a.btn{display:inline-flex; align-items:center; text-decoration:none;}
 .btn-primary{background:var(--accent); border-color:var(--accent); color:var(--accent-ink); font-weight:600;}
 .btn-primary:hover{opacity:.88; color:var(--accent-ink);}
 .btn-danger:hover{background:var(--danger); border-color:var(--danger); color:#fff;}
-.btn-row{display:flex; gap:.6rem; flex-wrap:wrap; margin:1rem 0;}
+.btn-row{display:flex; gap:.6rem; flex-wrap:wrap; margin:0.8rem 0 0.8rem 0;}
 .sheet .toolbar{margin-bottom:1.1rem;}
 
 /* Formular (Anlegen/Bearbeiten) */
@@ -693,8 +702,11 @@ label.btn{text-transform:none; letter-spacing:0; color:var(--ink); margin:0; cur
 .fanart-field .form-preview label.ratio-box{padding-top:56.25%;}
 
 /* Import-Dialog: TMDB-Suche */
-.form-row .search-query{flex:3 1 220px;}
-.form-row .search-year{flex:1 1 100px;}
+.sheet:has(#importQueryInput){max-width:520px;}
+.form-row .search-query{flex:1 1 220px; max-width:330px;} /* wie das Suchfeld der Übersicht */
+.form-row .search-year{flex:0 0 auto;}
+/* Nur so breit wie das Label: Das Feld zählt für die Breite nicht mit und füllt dann die Spalte. */
+.form-row .search-year input{width:0; min-width:100%;}
 /* Barcode-Scan im Import-Dialog (Kamerabild der Rückkamera) */
 .scan-box{margin:.8rem 0; text-align:center;}
 .scan-box video{
