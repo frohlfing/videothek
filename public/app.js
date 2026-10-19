@@ -2365,7 +2365,11 @@ function openImportForm(){
       if(e.key === 'Enter') document.getElementById('searchBtn').click();
     });
   }
-  document.getElementById('importQueryInput').focus();
+  // Was im Suchfeld der Übersicht steht (meist der gesuchte, nicht gefundene Titel), gleich übernehmen.
+  const queryInput = document.getElementById('importQueryInput');
+  queryInput.value = searchInput.value.trim();
+  queryInput.focus();
+  queryInput.select();
 }
 
 async function runSearch(){
