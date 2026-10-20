@@ -447,8 +447,8 @@ Angeboten wird nur, was es gerade gibt; ohne Ausleihen erscheint die Auswahl ers
 Eigentümern. Medium und Person gelten zusammen: "Blu-ray" + "Lilies Medien" zeigt Lilies Blu-rays. Die Filter
 lassen sich kombinieren und bieten nur Werte an, die im Bestand tatsächlich vorkommen. Sortiert wird alphabetisch,
 nach Erscheinungsjahr (Einträge ohne Jahr am Ende), nach Hinzufügedatum oder nach Bewertung (Durchschnitt, bei Gleichstand
-mehr Stimmen zuerst, ohne Bewertung am Ende; die Karten zeigen dann das Symbol der gerundeten Stufe und den
-Durchschnitt, z. B. "+1,3"). Der Pfeil
+mehr Stimmen zuerst, ohne Bewertung am Ende). Bewertete Karten zeigen immer das Symbol der gerundeten Stufe und
+den Durchschnitt, z. B. "+1,3". Der Pfeil
 nach oben heißt: Neuestes bzw. Bestes zuerst. Alphabetisch zählt der Titel ohne
 führenden Artikel ("The Big Lebowski" steht bei B, wie in Kodi); welche Artikel, legt `SORT_IGNORE_ARTICLES` oben in
 `app.js` fest (der, die, das, the, ein, eine, a, an; leere Liste = aus). Eine Reihe bzw. Serie mit mehreren Teilen
@@ -623,7 +623,7 @@ Gespeichert wird sofort (`PUT api/ratings.php`, mit API-Token und Anmeldung wie 
 ```
 
 Umbenennen und Löschen eines Eintrags ziehen die Bewertungen mit (`move_ratings()` in `lib/ratings.php`). Die
-Sortierung "Bewertung ↑/↓" nutzt den Durchschnitt; nur dann zeigen die Karten die Bewertung.
+Sortierung "Bewertung ↑/↓" nutzt den Durchschnitt, den die Karten auch sonst immer zeigen.
 
 ### Detailansicht
 

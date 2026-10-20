@@ -748,12 +748,11 @@ function cardHtml(m, idx, extraClass = '', k = null){
 }
 
 /**
- * Bewertung auf der Karte: Symbol der gerundeten Stufe und Durchschnitt ("+1,3"), Stimmen im Tooltip; nur bei
- * Sortierung nach Bewertung, bei Reihen und Serien über alle Einträge. Ohne Stimmen leer.
+ * Bewertung auf der Karte: Symbol der gerundeten Stufe und Durchschnitt ("+1,3"), Stimmen im Tooltip; bei Reihen
+ * und Serien über alle Einträge. Ohne Stimmen leer.
  * @param {Movie[]} movies
  */
 function ratingTagHtml(movies){
-  if(!sortSel.value.startsWith('rating')) return '';
   const avg = ratingAverage(movies);
   if(avg === null) return '';
   const votes = movies.reduce((n, m) => n + Object.keys(RATINGS[m.slug] || {}).length, 0);
