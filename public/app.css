@@ -12,6 +12,8 @@
   --card:#1e1a23;
   --ok:#43c463;
   --ok-ink:#0b2412;
+  --rate-hand:#ffc83d;   /* Gelb der Daumen-Emojis */
+  --rate-heart:#e5383b;
 }
 *{box-sizing:border-box;}
 html,body{margin:0;padding:0;}
@@ -148,7 +150,11 @@ header p.sub{
   letter-spacing:.03em;
 }
 /* Bewertung auf der Karte (nur bei Sortierung nach Bewertung) */
-.card .rating-tag{margin-top:.3rem; font-size:.8rem; color:var(--ink-soft);}
+.card .rating-tag{display:flex; align-items:center; gap:.2rem; margin-top:.3rem; font-size:.8rem; color:var(--ink-soft);
+  font-variant-numeric:tabular-nums;}
+.rate-icon{width:1.25em; height:1.25em; flex:none; fill:currentColor;}
+.rate-hand{color:var(--rate-hand);}
+.rate-heart{color:var(--rate-heart);}
 .card .cat-tag{
   display:inline-block;
   margin-top:.35rem;
@@ -393,8 +399,8 @@ header p.sub{
 .sheet .wish-line .link-btn{margin-left:0;}
 .sheet .wish-line .icon-btn{margin-left:-.4rem;}
 .sheet .wished{color:var(--ok); font-weight:600;}
-/* Detailansicht: Daumen hoch/runter mit Anzahl; die eigene Wahl hervorgehoben */
-.sheet .rating-line{margin-top:.6rem; display:flex; gap:.5rem;}
+/* Detailansicht: die vier Bewertungsstufen mit Anzahl; die eigene Wahl hervorgehoben */
+.sheet .rating-line{margin-top:.6rem; display:flex; flex-wrap:wrap; gap:.5rem;}
 .sheet .rate-btn{
   display:inline-flex; align-items:center; gap:.35rem;
   padding:.25rem .65rem; border:1px solid var(--rule); border-radius:999px;

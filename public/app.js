@@ -131,9 +131,32 @@ const FSK_OPTIONS = ['0', '6', '12', '16', '18'];
 const DIGITAL_MEDIA = ['USB'];
 // localStorage: USB-Ordner dieses Geräts (jeder hat seinen eigenen USB-Speicher), Vorgabe USB_ROOT aus config.php.
 const USB_ROOT_KEY = 'videothek_usb_root';
+// localStorage: zuletzt gewähltes Medium im Import-Dialog (eines aus MEDIUM_OPTIONS oder IMPORT_WISH).
+const IMPORT_MEDIUM_KEY = 'videothek_import_medium';
+// Import ohne Medium, nur auf die eigene Wunschliste (wie IMPORT_WISH in api/import.php); Vorgabe im Dialog.
+const IMPORT_WISH = 'wish';
 // Undo-Pfeil für "zurückgegeben" und "doch nicht sehen".
 const UNDO_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" '
   + 'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>';
+
+// Bewertungsstufen (wie RATING_VALUES in api/lib/ratings.php), in der Detailansicht in dieser Reihenfolge. Symbole aus
+// Googles Material Symbols (Rounded, gefüllt; Apache-Lizenz 2.0), Farbe über die Klasse (app.css).
+const RATING_STEPS = [
+  {value: -1, label: 'schlecht / nicht sehenswert', cls: 'rate-hand', icon: '<svg class="rate-icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="M120-320q-32 0-56-24t-24-56v-80q0-7 1.5-15t4.5-15l120-282q9-20 30-34t44-14h320q33 0 56.5 23.5T640-760v407q0 16-6.5 30.5T616-297L399-81q-15 14-35.5 17T324-71q-19-10-27.5-28t-3.5-37l45-184H120Zm680-520q33 0 56.5 23.5T880-760v360q0 33-23.5 56.5T800-320q-33 0-56.5-23.5T720-400v-360q0-33 23.5-56.5T800-840Z"/></svg>'},
+  {value: 0, label: 'so lala', cls: 'rate-hand', icon: '<svg class="rate-icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="M80-400q-33 0-56.5-23.5T0-480v-240q0-12 5-23t13-19l126-126q9-9 20-13.5t22-4.5q26 0 45 20t14 51l-13 75h208q17 0 28.5 11.5T480-720v50q0 6-1 11.5t-3 10.5l-90 212q-7 17-22.5 26.5T330-400H80Zm440 200q-17 0-28.5-11.5T480-240v-50q0-6 1-11.5t3-10.5l90-212q8-17 23-26.5t33-9.5h250q33 0 56.5 23.5T960-480v240q0 12-4.5 22.5T942-198L816-72q-9 9-20 13.5T774-54q-26 0-45-20t-14-51l13-75H520Z"/></svg>'},
+  {value: 1, label: 'gut / sehenswert', cls: 'rate-hand', icon: '<svg class="rate-icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="M840-640q32 0 56 24t24 56v80q0 7-1.5 15t-4.5 15L794-168q-9 20-30 34t-44 14H400q-33 0-56.5-23.5T320-200v-407q0-16 6.5-30.5T344-663l217-216q15-14 35.5-17t39.5 7q19 10 27.5 28t3.5 37l-45 184h218ZM160-120q-33 0-56.5-23.5T80-200v-360q0-33 23.5-56.5T160-640q33 0 56.5 23.5T240-560v360q0 33-23.5 56.5T160-120Z"/></svg>'},
+  {value: 2, label: 'gehört zu meiner Favoritenliste', cls: 'rate-heart', icon: '<svg class="rate-icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="M451.5-152q-14.5-5-25.5-16l-69-63q-106-97-191.5-192.5T80-634q0-94 63-157t157-63q53 0 100 22.5t80 61.5q33-39 80-61.5T660-854q94 0 157 63t63 157q0 115-85 211T602-230l-68 62q-11 11-25.5 16t-28.5 5q-14 0-28.5-5Z"/></svg>'},
+];
+
+/**
+ * Symbol einer Bewertungsstufe; ein Durchschnitt wird auf die nächste Stufe gerundet.
+ * @param {number} value
+ */
+function ratingIcon(value){
+  const v = Math.max(-1, Math.min(2, Math.round(value)));
+  const step = RATING_STEPS.find(s => s.value === v) || RATING_STEPS[1];
+  return step.icon.replace('class="rate-icon"', `class="rate-icon ${step.cls}"`);
+}
 
 // Artikel am Titelanfang, die beim Sortieren nach Titel übergangen werden ("The Big Lebowski" steht bei B, wie in
 // Kodi). Angezeigt wird der Titel unverändert. Leere Liste = aus.
@@ -554,7 +577,7 @@ async function loadWishes(){
   }
 }
 
-/** Bewertungen je Slug: Login => 1 (Daumen hoch) bzw. -1 (Daumen runter), siehe api/ratings.php. */
+/** Bewertungen je Slug: Login => -1, 0, 1 oder 2 (RATING_STEPS), siehe api/ratings.php. */
 let RATINGS = /** @type {Object<string, Object<string, number>>} */ ({});
 
 /** Lädt RATINGS (nach dem Laden und nach dem Speichern: Umbenennen zieht die Bewertungen mit). */
@@ -571,13 +594,13 @@ async function loadRatings(){
 }
 
 /**
- * Daumen hoch minus Daumen runter, null ohne Bewertung (zum Sortieren nach Bewertung).
- * @param {Movie} m
+ * Durchschnitt der Bewertungen, null ohne Bewertung (zum Sortieren nach Bewertung und für die Karte).
+ * @param {Movie[]} movies  bei Reihen und Serien alle Einträge zusammen
  * @returns {?number}
  */
-function ratingScore(m){
-  const values = Object.values(RATINGS[m.slug] || {});
-  return values.length ? values.reduce((sum, v) => sum + v, 0) : null;
+function ratingAverage(movies){
+  const values = movies.flatMap(m => Object.values(RATINGS[m.slug] || {}));
+  return values.length ? values.reduce((sum, v) => sum + v, 0) / values.length : null;
 }
 
 /** Lädt LOCATIONS (nach dem Laden und nach dem Speichern eines Eintrags: Umbenennen zieht seine Standorte mit). */
@@ -723,15 +746,17 @@ function cardHtml(m, idx, extraClass = '', k = null){
 }
 
 /**
- * Bewertung auf der Karte ("👍 2 · 👎 1"), nur bei Sortierung nach Bewertung; bei Reihen und Serien zusammengezählt.
- * Ohne Stimmen leer.
+ * Bewertung auf der Karte: Symbol der gerundeten Stufe und Durchschnitt ("+1,3"), Stimmen im Tooltip; nur bei
+ * Sortierung nach Bewertung, bei Reihen und Serien über alle Einträge. Ohne Stimmen leer.
  * @param {Movie[]} movies
  */
 function ratingTagHtml(movies){
   if(!sortSel.value.startsWith('rating')) return '';
-  const values = movies.flatMap(m => Object.values(RATINGS[m.slug] || {}));
-  const up = values.filter(v => v > 0).length, down = values.length - up;
-  return values.length ? `<div class="rating-tag">&#128077; ${up} · &#128078; ${down}</div>` : '';
+  const avg = ratingAverage(movies);
+  if(avg === null) return '';
+  const votes = movies.reduce((n, m) => n + Object.keys(RATINGS[m.slug] || {}).length, 0);
+  const text = (avg > 0 ? '+' : avg < 0 ? '−' : '') + Math.abs(avg).toLocaleString('de-DE', {minimumFractionDigits: 1, maximumFractionDigits: 1});
+  return `<div class="rating-tag" title="${countLabel(votes, 'Stimme', 'Stimmen')}">${ratingIcon(avg)}${text}</div>`;
 }
 
 /** Häkchen auf der Karte: steht auf der eigenen Wunschliste. */
@@ -1056,7 +1081,7 @@ function renderGrid(){
     // Bei Staffeln zählen auch die Folgentitel ("Felina" findet Breaking Bad).
     const episodeTitles = m => isSeason(m) ? m.episodes.map(e => e.title) : [];
     items = items.filter(({m}) =>
-      [m.title, m.originalTitle, groupOf(m)?.name, m.director, m.creator, m.plot, m.year && String(m.year), ...m.genres, ...mediaOf(m), ...ownersOf(m).map(ownerName), ...episodeTitles(m)]
+      [m.title, m.originalTitle, groupOf(m)?.name, m.director, m.creator, m.plot, m.notes, m.year && String(m.year), ...m.genres, ...mediaOf(m), ...ownersOf(m).map(ownerName), ...episodeTitles(m)]
         .some(v => (v || '').toLowerCase().includes(q))
       || m.cast.some(c => c.name.toLowerCase().includes(q) || (c.role || '').toLowerCase().includes(q))
     );
@@ -1077,12 +1102,12 @@ function renderGrid(){
       break;
     case 'rating':
     case 'rating-asc': {
-      // Bester (bzw. schlechtester) Saldo zuerst, bei Gleichstand die mit mehr Stimmen; ohne Bewertung ans Ende,
-      // sonst alphabetisch.
+      // Bester (bzw. schlechtester) Durchschnitt zuerst, bei Gleichstand die mit mehr Stimmen; ohne Bewertung ans
+      // Ende, sonst alphabetisch.
       const dir = sortSel.value === 'rating' ? 1 : -1;
       const votes = m => Object.keys(RATINGS[m.slug] || {}).length;
       items.sort((a, b) => {
-        const sa = ratingScore(a.m), sb = ratingScore(b.m);
+        const sa = ratingAverage([a.m]), sb = ratingAverage([b.m]);
         if(sa === null || sb === null) return Number(sa === null) - Number(sb === null) || compareTitles(a.m.title, b.m.title);
         return dir * (sb - sa) || votes(b.m) - votes(a.m) || compareTitles(a.m.title, b.m.title);
       });
@@ -1312,15 +1337,16 @@ async function toggleWish(btn){
 }
 
 /**
- * Detailansicht: Daumen hoch und runter mit der Zahl der Stimmen, wer so bewertet hat als Tooltip. Mit Anmeldung
- * (ME) sind es Knöpfe, die eigene Wahl ist hervorgehoben, ein zweiter Klick nimmt sie zurück. Ohne Anmeldung nur
- * die Zahlen, falls es Bewertungen gibt. Nicht im Ausdruck.
+ * Detailansicht: die vier Stufen (RATING_STEPS) mit der Zahl der Stimmen, wer so bewertet hat als Tooltip. Mit
+ * Anmeldung (ME) sind es Knöpfe, die eigene Wahl ist hervorgehoben, ein zweiter Klick nimmt sie zurück. Ohne
+ * Anmeldung nur die Zahlen, falls es Bewertungen gibt. Nicht im Ausdruck.
  * @param {Movie} m
  */
 function ratingLineHtml(m){
   const ratings = RATINGS[m.slug] || {};
   if(!ME && !Object.keys(ratings).length) return '';
-  const thumb = (value, icon, label) => {
+  const step = ({value, label}) => {
+    const icon = ratingIcon(value);
     const who = Object.keys(ratings).filter(login => ratings[login] === value).map(userName).sort((a, b) => a.localeCompare(b, 'de'));
     const count = who.length ? `<span class="rate-count">${who.length}</span>` : '';
     const title = escapeHtml(who.length ? `${label}: ${who.join(', ')}` : label);
@@ -1328,13 +1354,11 @@ function ratingLineHtml(m){
       ? `<button class="rate-btn" type="button" data-value="${value}" aria-pressed="${ratings[ME] === value}" title="${title}">${icon}${count}</button>`
       : `<span class="rate-btn" title="${title}">${icon}${count}</span>`;
   };
-  return `<div class="rating-line screen-only" data-slug="${escapeHtml(m.slug)}">
-    ${thumb(1, '&#128077;', 'Daumen hoch')}${thumb(-1, '&#128078;', 'Daumen runter')}
-  </div>`;
+  return `<div class="rating-line screen-only" data-slug="${escapeHtml(m.slug)}">${RATING_STEPS.map(step).join('')}</div>`;
 }
 
 /**
- * Klick auf einen Daumen: setzt die eigene Bewertung bzw. nimmt sie beim zweiten Klick zurück (api/ratings.php).
+ * Klick auf eine Bewertungsstufe: setzt die eigene Bewertung bzw. nimmt sie beim zweiten Klick zurück (api/ratings.php).
  * Eine Bewertung nimmt den Eintrag von der eigenen Wunschliste (der Server liefert die Wünsche mit); zeigt Wunsch-
  * und Bewertungszeile neu und aktualisiert die Übersicht.
  * @param {HTMLElement} btn
@@ -1351,7 +1375,7 @@ async function rateMovie(btn){
     const res = await apiWrite('api/ratings.php', {
       method: 'PUT',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({slug, rating: (RATINGS[slug] || {})[ME] === value ? 0 : value}),
+      body: JSON.stringify({slug, rating: (RATINGS[slug] || {})[ME] === value ? null : value}),
     });
     if(Object.keys(res.ratings).length) RATINGS[slug] = res.ratings;
     else delete RATINGS[slug];
@@ -2255,7 +2279,7 @@ sheet.addEventListener('click', e => {
     void toggleWish(wish);
     return;
   }
-  // Bewertung: Daumen hoch bzw. runter, zweiter Klick nimmt sie zurück
+  // Bewertung: eine der vier Stufen, zweiter Klick nimmt sie zurück
   const rate = e.target.closest('button.rate-btn');
   if(rate){
     void rateMovie(rate);
@@ -2332,6 +2356,12 @@ function openImportForm(){
         <input type="text" id="importYearInput" inputmode="numeric">
       </div>
     </div>
+    <div class="form-field">
+      <div class="checkbox-row" id="importMediumInputs">
+        ${importMediumChoices().map(([value, label]) => `<label><input type="radio" name="importMedium" value="${escapeHtml(value)}"${
+          value === importMedium() ? ' checked' : ''}> ${escapeHtml(label)}</label>`).join('')}
+      </div>
+    </div>
     <div class="btn-row">
       <button class="btn btn-primary" id="searchBtn" type="button">Suchen</button>
       <button class="btn" id="scanBtn" type="button"${canScan() ? '' : ' hidden'}>Barcode scannen</button>
@@ -2346,8 +2376,8 @@ function openImportForm(){
     <div id="searchResults"></div>
     <p class="tmdb-note">
       Daten und Bilder stammen von <a href="https://www.themoviedb.org" target="_blank" rel="noopener">The Movie Database (TMDB)</a>.
-      Als Medium wird ${escapeHtml(ME ? `${possessive(ownerName(ownerOf(ME)))} DVD` : 'eine DVD')} eingetragen (im Formular änderbar).
-      Eine Serie wird zu einem Eintrag pro Staffel; vorhandene Staffeln bleiben, wie sie sind, fehlende kommen dazu.
+      Das gewählte Medium wird ${ME ? `für ${escapeHtml(ownerName(ownerOf(ME)))} ` : ''}eingetragen (im Formular änderbar)${
+        ME ? '. Bei „Wunschliste“ kommt der Eintrag ohne Medium auf deine Wunschliste' : ''}.
     </p>
   `;
   overlay.classList.add('open');
@@ -2356,6 +2386,13 @@ function openImportForm(){
   document.getElementById('searchBtn').addEventListener('click', runSearch);
   document.getElementById('scanBtn').addEventListener('click', openScan);
   document.getElementById('scanStopBtn').addEventListener('click', stopScan);
+  document.getElementById('importMediumInputs').addEventListener('change', e => {
+    try {
+      localStorage.setItem(IMPORT_MEDIUM_KEY, /** @type {HTMLInputElement} */ (e.target).value);
+    } catch(err) {
+      // ohne localStorage gilt beim nächsten Mal wieder die Vorgabe
+    }
+  });
   document.getElementById('manualBtn').addEventListener('click', () => {
     stopScan();
     openEditForm(null);
@@ -2370,6 +2407,23 @@ function openImportForm(){
   queryInput.value = searchInput.value.trim();
   queryInput.focus();
   queryInput.select();
+}
+
+/** Auswahl im Import-Dialog: [Wert, Beschriftung]; die Wunschliste nur mit Anmeldung. */
+function importMediumChoices(){
+  return [...MEDIUM_OPTIONS.map(t => [t, t]), ...(ME ? [[IMPORT_WISH, 'Wunschliste']] : [])];
+}
+
+/** Zuletzt gewähltes Medium im Import-Dialog (localStorage), sonst die Wunschliste bzw. ohne Anmeldung DVD. */
+function importMedium(){
+  const values = importMediumChoices().map(([value]) => value);
+  let saved = null;
+  try {
+    saved = localStorage.getItem(IMPORT_MEDIUM_KEY);
+  } catch(err) {
+    // privates Fenster o. Ä.: Vorgabe
+  }
+  return values.includes(saved) ? saved : ME ? IMPORT_WISH : values[0];
 }
 
 async function runSearch(){
@@ -2448,7 +2502,7 @@ async function runSearch(){
 
 /**
  * Fragt bei einem Serien-Treffer, welche Staffeln importiert werden sollen (nur diese werden angelegt, mit dem
- * Medium DVD), und startet dann den Import.
+ * gewählten Medium), und startet dann den Import.
  * @param {HTMLElement} li
  */
 function askSeasons(li){
@@ -2667,6 +2721,7 @@ async function runImport(tmdb, type, li, seasons = []){
   errorBox.innerHTML = '';
   li.classList.add('importing');
   li.querySelector('.import-seasons')?.remove();
+  const medium = /** @type {?HTMLInputElement} */ (document.querySelector('#importMediumInputs input:checked'))?.value || importMedium();
   status.textContent = type === 'series'
     ? `Importiere ${seasons.length > 1 ? 'die Staffeln' : 'die Staffel'} mit Folgen, Cover und Hintergrundbild …`
     : 'Importiere Film, Poster und Hintergrundbild …';
@@ -2679,7 +2734,7 @@ async function runImport(tmdb, type, li, seasons = []){
     const res = await apiWrite('api/import.php', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(type === 'series' ? {tmdb, type, seasons} : {tmdb, type}),
+      body: JSON.stringify(type === 'series' ? {tmdb, type, seasons, medium} : {tmdb, type, medium}),
     });
     entries = res.entries || [res];
     if(res.import_warning) warnings.push(res.import_warning);
@@ -2699,6 +2754,7 @@ async function runImport(tmdb, type, li, seasons = []){
   MOVIES = MOVIES.filter(x => !slugs.has(x.slug));
   MOVIES.push(...entries);
   await loadCatalog(); // Der Import hat die Teile bzw. Staffeln der Reihe/Serie festgehalten.
+  if(medium === IMPORT_WISH) await loadWishes();
   refreshFilters();
   updateHeaderCount();
   renderGrid();

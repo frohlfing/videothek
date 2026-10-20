@@ -1,15 +1,19 @@
 <?php
 
 /**
- * Bewertungen: Daumen hoch bzw. runter je Benutzer, data/ratings.json (wie wishes.json getrennt von movie.json und
- * nur auf dem Server per Klick geändert).
+ * Bewertungen je Benutzer, data/ratings.json (wie wishes.json getrennt von movie.json und nur auf dem Server per
+ * Klick geändert).
  *
- *   {"matrix-1999": {"frank": 1, "lilie": -1}}
+ *   {"matrix-1999": {"frank": 2, "lilie": -1}}
  *
- * Je Slug der Benutzer (Login) mit 1 (Daumen hoch) bzw. -1 (Daumen runter); ohne Eintrag keine Bewertung.
+ * Je Slug der Benutzer (Login) mit einem Wert aus RATING_VALUES; ohne Eintrag keine Bewertung.
  */
 
 require_once __DIR__ . '/jsonfile.php';
+
+// -1 schlecht/nicht sehenswert, 0 neutral/Zeitvertreib, 1 gut/sehenswert, 2 sehr gut/muss man sehen
+// (wie RATING_STEPS in app.js).
+const RATING_VALUES = [-1, 0, 1, 2];
 
 function ratings_file(): string
 {
@@ -22,11 +26,11 @@ function read_ratings(): array
     return read_json_file(ratings_file());
 }
 
-/** Setzt die Bewertung von $user für $slug (1, -1; 0 = entfernen). Liefert die Bewertungen des Eintrags. */
-function set_rating(string $slug, string $user, int $value): array
+/** Setzt die Bewertung von $user für $slug (aus RATING_VALUES; null = entfernen). Liefert die Bewertungen des Eintrags. */
+function set_rating(string $slug, string $user, ?int $value): array
 {
     $data = update_json_file(ratings_file(), function (array $data) use ($slug, $user, $value) {
-        if ($value === 0) {
+        if ($value === null) {
             unset($data[$slug][$user]);
         } else {
             $data[$slug][$user] = $value;

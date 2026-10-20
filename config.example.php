@@ -39,17 +39,11 @@ const TMDB_API_KEY = 'f090bb54758cabf231fb605d3e3e0468';
 // Das Land für die Altersfreigabe (hier: DE -> FSK) wird daraus abgeleitet.
 const TMDB_LANGUAGE = 'de-DE';
 
-// Vorgabe für den Ordner mit den Filmdateien für Medium "USB" (USB-Platte/-Stick). Der Pfad gilt auf dem Rechner,
-// der den Film abspielt (nicht auf dem Webserver): Der Play-Button liefert eine Wiedergabeliste (.m3u) mit
-// <USB-Ordner>/<slug>/<Datei>, die der dort installierte Player öffnet. Jeder hat seinen eigenen USB-Speicher und
-// bestätigt bzw. ändert den Ordner beim Abspielen (gemerkt je Gerät im Browser).
+// Vorgabe für den lokalen Ordner mit den Filmdateien für Medium "USB" (USB-Platte/-Stick).
 const USB_ROOT = 'D:\videothek';
 
-
-// Websuche für den Barcode-Scan beim Import (api/lib/ean.php): Die EAN einer DVD wird im Web gesucht, aus den
-// Titeln der Treffer ergibt sich der Filmtitel für die TMDB-Suche. Anbieter:
-//   'duckduckgo' – HTML-Version von DuckDuckGo, ohne Schlüssel (Voreinstellung). Braucht curl; bei zu vielen
-//                  Abfragen kurz hintereinander zeigt DuckDuckGo eine Bot-Prüfung, dann später erneut versuchen.
+// Websuche für den Barcode-Scan beim Import (api/lib/ean.php)
+//   'duckduckgo' – HTML-Version von DuckDuckGo, ohne Schlüssel (Voreinstellung)
 //   'serpapi'    – Google-Ergebnisse über https://serpapi.com (Schlüssel nötig, kostenloses Monatskontingent)
 //   'brave'      – https://brave.com/search/api/ (Schlüssel nötig, monatliches Freiguthaben, Kreditkarte nötig)
 // Ergebnisse werden je EAN unter DATA_DIR/cache/ean/ zwischengespeichert.

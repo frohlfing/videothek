@@ -3,7 +3,7 @@
 Eine private Familien-Videothek: die Sammlung an Filmen und Serien (DVD, Blu-ray, USB, ...) als kleine
 PHP/JSON-API mit einer statischen One-Page-Frontend-App. Mehrere Freunde können ihre Sammlungen gemeinsam pflegen:
 Jedes Exemplar hat einen Eigentümer und bei DVDs und Blu-rays steht, wer sie gerade ausgeliehen hat. Jeder User kann
-Filme auf seine Wunschliste setzen und mit Daumen hoch oder runter bewerten.
+Filme auf seine Wunschliste setzen und in vier Stufen von "nicht sehenswert" bis "muss man sehen" bewerten.
 
 ## Voraussetzungen
 
@@ -191,7 +191,7 @@ videothek/                                            # Projektroot
  │    ├── cache/sync_md5.json                         # MD5 je Datei für den Abgleich (bin/remote.php)
  │    ├── collections.json                            # Alle Filme je Reihe laut TMDB (siehe "Filmreihen und Serien")
  │    ├── locations.json                              # Wo DVDs und Blu-rays gerade sind (siehe "Mehrere Eigentümer, Medien und Ausleihe")
- │    ├── ratings.json                                # Bewertungen: Daumen hoch/runter je Benutzer (siehe "Bewertungen")
+ │    ├── ratings.json                                # Bewertungen: -1 bis 2 je Benutzer (siehe "Bewertungen")
  │    ├── series.json                                 # Alle Staffeln je Serie laut TMDB
  │    ├── users.json                                  # Anzeigename und ggf. gemeinsamer Eigentümer je Benutzer der .htpasswd
  │    ├── wishes.json                                 # Wunschliste: wer welchen Eintrag sehen möchte (siehe "Wunschliste")
@@ -293,8 +293,8 @@ selbst mit abdeckt. Ausnahme: `dev/sync.php` verlangt das Token auch zum Lesen.
 | PUT          | `/api/locations.php`                                 | Standort einer Scheibe setzen (Body: `{"slug", "owner", "type", "at"}`; `at` = Login oder freier Name, leer oder der Eigentümer = zurück)                                          |
 | GET          | `/api/wishes.php`                                    | Wunschlisten aller Benutzer (`data/wishes.json`): je Slug Login und Zeitpunkt                                                                                                      |
 | PUT          | `/api/wishes.php`                                    | Eigenen Wunsch setzen bzw. entfernen (Body: `{"slug", "wish": true\|false}`; Anmeldung nötig)                                                                                      |
-| GET          | `/api/ratings.php`                                   | Bewertungen aller Benutzer (`data/ratings.json`): je Slug Login und 1 bzw. -1 |
-| PUT          | `/api/ratings.php`                                   | Eigene Bewertung setzen (Body: `{"slug", "rating": 1\|-1\|0}`, 0 = entfernen; Anmeldung nötig) |
+| GET          | `/api/ratings.php`                                   | Bewertungen aller Benutzer (`data/ratings.json`): je Slug Login und -1, 0, 1 oder 2 |
+| PUT          | `/api/ratings.php`                                   | Eigene Bewertung setzen (Body: `{"slug", "rating": -1\|0\|1\|2\|null}`, null = entfernen; Anmeldung nötig) |
 | GET/PUT/POST | `/dev/sync.php`                                      | Nur für `bin/`, Token nötig: Dateiliste von `data/` mit MD5, Datei lesen/schreiben, Benutzer übertragen (`?account`)                                                               |
 | POST         | `/api/actors.php`                                    | Fehlende Darstellerfotos laden, ~10 s pro Aufruf, bis `remaining` 0 ist (Body: `{"slug": "..."}`)                                                                                  |
 | GET          | `/api/catalog.php`                                   | Alle Teile je Reihe und Staffeln je Serie laut TMDB (`collections`, `series`, siehe "Filmreihen und Serien")                                                                       |
@@ -430,7 +430,7 @@ Löschen/Importieren/Ausleihen/Wunschliste/Bewerten) aufgerufen, siehe "Token-Au
 
 ### Suchen, Filtern, Sortieren
 
-Die Suche durchsucht Titel, Originaltitel, Jahr, Genres, Regie bzw. Idee, Darsteller (Name und Rolle), Handlung,
+Die Suche durchsucht Titel, Originaltitel, Jahr, Genres, Regie bzw. Idee, Darsteller (Name und Rolle), Handlung, Notizen,
 Medium, Eigentümer, Reihe bzw. Serie und bei Staffeln die Folgentitel. Gefiltert wird nach Art (Filme und Serien, nur
 Filme, nur Serien; dazu die Wunschlisten: "Meine Wunschliste", "Lillis Wunschliste", …), nach Genre (alle Einträge, die das gewählte Genre
 enthalten), nach Medium (DVD, Blu-ray, ...; ein Eintrag mit mehreren Medien erscheint unter jedem, dazu "(nicht im
@@ -445,8 +445,9 @@ Bestand)") und nach Person. Die Personen-Auswahl bündelt zwei Dinge, damit es b
 Angeboten wird nur, was es gerade gibt; ohne Ausleihen erscheint die Auswahl erst bei mehreren
 Eigentümern. Medium und Person gelten zusammen: "Blu-ray" + "Lilies Medien" zeigt Lilies Blu-rays. Die Filter
 lassen sich kombinieren und bieten nur Werte an, die im Bestand tatsächlich vorkommen. Sortiert wird alphabetisch,
-nach Erscheinungsjahr (Einträge ohne Jahr am Ende), nach Hinzufügedatum oder nach Bewertung (Saldo aus Daumen hoch und
-runter, bei Gleichstand mehr Stimmen zuerst, ohne Bewertung am Ende; die Karten zeigen dann "👍 2 · 👎 1"). Der Pfeil
+nach Erscheinungsjahr (Einträge ohne Jahr am Ende), nach Hinzufügedatum oder nach Bewertung (Durchschnitt, bei Gleichstand
+mehr Stimmen zuerst, ohne Bewertung am Ende; die Karten zeigen dann das Symbol der gerundeten Stufe und den
+Durchschnitt, z. B. "+1,3"). Der Pfeil
 nach oben heißt: Neuestes bzw. Bestes zuerst. Alphabetisch zählt der Titel ohne
 führenden Artikel ("The Big Lebowski" steht bei B, wie in Kodi); welche Artikel, legt `SORT_IGNORE_ARTICLES` oben in
 `app.js` fest (der, die, das, the, ein, eine, a, an; leere Liste = aus). Suchbegriff, Filter und Sortierung werden
@@ -596,20 +597,30 @@ Wird ein Eintrag umbenannt, ziehen seine Wünsche mit; mit dem Eintrag verschwin
 
 ### Bewertungen
 
-Unter "möchte ich sehen" stehen in der Detailansicht 👍 und 👎 mit der Zahl der Stimmen; wer so bewertet hat, steht im
-Tooltip. Ein Klick bewertet, die eigene Wahl ist hervorgehoben, ein zweiter Klick auf denselben Daumen nimmt sie
-zurück. Die erste Bewertung nimmt den Eintrag von der eigenen Wunschliste (gesehen). Man kann ihn danach wieder
+Bewertet wird in vier Stufen:
+
+| Wert | Bedeutung                   | Symbol                         |
+|------|-----------------------------|--------------------------------|
+| -1   | schlecht / nicht sehenswert | Daumen runter (gelb)           |
+| 0    | neutral / Zeitvertreib      | Daumen hoch und runter (gelb)  |
+| 1    | gut / sehenswert            | Daumen hoch (gelb)             |
+| 2    | sehr gut / muss man sehen   | Herz (rot)                     |
+
+Die Symbole stammen aus Googles Material Symbols (Rounded, gefüllt; Apache-Lizenz 2.0) und stehen als SVG in
+`RATING_STEPS` in `app.js`, die Farben in `app.css` (`--rate-hand`, `--rate-heart`). Unter "möchte ich sehen"
+stehen in der Detailansicht die vier Stufen mit der Zahl der Stimmen; wer so bewertet hat, steht im Tooltip. Ein
+Klick bewertet, die eigene Wahl ist hervorgehoben, ein zweiter Klick auf dieselbe Stufe nimmt sie zurück. Die erste Bewertung nimmt den Eintrag von der eigenen Wunschliste (gesehen). Man kann ihn danach wieder
 wünschen; eine geänderte Bewertung lässt den Wunsch dann stehen. Ohne Anmeldung erscheinen nur die Zahlen.
 
 Gespeichert wird sofort (`PUT api/ratings.php`, mit API-Token und Anmeldung wie bei der Wunschliste) in
 **`data/ratings.json`**, aus denselben Gründen getrennt von `movie.json`:
 
 ```json
-{ "matrix-1999": { "frank": 1, "lilie": -1 } }
+{ "matrix-1999": { "frank": 2, "lilie": -1 } }
 ```
 
 Umbenennen und Löschen eines Eintrags ziehen die Bewertungen mit (`move_ratings()` in `lib/ratings.php`). Die
-Sortierung "Bewertung ↑/↓" nutzt den Saldo; nur dann zeigen die Karten die Bewertung.
+Sortierung "Bewertung ↑/↓" nutzt den Durchschnitt; nur dann zeigen die Karten die Bewertung.
 
 ### Detailansicht
 
@@ -708,14 +719,16 @@ Ablauf im Import-Dialog ("+ Neu" in der Übersicht; "Manuell" dort legt einen Ei
    Bereits vorhandene Filme sind markiert und öffnen sich beim Anklicken; bei Serien steht da, wie viele Staffeln
    schon vorhanden sind. Statt des Titels geht auch der **Barcode** der DVD (siehe unten).
 2. **Treffer anklicken** (`POST /api/import.php`, Token nötig): lädt die Details in `TMDB_LANGUAGE` und legt
-   den Eintrag über dieselbe Validierungs-/Anlege-Funktion wie `POST /api/movies.php` an (`create_movie()`). Als
-   Medium wird die DVD des angemeldeten Benutzers eingetragen (`IMPORT_DEFAULT_MEDIUM` in `import.php`), da TMDB das
-   Format des eigenen Exemplars nicht kennt. Danach werden Poster und Hintergrundbild heruntergeladen
+   den Eintrag über dieselbe Validierungs-/Anlege-Funktion wie `POST /api/movies.php` an (`create_movie()`). Da TMDB
+   das Format des eigenen Exemplars nicht kennt, wählt man es im Dialog: **DVD**, **Blu-ray** oder **USB** wird als
+   Medium des Eigentümers des angemeldeten Benutzers eingetragen; **Wunschliste** (Vorgabe, nur mit Anmeldung) legt
+   den Eintrag ohne Medium an und setzt ihn auf die eigene Wunschliste. Die letzte Wahl merkt sich der Browser
+   (`localStorage`). Ohne Angabe nimmt die API `IMPORT_DEFAULT_MEDIUM` (DVD). Danach werden Poster und Hintergrundbild heruntergeladen
    (`store_movie_image()`, dieselbe Funktion wie beim Upload). Schlägt nur ein Bild fehl, bleibt der Eintrag
    gespeichert, die Antwort enthält dann `"import_warning"`.
 
    Bei einer **Serie** fragt der Treffer zuerst ab, welche Staffel(n) importiert werden (z. B. `2` oder `1-3, 5`,
-   `0` = Specials). Nur diese legt der Import an, je Staffel ein Eintrag mit der eigenen DVD; von TMDB werden auch nur
+   `0` = Specials). Nur diese legt der Import an, je Staffel ein Eintrag mit dem gewählten Medium; von TMDB werden auch nur
    ihre Folgen abgerufen. Staffeln, die es schon gibt (gleiche TMDB-ID der Serie und Nummer), bleiben unverändert;
    später gekaufte Staffeln ergänzt man genauso. Titel: "Serie – Staffel 1" bzw. mit dem Namen der
    Staffel; hat die Serie nur eine reguläre Staffel (etwa eine DVD, die TMDB als eigene Serie führt), heißt die
@@ -853,7 +866,7 @@ externen Dienst. Der Browser-Dialog "Drucken → Als PDF speichern" reicht für 
 - ✅ Mehrere Medien pro Film (z. B. DVD und USB)
 - ✅ Mehrere Benutzer: Eigentümer je Medium, Ausleihe mit einem Klick (`locations.json`), eigener USB-Ordner je Gerät
 - ✅ Wunschliste (`wishes.json`) mit Häkchen auf der Karte; Filter nach Eigentümer, Ausleihe und Wunschliste
-- ✅ Bewertungen mit Daumen hoch/runter (`ratings.json`), Sortierung nach Bewertung
+- ✅ Bewertungen in vier Stufen von -1 bis 2 (`ratings.json`), Sortierung nach Bewertung
 - ✅ Abgleich von `data/` und Benutzer ohne Terminal auf dem Server (`bin/remote.php`, `bin/account.php`)
 - ✅ Serien: jede Staffel ein eigener Eintrag (Cover, Medium, Folgen), gruppiert wie Reihen; Import ergänzt fehlende Staffeln
 - ✅ Import per Barcode-Scan mit dem Smartphone (Websuche über DuckDuckGo, wahlweise SerpApi oder Brave)

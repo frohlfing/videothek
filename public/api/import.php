@@ -20,10 +20,13 @@
  * vielen Darstellern nicht ins PHP-Zeitlimit laufen).
  *
  * POST /api/import.php   Token nötig (Header X-API-Token)
- *   Body: {"tmdb": 9340, "type": "movie"} (aus GET /api/search.php; ohne type: Film)
+ *   Body: {"tmdb": 9340, "type": "movie", "medium": "DVD"} (aus GET /api/search.php; ohne type: Film)
+ *     medium: Format des eigenen Exemplars, eines aus IMPORT_MEDIA (ohne: IMPORT_DEFAULT_MEDIUM), oder "wish": ohne
+ *             Medium, dafür auf die Wunschliste des angemeldeten Benutzers (Anmeldung nötig)
  *     -> 201 mit dem neu angelegten Film
  *   Body: {"tmdb": 1396, "type": "series", "seasons": [1, 2]}
  *     seasons: Nummern der zu importierenden Staffeln (0 = Specials), sie bekommen wie ein Film das Medium aus import_media()
+ *     bzw. kommen auf die Wunschliste ("medium" wie beim Film)
  *     -> 201 mit {"entries": [neue Staffeln], "skipped": [angegebene, schon vorhandene Staffeln]}
  *   400, wenn der Film bzw. alle angegebenen Staffeln schon vorhanden sind oder TMDB eine Staffel nicht kennt.
  */
@@ -35,18 +38,31 @@ require_once __DIR__ . '/lib/catalog.php';
 require_once __DIR__ . '/lib/image_store.php';
 require_once __DIR__ . '/lib/tmdb.php';
 
-// TMDB kennt das Format des eigenen Exemplars nicht; die meisten Filme der Sammlung sind DVDs.
-// Abweichendes (Blu-ray, ...) nach dem Import im Formular ändern.
+// TMDB kennt das Format des eigenen Exemplars nicht; der Import-Dialog fragt es ab (wie MEDIUM_OPTIONS in app.js).
+const IMPORT_MEDIA = ['DVD', 'Blu-ray', 'USB'];
 const IMPORT_DEFAULT_MEDIUM = 'DVD';
+// Statt eines Mediums: Eintrag nur auf die Wunschliste.
+const IMPORT_WISH = 'wish';
 
 /**
- * Das importierte Exemplar: IMPORT_DEFAULT_MEDIUM des Eigentümers (owner_of()) des angemeldeten Benutzers, ohne
- * Anmeldung des ersten aus users.json.
+ * Das importierte Exemplar: $medium des Eigentümers (owner_of()) des angemeldeten Benutzers, ohne Anmeldung des
+ * ersten aus users.json. Für die Wunschliste keins.
  */
-function import_media(): array
+function import_media(string $medium): array
 {
     $user = current_user() ?? first_user();
-    return $user !== null ? [['owner' => owner_of($user), 'type' => IMPORT_DEFAULT_MEDIUM]] : [];
+    return $medium !== IMPORT_WISH && $user !== null ? [['owner' => owner_of($user), 'type' => $medium]] : [];
+}
+
+/** Bei IMPORT_WISH: die neuen Einträge auf die Wunschliste des angemeldeten Benutzers. @param string[] $slugs */
+function import_wishes(string $medium, array $slugs): void
+{
+    $user = current_user();
+    if ($medium === IMPORT_WISH && $user !== null) {
+        foreach ($slugs as $slug) {
+            set_wish($slug, $user, true);
+        }
+    }
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -66,6 +82,14 @@ if (!in_array($type, [TYPE_MOVIE, TYPE_SERIES], true)) {
     json_error(400, 'type muss "movie" oder "series" sein');
 }
 
+$medium = (string) ($body['medium'] ?? IMPORT_DEFAULT_MEDIUM);
+if (!in_array($medium, [...IMPORT_MEDIA, IMPORT_WISH], true)) {
+    json_error(400, 'medium muss eines von ' . implode(', ', IMPORT_MEDIA) . ' oder "' . IMPORT_WISH . '" sein');
+}
+if ($medium === IMPORT_WISH && current_user() === null) {
+    json_error(403, 'Die Wunschliste geht nur mit Anmeldung');
+}
+
 if ($type === TYPE_MOVIE) {
     if (($existing = find_slug_by_tmdb_id((string) $tmdbId)) !== null) {
         json_error(400, "Film bereits vorhanden ($existing)");
@@ -75,7 +99,7 @@ if ($type === TYPE_MOVIE) {
     } catch (RuntimeException $e) {
         json_error(422, 'Import fehlgeschlagen: ' . $e->getMessage());
     }
-    $details['media'] = import_media();
+    $details['media'] = import_media($medium);
     // Gibt es schon Teile derselben Reihe, dann deren Namen übernehmen (er kann im Formular geändert worden sein); die
     // Teilnummer gehört zum anderen Film und bleibt leer.
     if ($details['collection'] !== null) {
@@ -83,6 +107,7 @@ if ($type === TYPE_MOVIE) {
         $details['collection']['name'] = $known['name'] ?? $details['collection']['name'];
     }
     [$movie, $warnings] = import_entry($details);
+    import_wishes($medium, [$movie['slug']]);
     if ($details['collection'] !== null) {
         try {
             $cid = $details['collection']['tmdb'];
@@ -134,7 +159,7 @@ foreach ($new as $season) {
         $season['title'] = $series['name'] . substr($season['title'], strlen($season['series']['name']));
     }
     $season['series'] = $series;
-    $season['media'] = import_media();
+    $season['media'] = import_media($medium);
     try {
         [$entry, $entryWarnings] = import_entry($season);
     } catch (ValidationException $e) {
@@ -146,6 +171,7 @@ foreach ($new as $season) {
         $warnings[] = "{$season['title']}: $w";
     }
 }
+import_wishes($medium, array_column($entries, 'slug'));
 if (!$entries) {
     json_response(400, ['error' => 'Validierung fehlgeschlagen', 'details' => $warnings]);
 }
