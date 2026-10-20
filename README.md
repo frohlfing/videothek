@@ -432,7 +432,8 @@ Löschen/Importieren/Ausleihen/Wunschliste/Bewerten) aufgerufen, siehe "Token-Au
 
 Die Suche durchsucht Titel, Originaltitel, Jahr, Genres, Regie bzw. Idee, Darsteller (Name und Rolle), Handlung, Notizen,
 Medium, Eigentümer, Reihe bzw. Serie und bei Staffeln die Folgentitel. Gefiltert wird nach Art (Filme und Serien, nur
-Filme, nur Serien; dazu die Wunschlisten: "Meine Wunschliste", "Lillis Wunschliste", …), nach Genre (alle Einträge, die das gewählte Genre
+Filme, nur Serien; dazu die Wunschlisten: "Meine Wunschliste", "Meine Favoriten" (alles, was man mit dem Herz
+bewertet hat), "Lillis Wunschliste", …), nach Genre (alle Einträge, die das gewählte Genre
 enthalten), nach Medium (DVD, Blu-ray, ...; ein Eintrag mit mehreren Medien erscheint unter jedem, dazu "(nicht im
 Bestand)") und nach Person. Die Personen-Auswahl bündelt zwei Dinge, damit es bei einer Auswahlliste bleibt:
 
@@ -450,7 +451,8 @@ mehr Stimmen zuerst, ohne Bewertung am Ende; die Karten zeigen dann das Symbol d
 Durchschnitt, z. B. "+1,3"). Der Pfeil
 nach oben heißt: Neuestes bzw. Bestes zuerst. Alphabetisch zählt der Titel ohne
 führenden Artikel ("The Big Lebowski" steht bei B, wie in Kodi); welche Artikel, legt `SORT_IGNORE_ARTICLES` oben in
-`app.js` fest (der, die, das, the, ein, eine, a, an; leere Liste = aus). Suchbegriff, Filter und Sortierung werden
+`app.js` fest (der, die, das, the, ein, eine, a, an; leere Liste = aus). Eine Reihe bzw. Serie mit mehreren Teilen
+steht alphabetisch unter ihrem Namen, auch wenn die Teile anders heißen. Suchbegriff, Filter und Sortierung werden
 in `localStorage` unter `videothek_view_state` gemerkt und überstehen so einen Reload.
 
 Staffeln zeigen auf der Karte Jahr, Folgenzahl und Folgenlänge ("2008 · 7 Folgen · 48 Min./Folge · FSK 16").
@@ -611,6 +613,7 @@ Die Symbole stammen aus Googles Material Symbols (Rounded, gefüllt; Apache-Lize
 stehen in der Detailansicht die vier Stufen mit der Zahl der Stimmen; wer so bewertet hat, steht im Tooltip. Ein
 Klick bewertet, die eigene Wahl ist hervorgehoben, ein zweiter Klick auf dieselbe Stufe nimmt sie zurück. Die erste Bewertung nimmt den Eintrag von der eigenen Wunschliste (gesehen). Man kann ihn danach wieder
 wünschen; eine geänderte Bewertung lässt den Wunsch dann stehen. Ohne Anmeldung erscheinen nur die Zahlen.
+Was man selbst mit dem Herz bewertet hat, zeigt die Art-Auswahl unter "Meine Favoriten".
 
 Gespeichert wird sofort (`PUT api/ratings.php`, mit API-Token und Anmeldung wie bei der Wunschliste) in
 **`data/ratings.json`**, aus denselben Gründen getrennt von `movie.json`:

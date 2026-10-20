@@ -117,6 +117,8 @@ const personSel = document.getElementById('personSel');
 const NOT_OWNED = ' none';
 /** Werte der Art-Auswahl für Wunschlisten: WISH_PREFIX + Login ("wish:lilli"), siehe refreshTypeFilter(). */
 const WISH_PREFIX = 'wish:';
+/** Wert der Art-Auswahl für "Meine Favoriten": alles, was der angemeldete Benutzer mit dem Herz (+2) bewertet hat. */
+const MY_FAVORITES = 'favorites';
 const resultCount = document.getElementById('resultCount');
 const subCount = document.getElementById('subCount');
 const importMovieBtn = document.getElementById('importMovieBtn');
@@ -954,18 +956,19 @@ function refreshFilters(){
 }
 
 /**
- * Wunschlisten in der Art-Auswahl, nach "Nur Serien": "Meine Wunschliste" (mit Anmeldung immer), dann die der
- * anderen, die etwas wünschen ("Lillis Wunschliste"). Zusammen mit "Rohlfings Medien" in der Personen-Auswahl zeigt
- * das, welche eigenen DVDs man für Lilli einpacken kann.
+ * Wunschlisten in der Art-Auswahl, nach "Nur Serien": "Meine Wunschliste" und "Meine Favoriten" (mit Herz bewertet;
+ * beide mit Anmeldung immer), dann die der anderen, die etwas wünschen ("Lillis Wunschliste"). Zusammen mit
+ * "Rohlfings Medien" in der Personen-Auswahl zeigt das, welche eigenen DVDs man für Lilli einpacken kann.
  */
 function refreshTypeFilter(){
   const current = typeSel.value;
-  [...typeSel.options].filter(o => o.value.startsWith(WISH_PREFIX)).forEach(o => o.remove());
+  [...typeSel.options].filter(o => o.value.startsWith(WISH_PREFIX) || o.value === MY_FAVORITES).forEach(o => o.remove());
   const others = [...new Set(Object.values(WISHES).flatMap(Object.keys))]
     .filter(login => login !== ME && MOVIES.some(m => isWished(m, login)))
     .sort((a, b) => userName(a).localeCompare(userName(b), 'de'));
   for(const login of [...(ME ? [ME] : []), ...others]){
     typeSel.add(new Option(login === ME ? 'Meine Wunschliste' : `${possessive(userName(login))} Wunschliste`, WISH_PREFIX + login));
+    if(login === ME) typeSel.add(new Option('Meine Favoriten', MY_FAVORITES));
   }
   typeSel.value = [...typeSel.options].some(o => o.value === current) ? current : '';
 }
@@ -1060,7 +1063,9 @@ function renderGrid(){
 
   if(type){
     const wisher = type.startsWith(WISH_PREFIX) ? type.slice(WISH_PREFIX.length) : null;
-    items = items.filter(({m}) => wisher ? isWished(m, wisher) : m.type === type);
+    items = items.filter(({m}) => wisher ? isWished(m, wisher)
+      : type === MY_FAVORITES ? (RATINGS[m.slug] || {})[ME] === 2
+      : m.type === type);
   }
   if(genre){
     items = items.filter(({m}) => m.genres.includes(genre));
@@ -1088,9 +1093,16 @@ function renderGrid(){
   }
 
   switch(sortSel.value){
-    case 'title':
-      items.sort((a,b) => compareTitles(a.m.title, b.m.title));
+    case 'title': {
+      // Einträge einer Reihe bzw. Serie mit mehreren Teilen erscheinen als eine Kachel (siehe unten) und werden
+      // daher unter dem Namen der Gruppe einsortiert, nicht unter dem eigenen Titel ("Couchgeflüster" bei C, auch
+      // wenn die Staffeln "Jakob und Adele" heißen).
+      const groupSizes = new Map();
+      MOVIES.forEach(m => { const key = groupKey(m); if(key) groupSizes.set(key, (groupSizes.get(key) || 0) + 1); });
+      const sortName = m => groupSizes.get(groupKey(m)) > 1 ? groupOf(m).name : m.title;
+      items.sort((a,b) => compareTitles(sortName(a.m), sortName(b.m)) || compareTitles(a.m.title, b.m.title));
       break;
+    }
     case 'year-desc':
       sortWithMissingLast(items, 'year', (x, y) => y - x);
       break;
