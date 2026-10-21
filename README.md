@@ -435,7 +435,8 @@ Die Suche durchsucht Titel, Originaltitel, Jahr, Genres, Regie bzw. Idee, Darste
 Notizen, Medium, Eigentümer, Reihe bzw. Serie und bei Staffeln die Folgentitel. Gefiltert wird nach Art (Filme und 
 Serien, nur Filme, nur Serien; dazu die Wunschlisten: "Meine Wunschliste", "Meine Favoriten" (alles, was man mit dem 
 Herz bewertet hat)), nach Genre (alle Einträge, die das gewählte Genre enthalten), nach Medium (DVD, Blu-ray, ...; ein 
-Eintrag mit mehreren Medien erscheint unter jedem, dazu "(nicht im Bestand)") und nach Person. Die Personen-Auswahl 
+Eintrag mit mehreren Medien erscheint unter jedem, dazu "Blu-ray + DVD" für alles auf Scheibe und "(nicht im
+Bestand)") und nach Person. Die Personen-Auswahl 
 bündelt zwei Dinge, damit es bei einer Auswahlliste bleibt:
 
 - **Eigentümer** ("Franks Medien"): nur Einträge mit Medien von Frank, auf der Karte nur seine Medien. Sind alle seine

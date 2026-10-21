@@ -115,6 +115,9 @@ const mediumSel = document.getElementById('mediumSel');
 const personSel = document.getElementById('personSel');
 /** Wert der Medium-Auswahl für Einträge ohne Medium; kann kein echtes Medium sein, der Server entfernt Leerzeichen am Rand. */
 const NOT_OWNED = ' none';
+/** Wert der Medium-Auswahl "Blu-ray + DVD": Einträge mit einer Scheibe (DISC_MEDIA), gleich gebildet wie NOT_OWNED. */
+const DISCS = ' discs';
+const DISC_MEDIA = ['Blu-ray', 'DVD'];
 /** Werte der Art-Auswahl für Wunschlisten: WISH_PREFIX + Login ("wish:lilli"), siehe refreshTypeFilter(). */
 const WISH_PREFIX = 'wish:';
 /** Wert der Art-Auswahl für "Meine Favoriten": Alles, was der angemeldete Benutzer mit dem Herz (+2) bewertet hat. */
@@ -940,16 +943,19 @@ function knownValues(valuesOf){
  * https://learn.microsoft.com/en-us/answers/questions/5583325/datalist-tag-not-properly-rendered-on-microsoft-ed
  */
 function refreshFilters(){
-  const fill = (select, valuesOf, allLabel, extra = [], labelOf = v => v) => {
+  const fill = (select, valuesOf, allLabel, extra = [], labelOf = v => v, first = []) => {
     const values = knownValues(valuesOf);
     const current = select.value;
-    const options = [...values.map(v => [v, labelOf(v)]), ...extra];
+    const options = [...first, ...values.map(v => [v, labelOf(v)]), ...extra];
     select.innerHTML = `<option value="">${allLabel}</option>` + options.map(([v, label]) => `<option value="${escapeHtml(v)}">${escapeHtml(label)}</option>`).join('');
     select.value = options.some(([v]) => v === current) ? current : '';
     return options.length;
   };
   fill(genreSel, m => m.genres, 'Alle Genres');
-  fill(mediumSel, mediaOf, 'Alle Medien', MOVIES.some(m => !isOwned(m)) ? [[NOT_OWNED, '(nicht im Bestand)']] : []);
+  // "Blu-ray + DVD" direkt unter "Alle Medien", wenn es beides gibt
+  const hasDiscs = DISC_MEDIA.every(type => MOVIES.some(m => mediaOf(m).includes(type)));
+  fill(mediumSel, mediaOf, 'Alle Medien', MOVIES.some(m => !isOwned(m)) ? [[NOT_OWNED, '(nicht im Bestand)']] : [],
+    undefined, hasDiscs ? [[DISCS, DISC_MEDIA.join(' + ')]] : []);
   refreshTypeFilter();
   refreshPersonFilter();
 }
@@ -1073,7 +1079,7 @@ function renderGrid(){
   }
   // Medium und Person zusammen: "Blu-ray" + "Lilies Medien" = Lilies Blu-rays, nicht irgendeine Blu-ray bei Lilies
   // Filmen; "DVD" + "Lilli hat von Frank" = Franks DVDs bei Lilli.
-  const mediumFits = md => !medium || md.type === medium;
+  const mediumFits = md => !medium || (medium === DISCS ? DISC_MEDIA.includes(md.type) : md.type === medium);
   const personFits = (m, md) => !person
     || (person.kind === 'owner' ? md.owner === person.login
       : (!person.owner || md.owner === person.owner) && locationOf(m, md)?.at === person.at);
