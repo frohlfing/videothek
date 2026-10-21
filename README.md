@@ -610,7 +610,7 @@ Bewertet wird in vier Stufen:
 
 Die Symbole stammen aus Googles Material Symbols (Rounded, gefüllt; Apache-Lizenz 2.0) und stehen als SVG in
 `RATING_STEPS` in `app.js`, die Farben in `app.css` (`--rate-hand`, `--rate-heart`). Unter "möchte ich sehen"
-stehen in der Detailansicht die vier Stufen mit der Zahl der Stimmen; wer so bewertet hat, steht im Tooltip. Ein
+stehen in der Detailansicht die vier Stufen mit der Zahl der Stimmen, im Tooltip die Bedeutung der Stufe. Ein
 Klick bewertet, die eigene Wahl ist hervorgehoben, ein zweiter Klick auf dieselbe Stufe nimmt sie zurück. Die erste Bewertung nimmt den Eintrag von der eigenen Wunschliste (gesehen). Man kann ihn danach wieder
 wünschen; eine geänderte Bewertung lässt den Wunsch dann stehen. Ohne Anmeldung erscheinen nur die Zahlen.
 Was man selbst mit dem Herz bewertet hat, zeigt die Art-Auswahl unter "Meine Favoriten".

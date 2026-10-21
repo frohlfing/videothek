@@ -1348,7 +1348,7 @@ async function toggleWish(btn){
 }
 
 /**
- * Detailansicht: die vier Stufen (RATING_STEPS) mit der Zahl der Stimmen, wer so bewertet hat als Tooltip. Mit
+ * Detailansicht: die vier Stufen (RATING_STEPS) mit der Zahl der Stimmen, die Bedeutung als Tooltip. Mit
  * Anmeldung (ME) sind es Knöpfe, die eigene Wahl ist hervorgehoben, ein zweiter Klick nimmt sie zurück. Ohne
  * Anmeldung nur die Zahlen, falls es Bewertungen gibt. Nicht im Ausdruck.
  * @param {Movie} m
@@ -1358,9 +1358,9 @@ function ratingLineHtml(m){
   if(!ME && !Object.keys(ratings).length) return '';
   const step = ({value, label}) => {
     const icon = ratingIcon(value);
-    const who = Object.keys(ratings).filter(login => ratings[login] === value).map(userName).sort((a, b) => a.localeCompare(b, 'de'));
-    const count = who.length ? `<span class="rate-count">${who.length}</span>` : '';
-    const title = escapeHtml(who.length ? `${label}: ${who.join(', ')}` : label);
+    const votes = Object.values(ratings).filter(v => v === value).length;
+    const count = votes ? `<span class="rate-count">${votes}</span>` : '';
+    const title = escapeHtml(label);
     return ME
       ? `<button class="rate-btn" type="button" data-value="${value}" aria-pressed="${ratings[ME] === value}" title="${title}">${icon}${count}</button>`
       : `<span class="rate-btn" title="${title}">${icon}${count}</span>`;
