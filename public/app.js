@@ -955,16 +955,18 @@ function refreshFilters(){
 }
 
 /**
- * Wunschlisten in der Art-Auswahl, nach "Nur Serien": "Meine Wunschliste" und "Meine Favoriten" (mit Herz bewertet;
- * beide mit Anmeldung immer), dann die der anderen, die etwas wünschen ("Lillis Wunschliste"). Zusammen mit
- * "Rohlfings Medien" in der Personen-Auswahl zeigt das, welche eigenen DVDs man für Lilli einpacken kann.
+ * Wunschlisten in der Art-Auswahl, nach "Nur Serien": "Meine Wunschliste" und "Meine Favoriten".
+ * Darunter die Wunschlisten der anderen User, sofern sie nicht leer sind (derzeit AUSGEBLENDET).
  */
 function refreshTypeFilter(){
   const current = typeSel.value;
   [...typeSel.options].filter(o => o.value.startsWith(WISH_PREFIX) || o.value === MY_FAVORITES).forEach(o => o.remove());
-  const others = [...new Set(Object.values(WISHES).flatMap(Object.keys))]
-    .filter(login => login !== ME && MOVIES.some(m => isWished(m, login)))
-    .sort((a, b) => userName(a).localeCompare(userName(b), 'de'));
+  // AUSGEBLENDET: Wunschlisten der anderen ("Lillis Wunschliste") stehen vorerst nicht in der Art-Auswahl.
+  // Wieder einschalten: die drei auskommentierten Zeilen aktivieren und "const others = [];" löschen.
+  // const others = [...new Set(Object.values(WISHES).flatMap(Object.keys))]
+  //   .filter(login => login !== ME && MOVIES.some(m => isWished(m, login)))
+  //   .sort((a, b) => userName(a).localeCompare(userName(b), 'de'));
+  const others = [];
   for(const login of [...(ME ? [ME] : []), ...others]){
     typeSel.add(new Option(login === ME ? 'Meine Wunschliste' : `${possessive(userName(login))} Wunschliste`, WISH_PREFIX + login));
     if(login === ME) typeSel.add(new Option('Meine Favoriten', MY_FAVORITES));
@@ -1294,7 +1296,6 @@ function printableSheetHtml(m){
         ${factsHtml}
         ${wishLineHtml(m)}
         ${ratingLineHtml(m)}
-        ${createdHtml}
       </div>
     </div>
     ${paragraphsHtml('Handlung', m.plot, 'plot')}
@@ -1303,6 +1304,7 @@ function printableSheetHtml(m){
     ${trailerHtml(m)}
     ${castHtml(m)}
     ${paragraphsHtml('Notizen', m.notes, 'notes')}
+    ${createdHtml}
   `;
 }
 

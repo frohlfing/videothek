@@ -433,7 +433,7 @@ Löschen/Importieren/Ausleihen/Wunschliste/Bewerten) aufgerufen, siehe "Token-Au
 Die Suche durchsucht Titel, Originaltitel, Jahr, Genres, Regie bzw. Idee, Darsteller (Name und Rolle), Handlung, Notizen,
 Medium, Eigentümer, Reihe bzw. Serie und bei Staffeln die Folgentitel. Gefiltert wird nach Art (Filme und Serien, nur
 Filme, nur Serien; dazu die Wunschlisten: "Meine Wunschliste", "Meine Favoriten" (alles, was man mit dem Herz
-bewertet hat), "Lillis Wunschliste", …), nach Genre (alle Einträge, die das gewählte Genre
+bewertet hat)), nach Genre (alle Einträge, die das gewählte Genre
 enthalten), nach Medium (DVD, Blu-ray, ...; ein Eintrag mit mehreren Medien erscheint unter jedem, dazu "(nicht im
 Bestand)") und nach Person. Die Personen-Auswahl bündelt zwei Dinge, damit es bei einer Auswahlliste bleibt:
 
@@ -580,9 +580,9 @@ Eingerichtet wird das lokal:
 In der Detailansicht steht unter den Eckdaten der Link "möchte ich sehen". Ein Klick setzt den Eintrag auf die eigene
 Wunschliste: Dort steht dann ein grünes "✓ möchte ich sehen" mit Undo-Symbol (↶, "Doch nicht"), auf der Karte in
 der Übersicht ein grünes Häkchen (bei Reihen und Serien, sobald ein Teil gewünscht ist). Die Detailansicht zeigt nur
-die eigene Wunschliste. Gefiltert wird über die Art-Auswahl: "Meine Wunschliste", darunter die der anderen
-("Lillis Wunschliste"). Zusammen mit "Rohlfings Medien" in der Personen-Auswahl zeigt das, welche eigenen DVDs man
-zum Besuch bei Lilli einpacken kann. Auch Einträge, die nicht im Bestand sind, lassen sich
+die eigene Wunschliste. Gefiltert wird über die Art-Auswahl: "Meine Wunschliste". Die Wunschlisten der anderen
+("Lillis Wunschliste") sind dort vorerst ausgeblendet; wieder einschalten lassen sie sich in `refreshTypeFilter()`
+in `app.js` (Kommentar "AUSGEBLENDET"). Auch Einträge, die nicht im Bestand sind, lassen sich
 wünschen; die Zeile gibt es nur mit Anmeldung.
 
 Gespeichert wird sofort (`PUT api/wishes.php`, mit API-Token wie jede Änderung und nur mit Anmeldung, weil der Wunsch
