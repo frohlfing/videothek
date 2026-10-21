@@ -25,8 +25,8 @@
  *             Medium, dafür auf die Wunschliste des angemeldeten Benutzers (Anmeldung nötig)
  *     -> 201 mit dem neu angelegten Film
  *   Body: {"tmdb": 1396, "type": "series", "seasons": [1, 2]}
- *     seasons: Nummern der zu importierenden Staffeln (0 = Specials), sie bekommen wie ein Film das Medium aus import_media()
- *     bzw. kommen auf die Wunschliste ("medium" wie beim Film)
+ *     seasons: Nummern der zu importierenden Staffeln (0 = Specials), sie bekommen wie ein Film das Medium aus
+ *     import_media() bzw. kommen auf die Wunschliste ("medium" wie beim Film)
  *     -> 201 mit {"entries": [neue Staffeln], "skipped": [angegebene, schon vorhandene Staffeln]}
  *   400, wenn der Film bzw. alle angegebenen Staffeln schon vorhanden sind oder TMDB eine Staffel nicht kennt.
  */

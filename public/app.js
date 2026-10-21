@@ -117,7 +117,7 @@ const personSel = document.getElementById('personSel');
 const NOT_OWNED = ' none';
 /** Werte der Art-Auswahl für Wunschlisten: WISH_PREFIX + Login ("wish:lilli"), siehe refreshTypeFilter(). */
 const WISH_PREFIX = 'wish:';
-/** Wert der Art-Auswahl für "Meine Favoriten": alles, was der angemeldete Benutzer mit dem Herz (+2) bewertet hat. */
+/** Wert der Art-Auswahl für "Meine Favoriten": Alles, was der angemeldete Benutzer mit dem Herz (+2) bewertet hat. */
 const MY_FAVORITES = 'favorites';
 const resultCount = document.getElementById('resultCount');
 const subCount = document.getElementById('subCount');
@@ -962,7 +962,7 @@ function refreshTypeFilter(){
   const current = typeSel.value;
   [...typeSel.options].filter(o => o.value.startsWith(WISH_PREFIX) || o.value === MY_FAVORITES).forEach(o => o.remove());
   // AUSGEBLENDET: Wunschlisten der anderen ("Lillis Wunschliste") stehen vorerst nicht in der Art-Auswahl.
-  // Wieder einschalten: die drei auskommentierten Zeilen aktivieren und "const others = [];" löschen.
+  // Wieder einschalten: die drei auskommentierten Zeilen aktivieren und "const others = []" löschen.
   // const others = [...new Set(Object.values(WISHES).flatMap(Object.keys))]
   //   .filter(login => login !== ME && MOVIES.some(m => isWished(m, login)))
   //   .sort((a, b) => userName(a).localeCompare(userName(b), 'de'));
@@ -2400,8 +2400,9 @@ function openImportForm(){
   document.getElementById('scanBtn').addEventListener('click', openScan);
   document.getElementById('scanStopBtn').addEventListener('click', stopScan);
   document.getElementById('importMediumInputs').addEventListener('change', e => {
+    const input = /** @type {HTMLInputElement} */ (e.target);
     try {
-      localStorage.setItem(IMPORT_MEDIUM_KEY, /** @type {HTMLInputElement} */ (e.target).value);
+      localStorage.setItem(IMPORT_MEDIUM_KEY, input.value);
     } catch(err) {
       // ohne localStorage gilt beim nächsten Mal wieder die Vorgabe
     }
@@ -2415,7 +2416,7 @@ function openImportForm(){
       if(e.key === 'Enter') document.getElementById('searchBtn').click();
     });
   }
-  // Was im Suchfeld der Übersicht steht (meist der gesuchte, nicht gefundene Titel), gleich übernehmen.
+  // Was im Suchfeld der Übersicht steht (meist der gesuchte, nicht gefundene Titel), wird übernommen.
   const queryInput = document.getElementById('importQueryInput');
   queryInput.value = searchInput.value.trim();
   queryInput.focus();
@@ -2734,7 +2735,8 @@ async function runImport(tmdb, type, li, seasons = []){
   errorBox.innerHTML = '';
   li.classList.add('importing');
   li.querySelector('.import-seasons')?.remove();
-  const medium = /** @type {?HTMLInputElement} */ (document.querySelector('#importMediumInputs input:checked'))?.value || importMedium();
+  const checked = /** @type {?HTMLInputElement} */ (document.querySelector('#importMediumInputs input:checked'));
+  const medium = checked?.value || importMedium();
   status.textContent = type === 'series'
     ? `Importiere ${seasons.length > 1 ? 'die Staffeln' : 'die Staffel'} mit Folgen, Cover und Hintergrundbild …`
     : 'Importiere Film, Poster und Hintergrundbild …';

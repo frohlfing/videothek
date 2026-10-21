@@ -42,7 +42,7 @@ $actions = array_values(array_intersect(['add', 'change', 'remove'], array_keys(
 $login = (string) ($positional[0] ?? '');
 // Vertipptes konkret melden statt nur den Aufruf zu zeigen ("name=Paul" ohne "--", "--nmae=Paul").
 $unknown = array_merge(
-    array_map(fn($a) => preg_match('/^-*([a-z]+)=/', $a, $m) ? "'$a' (gemeint: --{$m[1]}=…?)" : "'$a'", array_slice($positional, 1)),
+    array_map(fn($a) => preg_match('/^-*([a-z]+)=/', $a, $m) ? "'$a' (gemeint: --$m[1]=…?)" : "'$a'", array_slice($positional, 1)),
     array_map(fn($o) => "'--$o'", array_diff(array_keys($options), ['add', 'change', 'remove', 'name', 'password', 'owner', 'yes'])));
 if ($unknown) {
     fail('Unbekannt: ' . implode(', ', $unknown) . "\n\n" . USAGE);
