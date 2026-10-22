@@ -12,14 +12,19 @@
  *   --only: beschränkt auf Ordner mit diesen Anfangsbuchstaben
  *   --dry-run: Plan ausgeben, nichts ändern
  *
- * Pro Datei bzw. Mehrteiler (movie-cd1, movie-cd2, … / -part / -teil / -disc / -dvd) wird entschieden:
- *   copy    – schon browsertauglich (MP4/M4V mit H.264 8 Bit und nur AAC/MP3), wird unverändert kopiert
+ * Jedes Video wird zu einer .mp4 (gleicher Name, nur die Endung ändert sich). Pro Datei bzw. Mehrteiler (movie-cd1,
+ * movie-cd2, … / -part / -teil / -disc / -dvd) wird entschieden:
+ *   copy    – schon browsertauglich (MP4/M4V mit H.264 8 Bit und nur AAC/MP3), wird unverändert kopiert (M4V als .mp4)
  *   remux   – Video ist schon H.264 (z. B. MKV/FLV): Video wird übernommen, nur der Ton (DTS, AC3, …) nach AAC
  *   encode  – Video wird neu kodiert (libx264, CRF 18, Preset slow; bei Zeilensprung mit yadif), Ton wie bei remux
  *
- * Mehrteiler werden zu einer Datei zusammengefügt (gleiche Regel für Staffeln einer Serie): passen die Teile
- * technisch zusammen, über den concat-Demuxer (Video ggf. ohne Neukodierung), sonst über den concat-Filter mit
- * Neukodierung auf die Bildgröße des ersten Teils.
+ * Mehrteiler: Dateien im selben Ordner, deren Namen sich nur durch eine Teilnummer am Ende unterscheiden (cd, dvd,
+ * disc, disk, part, pt oder teil mit ein- oder zweistelliger Zahl, siehe PART_RE), werden in natürlicher Reihenfolge
+ * zu einer Datei ohne Teilnummer zusammengefügt: movie-cd1.avi + movie-cd2.avi -> movie.mp4. Das gilt auch für eine
+ * Folge einer Staffel, die in Teilen vorliegt: E03-cd1.avi + E03-cd2.avi -> E03.mp4. Folgen selbst werden nie
+ * zusammengefügt, denn E01, S01E02, episode-03 o. Ä. sind keine Teilnummern. Ein einzelner Teil ohne Gegenstück
+ * (nur movie-cd1.avi) behält seinen Namen. Passen die Teile technisch zusammen, läuft es über den concat-Demuxer
+ * (Video ggf. ohne Neukodierung), sonst über den concat-Filter mit Neukodierung auf die Bildgröße des ersten Teils.
  *
  * Übernommen wird nur eine Tonspur: die deutsche, ohne Untertitel. Gibt es keine deutsche (nur andere Sprachen
  * angegeben), die englische, und dazu die deutschen (ersatzweise englischen) Text-Untertitel als WebVTT neben dem
@@ -349,12 +354,12 @@ foreach ($jobs as $i => $job) {
     $sig = sig($files);
     $single = count($files) === 1;
     $ext = strtolower(pathinfo($files[0], PATHINFO_EXTENSION));
-    $dstRel = $job['key'] . '.' . ($single && in_array($ext, ['mp4', 'm4v', 'webm'], true) ? $ext : 'mp4');
+    // Ergebnis ist immer eine .mp4 (auch aus einer kopierten M4V)
+    $dstRel = $job['key'] . '.mp4';
     if (is_done($dstRel, $sig)) {
         skip_done($dstRel, $files);
         continue;
     }
-    // Für die zu kopierenden MP4s einmal prüfen, ob das Ergebnis eine .mp4 oder eine kopierte Datei ist
     $probes = [];
     foreach ($files as $f) {
         $p = probe($f);
@@ -371,14 +376,8 @@ foreach ($jobs as $i => $job) {
     $subsOk = !array_filter($probes[0]['streams'], fn($s) => $s['codec_type'] === 'subtitle');
     if ($single && in_array($ext, ['mp4', 'm4v'], true) && video_ok($v) && $audioOk && $subsOk) {
         $mode = 'copy';
-    } elseif ($single && $ext === 'webm') {
-        $mode = 'copy';
     } else {
-        $dstRel = $job['key'] . '.mp4';
-        if (is_done($dstRel, $sig)) {
-            skip_done($dstRel, $files);
-            continue;
-        }
+        // WebM (VP8/VP9/AV1) ist nie H.264 und wird daher neu kodiert
         $allVideoOk = array_reduce($probes, fn($c, $p) => $c && video_ok(video_stream($p)) && !interlaced(video_stream($p)), true);
         $mode = $allVideoOk ? 'remux' : 'encode';
     }
