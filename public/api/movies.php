@@ -1,21 +1,7 @@
 <?php
 
 /**
- * JSON-API für Filme und Staffeln von Serien (Feld "type": "movie" | "season"): Listen/Lesen, Anlegen, Bearbeiten
- * (inkl. Rename bei Titel-/Jahresänderung) und Löschen. Poster- und Hintergrundbild-Upload laufen separat über upload.php.
- *
- * GET    /api/movies.php            -> {"movies": [...]}, alle Einträge, alphabetisch nach Titel sortiert, je mit
- *                                       "thumbHash" (siehe list_movies()). Kein Token nötig.
- * GET    /api/movies.php?slug=xyz   -> einzelner Eintrag. Kein Token nötig. 404, falls unbekannt.
- * POST   /api/movies.php            -> legt einen neuen Eintrag an. Body: JSON-Objekt mit title (Pflicht), type,
- *                                       originalTitle, year, runtime, fsk, genres, media, plot, trailer,
- *                                       cast, notes;
- *                                       Filme zusätzlich collection, director; Staffeln series, season, creator,
- *                                       episodes.
- *                                       Token nötig. 201 bei Erfolg.
- * PUT    /api/movies.php?slug=xyz   -> aktualisiert einen Eintrag (gleicher Body wie POST; ohne `type` bleibt die Art).
- *                                       Ändert sich der Slug (Titel/Jahr), wird der Ordner umbenannt. Token nötig.
- * DELETE /api/movies.php?slug=xyz   -> löscht den Eintrag samt Ordner (Bilder inklusive). Token nötig.
+ * JSON-API für Filme und Staffeln von Serien (Feld "type": "movie" | "season").
  *
  * Token wird per Header X-API-Token erwartet (siehe api/lib/http.php: require_token()).
  * Die eigentliche Lese-/Schreib-/Rename-/Delete-Logik steckt in api/lib/crud.php.

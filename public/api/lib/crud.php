@@ -22,6 +22,7 @@ const TYPE_MOVIE = 'movie';
 /**
  * Staffel einer Serie: ein Eintrag wie ein Film (eigenes Cover, Medien, Handlung, Darsteller), dazu die
  * Serie (series, gruppiert wie die Reihe eines Films), die Staffelnummer (season), "Idee" (creator) und die Folgen.
+ * Bei Staffeln ist year das Jahr der Staffel, runtime die Länge einer Folge, und uniqueids sind die IDs der Serie.
  */
 const TYPE_SEASON = 'season';
 const ENTRY_TYPES = [TYPE_MOVIE, TYPE_SEASON];
@@ -442,7 +443,7 @@ function validate_episodes_input(mixed $episodes): array
 /**
  * Dateien eines Mediums USB relativ zum Ordner des Eintrags auf dem USB-Speicher (<USB-Ordner>/<slug>/), z. B.
  * ["movie.avi"]; bei mehrteiligen Filmen mehrere in Abspielreihenfolge ("movie-cd1.avi", "movie-cd2.avi"), bei
- * Staffeln die Folgen ("E01.mkv", …). Gespeichert immer mit "/" (play.php wandelt für Windows um).
+ * Staffeln die Folgen ("episode-01.mp4", …). Gespeichert immer mit "/" (play.php wandelt für Windows um).
  * @return string[]
  */
 function normalize_movie_files(array $files): array
@@ -604,14 +605,15 @@ function episode_plot(mixed $plot): ?string
 
 /**
  * Dateien einer Folge unter den Dateien $files eines Mediums einer Staffel (in Abspielreihenfolge, mehrteilig, z. B.
- * E03-cd1, E03-cd2). Zuordnung über die Folgennummer im Dateinamen ("E03", "S01E03", "e3"); trägt keine Datei eine
+ * episode-03-cd1, episode-03-cd2). Zuordnung über die Folgennummer im Dateinamen ("episode-03", "E03", "S01E03",
+ * "e3"); trägt keine Datei eine
  * solche Nummer, zählt die Position (1. Datei = 1. Folge der Liste). Gegenstück in app.js: episodeFiles().
  * @param string[] $files
  * @return string[]
  */
 function season_episode_files(array $files, array $season, int $episode): array
 {
-    $pattern = '/(?:^|[^a-z0-9])(?:s\d+)?e0*(\d+)(?!\d)/i';
+    $pattern = '/(?:^|[^a-z0-9])(?:s\d+)?e(?:pisode[\s._-]*)?0*(\d+)(?!\d)/i';
     $numbered = [];
     foreach ($files as $f) {
         if (preg_match($pattern, basename($f), $m)) {

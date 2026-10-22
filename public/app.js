@@ -632,15 +632,15 @@ function pad2(n){
 
 /**
  * Dateien einer Folge unter den Dateien files eines Mediums der Staffel – wie season_episode_files() in
- * api/lib/crud.php: Zuordnung über die Folgennummer im Dateinamen ("E03", "S01E03", "e3", mehrteilig "E03-cd1",
- * "E03-cd2"); trägt keine Datei eine solche Nummer, zählt die Position (1. Datei = 1. Folge der Liste).
+ * api/lib/crud.php: Zuordnung über die Folgennummer im Dateinamen ("episode-03", "E03", "S01E03", "e3",
+ * mehrteilig "episode-03-cd1", "episode-03-cd2"); trägt keine Datei eine solche Nummer, zählt die Position (1. Datei = 1. Folge der Liste).
  * @param {string[]} files
  * @param {Movie} season
  * @param {number} episode
  * @returns {string[]}
  */
 function episodeFiles(files, season, episode){
-  const pattern = /(?:^|[^a-z0-9])(?:s\d+)?e0*(\d+)(?!\d)/i;
+  const pattern = /(?:^|[^a-z0-9])(?:s\d+)?e(?:pisode[\s._-]*)?0*(\d+)(?!\d)/i;
   const numbered = files
     .map(f => [f.split('/').pop().match(pattern), f])
     .filter(([match]) => match);
@@ -2261,18 +2261,19 @@ function toggleFilesField(row){
 }
 
 /**
- * Bei Wechsel auf USB ein leeres Datei-Feld mit dem üblichen Namen vorbelegen: Film `movie.`, Staffel E01., E02., …
- * (eine Zeile pro Folge). Die Endung (avi, mkv, …) ist nicht bekannt und wird ergänzt (completeExtensions()).
+ * Bei Wechsel auf USB ein leeres Datei-Feld mit dem üblichen Namen vorbelegen: Film `movie.mp4`, Staffel
+ * episode-01.mp4, episode-02.mp4, … (eine Zeile pro Folge; mp4 wie nach bin/convert.php). Abweichende Endungen trägt
+ * man von Hand ein; completeExtensions() ergänzt weiterhin Zeilen, die auf "." enden.
  */
 function suggestFiles(row){
   const filesInput = row.querySelector('.files-input');
   if(filesInput.value.trim()) return;
   if(formType() !== 'season'){
-    filesInput.value = 'movie.';
+    filesInput.value = 'movie.mp4';
     return;
   }
   const episodes = parseEpisodesText(document.getElementById('episodesInput').value).episodes.map(e => e.number);
-  filesInput.value = (episodes.length ? episodes : [1]).map(e => `E${pad2(e)}.`).join('\n');
+  filesInput.value = (episodes.length ? episodes : [1]).map(e => `episode-${pad2(e)}.mp4`).join('\n');
 }
 
 /** Überträgt die Dateiendung der ersten Zeile mit Endung auf alle Zeilen, die noch auf "." enden (Vorschlag). */
@@ -2441,7 +2442,7 @@ async function saveMovie(slug){
       showError(`Bei ${mediumLabel(md)} bitte ${payload.type === 'season' ? 'die Dateien der Folgen' : 'die Filmdatei'} angeben.`);
       return;
     }
-    // Fängt den nicht vervollständigten Vorschlag "movie." bzw. "E01." ab.
+    // Fängt von Hand eingetragene Namen ohne Endung ab (z. B. "movie.").
     if(md.files.some(f => !/\.[a-z0-9]+$/i.test(f))){
       showError(`Bei ${mediumLabel(md)} fehlt mindestens einer Datei die Dateiendung (z. B. .avi, .mkv, .mp4).`);
       return;
@@ -2847,7 +2848,10 @@ function parseSeasonList(text){
 // --- Barcode-Scan im Import-Dialog ------------------------------------------------------------------------------
 // Chrome auf Android erkennt Barcodes selbst (BarcodeDetector). Safari auf dem iPhone kann das nicht, dort übernimmt
 // vendor/zxing.min.js (ZXing, ~330 KB, wird erst beim ersten Scan geladen). Die Kamera gibt der Browser nur über
-// HTTPS (oder localhost) frei, sonst fehlt navigator.mediaDevices und der Button bleibt ausgeblendet.
+// HTTPS (oder localhost) frei, sonst fehlt navigator.mediaDevices und der Button bleibt ausgeblendet. Lokal unter
+// https://videothek.test müsste das Smartphone dem selbst ausgestellten Zertifikat vertrauen, gescannt wird deshalb
+// auf dem Produktivserver. Im Vergleich mit echten DVD-Hüllen las auf Android nur der eingebaute Leser; die
+// Bibliotheken (ZXing-JS, ZXing-C++/WASM, Quagga2) erkannten dort in 134 Versuchen keinen Code.
 // Der erkannte Code landet im Suchfeld und läuft durch die normale Suche; search.php erkennt die EAN.
 
 const SCAN_FORMATS = ['ean_13', 'ean_8', 'upc_a'];
@@ -3097,6 +3101,13 @@ async function loadActorPhotos(entry, progress, warnings){
   return entry;
 }
 
+/**
+ * Start (app.js steht am Ende von <body>, das HTML ist also schon da): Filmliste laden – der einzige zwingende Request,
+ * ohne ihn bricht die Seite mit Meldung ab – und parallel Katalog, Benutzer, Standorte, Wünsche und Bewertungen
+ * (fehlt einer, fehlen nur Hinweise bzw. Namen). Die Thumbnails lädt der Browser über loading="lazy" erst, wenn
+ * sie in die Nähe des sichtbaren Bereichs kommen, Poster und Hintergrundbild erst in der Detailansicht. Nach dem
+ * Token wird erst bei der ersten Änderung gefragt (requireToken()).
+ */
 async function init(){
   try {
     const movies = loadMovies();
