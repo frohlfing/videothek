@@ -55,61 +55,6 @@ Filme auf seine Wunschliste setzen und in vier Stufen von "nicht sehenswert" bis
 
 6. Seite aufrufen – die Filmliste lädt sich selbst über `GET /api/movies.php`.
 
-## Benutzer und Abgleich mit dem Server
-
-Auf dem Server (Hetzner-Webspace) gibt es kein Terminal. Die Skripte in `bin/` laufen deshalb lokal; `bin/remote.php` 
-spricht den Server über `dev/sync.php` an (Token nötig, auch zum Lesen). Wer das Token kennt, könnte darüber alle Daten 
-lesen und überschreiben und Zugänge anlegen. Deshalb liegt `sync.php` unter `public/dev/` und kommt 
-**nur zum Abgleichen** auf den Server: vorher den Ordner `dev/` per FTP hochladen, danach dort wieder löschen. 
-`remote.php` erinnert am Ende daran; fehlt `dev/sync.php` auf dem Server, sagt es das.
-
-| Aufruf                                                   | Zweck                                                                                                            |
-|----------------------------------------------------------|------------------------------------------------------------------------------------------------------------------|
-| `php bin/remote.php --download-data --password=…`        | Gleicht das lokale `data/` mit dem Server ab (lokal danach genau wie dort); auf dem Server wird nichts verändert |
-| `php bin/remote.php --upload-data --password=…`          | Lädt nach `data/` auf dem Server, was dort fehlt oder lokal neuer ist; auf dem Server wird nichts gelöscht       |
-| `php bin/remote.php --upload-account lilie --password=…` | Überträgt einen Benutzer auf den Server (`.htpasswd` und `users.json` dort)                                      |
-| `php bin/account.php --add <login> …`                    | Legt **lokal** einen Benutzer an (`.htpasswd`, `users.json`): `--name=…`, `--password=…`, `--owner=…`            |
-| `php bin/account.php --change <login> …`                 | Ändert nur, was angegeben ist: `--name=…`, `--password[=…]`, `--owner=[…]` (leer: selbst Eigentümer)             |
-| `php bin/account.php --remove <login>`                   | Entfernt ihn lokal, samt Wünschen und Bewertungen                                                                |
-
-**Zugang zum Server:** `--password` ist das Basic-Auth-Passwort auf dem Server (Pflicht), `--user` der Benutzer
-(Vorgabe `frank`), `--url` die Adresse (Vorgabe `REMOTE_URL` oben in `bin/remote.php`). Als Token dient `API_TOKEN` aus 
-der lokalen `config.php`; es muss mit dem des Servers übereinstimmen. Weitere Zugangsdaten werden nirgends gespeichert.
-
-**Download und Upload** vergleichen jede Datei über ihren Inhalt (MD5); die Kopie bekommt danach die Änderungszeit des 
-Originals, damit der nächste Vergleich stimmt. Der **Download** übernimmt den Stand des Servers vollständig: Er 
-überschreibt auch lokal neuere Dateien (in der Liste als "lokal neuer" markiert) und löscht lokal, was es auf dem 
-Server nicht gibt. Der **Upload** überschreibt nur, was auf dem Server älter ist; ist die Datei dort neuer (z. B. 
-`locations.json` nach einer Ausleihe auf dem Server), bleibt sie und wird nur gemeldet. Beide zeigen erst, was 
-passieren würde, und fragen dann nach (`--yes`: ohne Rückfrage). `data/cache/` bleibt außen vor. Übertragen wird nur 
-`data/`, den Code lädt man weiter per FTP hoch. Üblicher Ablauf: erst `--download-data`, dann lokal arbeiten (Skripte, 
-Importe), dann `--upload-data`.
-
-**`account.php`** ändert nur lokal, z. B.:
-
-```
-php bin/account.php --add paul --name=Paul --password=xyz --owner="WG Kiel"
-php bin/account.php --change paul --password=foo --owner=   # neues Passwort, wieder selbst Eigentümer
-php bin/account.php --remove paul
-```
-
-Ohne Passwort (bei `--add`) bzw. mit `--password` ohne Wert erzeugt es eines und zeigt es einmal an. Der Login
-(klein, ohne Leerzeichen, z. B. `lilie`) steht später als Eigentümer an den Medien, der Anzeigename ("Lilie",
-Vorgabe: Login mit großem Anfangsbuchstaben) erscheint in der App ("Lilies DVD"). Mit `--owner=Rohlfing` gehört der
-Benutzer zu einer gemeinsamen Sammlung (siehe "Gemeinsame Sammlung"). Die Medien in `movie.json` ändert es nicht;
-gehören nach einer Änderung Medien keinem Benutzer mehr, meldet es das.
-
-**Entfernen auf dem Server**: `--remove` ändert nur lokal und sagt danach, was auf dem Server zu tun ist: in der
-dortigen `.htpasswd` die Zeile des Benutzers per FTP löschen; `users.json`, `wishes.json` und `ratings.json`
-überträgt `--upload-data`, weil sie lokal neuer sind. Am besten vorher `--download-data`, sonst sind Wünsche oder
-Bewertungen, die inzwischen auf dem Server dazukamen, dort neuer und werden nicht überschrieben.
-
-**`--upload-account`** schickt nach `--add` bzw. `--change` den Passwort-Hash aus der lokalen `.htpasswd`, den
-Anzeigenamen und den Eigentümer an den Server; das Passwort selbst geht nicht über das Netz. Es überträgt nur den 
-genannten Benutzer, nie alle, weil der eigene lokale Zugang ein anderes Passwort haben kann als der auf dem Server. 
-Welche `.htpasswd` der Server benutzt, liest `dev/sync.php` aus `AuthUserFile` in `public/.htaccess` (oder 
-`HTPASSWD_FILE` in `config.php`); PHP muss sie schreiben dürfen.
-
 ## Lokalen Testserver unter XAMPP (Windows) einrichten
 
 1. URL in die Hosts-Datei eintragen
@@ -183,6 +128,57 @@ Welche `.htpasswd` der Server benutzt, liest `dev/sync.php` aus `AuthUserFile` i
     
     Die Homepage ist jetzt erreichbar unter: https://videothek.test/
 
+## Benutzer verwalten
+
+| Aufruf                                   | Zweck                                                                                                 |
+|------------------------------------------|-------------------------------------------------------------------------------------------------------|
+| `php bin/account.php --add <login> …`    | Legt **lokal** einen Benutzer an (`.htpasswd`, `users.json`): `--name=…`, `--password=…`, `--owner=…` |
+| `php bin/account.php --change <login> …` | Ändert nur, was angegeben ist: `--name=…`, `--password[=…]`, `--owner=[…]` (leer: selbst Eigentümer)  |
+| `php bin/account.php --remove <login>`   | Entfernt ihn lokal, samt Wünschen und Bewertungen                                                     |
+
+## Abgleich mit dem Server
+
+Auf dem Server (Hetzner-Webspace) gibt es kein Terminal. Die Skripte in `bin/` laufen deshalb lokal; `bin/remote.php`
+spricht den Server über `dev/sync.php` an (Token nötig, auch zum Lesen). Wer das Token kennt, könnte darüber alle Daten
+lesen und überschreiben und Zugänge anlegen. Deshalb liegt `sync.php` unter `public/dev/` und kommt
+**nur zum Abgleichen** auf den Server: Vorher den Ordner `dev/` per FTP hochladen, danach dort wieder löschen.
+`remote.php` erinnert am Ende daran; fehlt `dev/sync.php` auf dem Server, sagt es das.
+
+| Aufruf                                                   | Zweck                                                                                                            |
+|----------------------------------------------------------|------------------------------------------------------------------------------------------------------------------|
+| `php bin/remote.php --download-data --password=…`        | Gleicht das lokale `data/` mit dem Server ab (lokal danach genau wie dort); auf dem Server wird nichts verändert |
+| `php bin/remote.php --upload-data --password=…`          | Lädt nach `data/` auf dem Server, was dort fehlt oder lokal neuer ist; auf dem Server wird nichts gelöscht       |
+| `php bin/remote.php --upload-account lilie --password=…` | Überträgt einen Benutzer auf den Server (`.htpasswd` und `users.json` dort)                                      |
+
+**Zugang zum Server:** `--password` ist das Basic-Auth-Passwort auf dem Server, `--user` der Benutzer (Vorgabe `frank`).
+Als Token dient `API_TOKEN` aus der lokalen `config.php`.
+
+**Download und Upload** vergleichen jede Datei über ihren Inhalt (MD5); die Kopie bekommt danach die Änderungszeit des
+Originals, damit der nächste Vergleich stimmt. Der **Download** übernimmt den Stand des Servers vollständig: Er
+überschreibt auch lokal neuere Dateien (in der Liste als "lokal neuer" markiert) und löscht lokal, was es auf dem
+Server nicht gibt.
+
+Der **Upload** überschreibt nur, was auf dem Server älter ist; ist die Datei dort neuer (z. B. `locations.json` nach
+einer Ausleihe auf dem Server), bleibt sie und wird nur gemeldet. Beide zeigen erst, was passieren würde, und fragen
+dann nach (`--yes`: ohne Rückfrage).
+
+`data/cache/` bleibt außen vor. Übertragen wird nur `data/`, den Code lädt man weiter per FTP hoch.
+
+Üblicher Ablauf: erst `--download-data`, dann lokal arbeiten (Skripte, Importe), dann `--upload-data`.
+
+## Videos für den Browser umwandeln
+
+`bin/convert.php` wandelt die Filme auf dem USB-Speicher in MP4 (H.264 + AAC/MP3) um, damit sie im Player-Fenster
+der App laufen (siehe "Abspielen (Medium USB)"), und legt sie mit gleicher Ordnerstruktur in einem zweiten Ordner ab.
+Details siehe Dokumentation in `bin/convert.php`.
+
+`bin\build_convert_portable.cmd D:\convert` stellt eine portable Version in `D:\convert` zusammen (ca. 260 MB).
+Nach Änderungen an `convert.php` muss das Paket neu erstellt werden.
+
+Zum Aufteilen auf meherer Rechner könnte z.B. Rechner 1 mit `--only=0-m` und Rechner 2 mit `--only=n-z` auf einer
+lokalen Kopie arbeiten. Danach die Ergebnisse ins Ziel von Rechner 1 kopieren und die Zeilen seines `convert-log.jsonl`
+an das dortige anhängen (Befehle in `LIESMICH.txt`).
+
 ## Projektstruktur
 
 ```
@@ -205,6 +201,8 @@ videothek/                            # Projektroot
  │              └── thumb.<ext>       # automatisch generierte Miniatur des Posters (Hochformat 2:3)
  ├── bin/                             # Skripte für die Kommandozeile (lokal, php bin/…)
  │    ├── account.php                 # Benutzer lokal anlegen, ändern, entfernen (.htpasswd, users.json)
+ │    ├── build_convert_portable.cmd  # convert.php samt PHP und ffmpeg als Paket für einen zweiten Rechner (<Zielordner>)
+ │    ├── convert.php                 # Filme des USB-Speichers in browsertaugliches MP4 umwandeln (ffmpeg)
  │    └── remote.php                  # Abgleich mit dem Server: --download-data, --upload-data, --upload-account
  ├── public/                          # Document Root
  │    ├── api/                        # API-Endpunkte
@@ -363,6 +361,9 @@ eines Films, siehe "Filmreihen und Serien"), `season` (Nummer, `0` = Specials), 
 }
 ```
 
+**TODO: Diese Informationen bis ende des Kapitels an geeigneter Stelle im Code hinterlegen und hier löschen (sofern es im Code 
+für den Einsteiger nicht leicht ersichtlich ist, ansonsten verwerfen).**
+
 Die Feldreihenfolge entspricht dem Bearbeiten-Formular, danach folgen die Verwaltungsfelder. `write_movie_json()`
 schreibt sie immer in dieser Reihenfolge (`MOVIE_FIELD_ORDER` in `crud.php`); Felder, die nicht zum Schema gehören,
 fallen dabei weg. Ältere `movie.json` ohne `type` gelten als Film. Wechselt ein Eintrag beim Bearbeiten die Art,
@@ -404,8 +405,11 @@ Doppelte Einträge werden über **Art + TMDB-ID** (TMDB nummeriert Filme und Ser
 erkannt (nicht über den Titel allein), damit Remakes wie "Ben Hur" (1959) und "Ben Hur" (2016) nebeneinander existieren 
 können. Aus demselben Grund steckt das Jahr auch im Slug.
 
-
 ## Frontend / Arbeitsweise
+
+**TODO: Dieses Kapitel komplett überarbeiten: Hier nur das wirklich erwähnesnwerte für dei Bedieung und Ablauf eschreiben,
+was nicht inutuitiv oder sich bei der Bedienung der App von selbst eklärt. Insgesamt sollte es nur ein Überblick bleiben .
+Technische Deteils sollten besser im Code an geeigneter Stelle hinterlegt hintelegt werden, denn da kuckt der Entwickler eher drauf.**
 
 ### Request-Ablauf beim Seitenaufruf
 
@@ -433,20 +437,22 @@ Löschen/Importieren/Ausleihen/Wunschliste/Bewerten) aufgerufen, siehe "Token-Au
 
 Die Suche durchsucht Titel, Originaltitel, Jahr, Genres, Regie bzw. Idee, Darsteller (Name und Rolle), Handlung, 
 Notizen, Medium, Eigentümer, Reihe bzw. Serie und bei Staffeln die Folgentitel. Gefiltert wird nach Art (Filme und 
-Serien, nur Filme, nur Serien; dazu die Wunschlisten: "Meine Wunschliste", "Meine Favoriten" (alles, was man mit dem 
-Herz bewertet hat)), nach Genre (alle Einträge, die das gewählte Genre enthalten), nach Medium (DVD, Blu-ray, ...; ein 
-Eintrag mit mehreren Medien erscheint unter jedem, dazu "Blu-ray + DVD" für alles auf Scheibe und "(nicht im
-Bestand)") und nach Person. Die Personen-Auswahl 
+Serien, nur Filme, nur Serien; dazu "Meine Favoriten" (alles, was man mit dem Herz
+bewertet hat), "Meine Wunschliste" und nach einer Linie die Wunschlisten der anderen), nach Genre (alle Einträge, die das gewählte Genre enthalten), nach Medium (DVD, Blu-ray, ...; ein 
+Eintrag mit mehreren Medien erscheint unter jedem, dazu "Blu-ray und DVD" für alles auf Scheibe) und nach Person. Die Personen-Auswahl 
 bündelt zwei Dinge, damit es bei einer Auswahlliste bleibt:
 
-- **Eigentümer** ("Franks Medien"): nur Einträge mit Medien von Frank, auf der Karte nur seine Medien. Sind alle seine
+- **Eigentümer**, direkt unter "Gesamtbestand": zuerst "Mein Bestand" (der Eigentümer des angemeldeten Benutzers),
+  dann die anderen ("Lillis Bestand"): nur Einträge mit Medien dieses Eigentümers, auf der Karte nur seine Medien. Sind alle seine
   Medien eines Eintrags verliehen, ist die Karte blass wie "nicht im Bestand", das Schlagwort heißt dann "DVD bei
   Lilli". So ist auf einen Blick zu sehen, was gerade in seinem Regal steht.
 - **Ausgeliehen** ("Lilli hat von Frank"): Was Lilli gerade von Frank hat. Hat sie Medien von mehreren Eigentümern,
   gibt es zusätzlich "Lilli hat" für alles.
+- **(nicht im Bestand)**, nach einer Linie: Einträge ohne Medium (siehe unten).
 
-Angeboten wird nur, was es gerade gibt; ohne Ausleihen erscheint die Auswahl erst bei mehreren Eigentümern. Medium und 
-Person gelten zusammen: "Blu-ray" + "Lilies Medien" zeigt Lilies Blu-rays. Die Filter lassen sich kombinieren und 
+Angeboten wird nur, was es gerade gibt; ohne Ausleihen und Einträge ohne Medium erscheint die Auswahl erst bei
+mehreren Eigentümern. Medium und 
+Person gelten zusammen: "Blu-ray" + "Lilies Bestand" zeigt Lilies Blu-rays. Die Filter lassen sich kombinieren und 
 bieten nur Werte an, die im Bestand tatsächlich vorkommen. Sortiert wird alphabetisch, nach Erscheinungsjahr (Einträge 
 ohne Jahr am Ende), nach Hinzufügedatum oder nach Bewertung (Durchschnitt, bei Gleichstand mehr Stimmen zuerst, ohne 
 Bewertung am Ende). Bewertete Karten zeigen immer das Symbol der gerundeten Stufe und den Durchschnitt, z. B. "+1,3". 
@@ -471,11 +477,13 @@ Specials zuletzt, dort ohne den Seriennamen im Titel); ein weiterer Klick, "×" 
 
 Auch bei Suche und Filtern (Art, Genre, Medium) steht ein Treffer als Kachel seiner Reihe bzw. Serie da, an der
 Stelle des ersten Treffers. Die Kachel zeigt immer die ganze Gruppe; beim Auffächern sind die Treffer hervorgehoben
-und die übrigen Teile abgeschwächt ("1 Treffer"). Eine Gruppe mit nur einem Eintrag bleibt ein einzelner Eintrag.
+und die übrigen Teile abgeschwächt ("1 Treffer"). Eine Gruppe mit nur einem Eintrag bleibt ein einzelner Eintrag,
+außer eine einzelne Staffel einer Serie, von der es laut Katalog weitere gibt (Breaking Bad mit nur Staffel 2): Sie
+erscheint als Kachel "1 von 5 Staffeln", aufgeklappt mit den fehlenden Staffeln als Platzhalter.
 
 **Nicht im Bestand** ist ein Eintrag ohne Medium (von Hand angelegt; der Import legt nur an, was man
 hat). Solche Einträge erscheinen überall blass mit gestricheltem Rahmen und dem Schlagwort "nicht im Bestand", bleiben 
-aber anklickbar. Der Filter "Medium" hat dafür den Eintrag "(nicht im Bestand)". Die Reihe zählt mit ("2 von 3 im 
+aber anklickbar. Die Personen-Auswahl hat dafür den Eintrag "(nicht im Bestand)". Die Reihe zählt mit ("2 von 3 im 
 Bestand"), beim Aufklappen und in der Detailansicht, wo alle Teile als Zeile kleiner Plakate stehen (ein Klick öffnet 
 den Teil; im Ausdruck fehlt der Abschnitt). TMDB wird dafür nicht gefragt, nur beim Import.
 
@@ -488,7 +496,8 @@ Film einer Reihe: ein zusätzlicher Abruf `collection/{id}`). Was davon im Besta
 Änderungen am Bestand nicht mitgepflegt werden müssen. Angezeigt wird das bewusst neutral: Kachel "2 von 7 Filmen", 
 in der Detailansicht über den Teilen "Filmteile (2 von 7)" bzw. "Staffeln (2 von 11)", vollständig "Staffeln (11)", mit 
 Stand der Abfrage als Tooltip und die übrigen Teile als dezente leere Platzhalter an ihrer Stelle (nach Jahr bzw. 
-Staffelnummer). Teile ohne oder mit künftigem Datum heißen "angekündigt" und zählen nicht mit. Gruppen ohne TMDB-ID 
+Staffelnummer); ebenso beim Aufklappen der Kachel in der Übersicht ("fehlt", nicht anklickbar). Die Collage der Kachel
+zeigt nur die vorhandenen Cover. Teile ohne oder mit künftigem Datum heißen "angekündigt" und zählen nicht mit. Gruppen ohne TMDB-ID 
 (von Hand gebildet) bekommen keinen Hinweis.
 
 `collection` ist `{"name": "Matrix", "tmdb": "2344", "part": 1}` oder `null`, `series` ebenso, aber ohne `part` (die 
@@ -520,10 +529,12 @@ Medien   Lilies DVD     hat Thomas seit 48 Tagen  ↶
 
 **Ausleihen**: Liegt eine DVD bzw. Blu-ray beim Eigentümer, steht daneben der Link "verleihen" (eigene Scheibe)
 bzw. "ausleihen" (die eines anderen). "ausleihen" fragt nur nach Bestätigung ("Rohlfings DVD ausleihen?",
-`askBorrowSelf()`) und trägt den angemeldeten Benutzer ein. "verleihen" fragt "An wen verliehen?" (`askBorrower()`):
-je Benutzer ein Knopf (ohne die, denen die Scheibe gehört), ebenso für jeden Namen, bei dem gerade etwas ausgeliehen 
-ist, dazu ein Feld für eine andere Person ohne Zugang (ihr Name steht dann als `at` in `locations.json`, bis 60 
-Zeichen; ein eingetippter Anzeigename eines Benutzers wird zu seinem Login). Gespeichert wird sofort (`PUT
+`askBorrowSelf()`) und trägt den Haushalt des angemeldeten Benutzers ein. "verleihen" fragt "An wen verliehen?"
+(`askBorrower()`): je Haushalt ein Knopf ("Feldmann" für Barbara und Arne, ohne den, dem die Scheibe gehört), ebenso
+für jeden Namen, bei dem gerade etwas ausgeliehen ist, dazu ein Feld für eine andere Person ohne Zugang (ihr Name
+steht dann als `at` in `locations.json`, bis 60 Zeichen; ein eingetippter Name eines Benutzers oder Haushalts wird zur
+Kennung des Haushalts). Verliehen wird also an einen Haushalt, nicht an eine Person: `at` ist die Kennung des
+Eigentümers (`feldmann`); ältere Einträge mit einem Login (`arne`) zählen für seinen Haushalt. Gespeichert wird sofort (`PUT
 api/locations.php`, mit API-Token wie jede Änderung). Danach steht dort "hat Thomas seit 48 Tagen" (bzw. "seit
 heute", "seit gestern"; Datum und wer es eingetragen hat als Tooltip) und ein Undo-Symbol (↶, Tooltip
 "Zurückgegeben"), das das Medium wieder beim Eigentümer einträgt. Zeitpunkt und welcher User es eingetragen hat
@@ -533,7 +544,7 @@ Die Standorte stehen in **`data/locations.json`**, nicht in `movie.json`: So üb
 Filmordner keine Ausleihen, und ein Klick schreibt nur diese kleine Datei (unter Sperre wie die Kataloge):
 
 ```json
-{ "matrix-1999": { "lilie/DVD": { "at": "frank", "since": "2026-10-18T20:15:00+02:00", "by": "frank" } } }
+{ "matrix-1999": { "lilie/DVD": { "at": "rohlfing", "since": "2026-10-18T20:15:00+02:00", "by": "frank" } } }
 ```
 
 Ohne Eintrag liegt das Medium beim Eigentümer. Wird ein Eintrag umbenannt, zieht sein Standort mit; wird ein Medium
@@ -560,11 +571,11 @@ jedem derselbe Eigentümer:
 ```
 
 An den Medien steht dann die Kennung `rohlfing` (aus dem Namen, `owner_key()` in `lib/users.php`), angezeigt als
-"Rohlfings DVD", "Rohlfings Medien" bzw. "Lilie hat von Rohlfing". Ohne `owner` ist der Benutzer selbst Eigentümer
+"Rohlfings DVD", "Rohlfings Bestand" bzw. "Lilie hat von Rohlfing". Ohne `owner` ist der Benutzer selbst Eigentümer
 (Kennung = Login). Für Frank und Tinka gleichermaßen gilt, was Rohlfing gehört, als eigen: Abspielen der Dateien,
 "verleihen" statt "ausleihen", Import als "Rohlfings DVD"; im Ausleih-Dialog erscheinen sie bei Rohlfings Scheiben
-nicht, und hat einer von beiden eine davon, liegt sie zu Hause. Wunschliste, Bewertungen und "hat Tinka" bleiben bei
-der Person. Im Formular stehen die Eigentümer zur Wahl ("Rohlfing", "Lilie"), nicht die Personen.
+nicht, und hat einer von beiden eine davon, liegt sie zu Hause. Verliehen wird an den Haushalt ("hat Feldmann",
+"Feldmann hat von Rohlfing"); Wunschliste und Bewertungen bleiben bei der Person. Im Formular stehen die Eigentümer zur Wahl ("Rohlfing", "Lilie"), nicht die Personen.
 
 Eingerichtet wird das lokal:
 
@@ -580,9 +591,9 @@ Eingerichtet wird das lokal:
 In der Detailansicht steht unter den Eckdaten der Link "möchte ich sehen". Ein Klick setzt den Eintrag auf die eigene
 Wunschliste: Dort steht dann ein grünes "✓ möchte ich sehen" mit Undo-Symbol (↶, "Doch nicht"), auf der Karte in
 der Übersicht ein grünes Häkchen (bei Reihen und Serien, sobald ein Teil gewünscht ist). Die Detailansicht zeigt nur
-die eigene Wunschliste. Gefiltert wird über die Art-Auswahl: "Meine Wunschliste". Die Wunschlisten der anderen
-("Lillis Wunschliste") sind dort vorerst ausgeblendet; wieder einschalten lassen sie sich in `refreshTypeFilter()`
-in `app.js` (Kommentar "AUSGEBLENDET"). Auch Einträge, die nicht im Bestand sind, lassen sich
+die eigene Wunschliste. Gefiltert wird über die Art-Auswahl: "Meine Wunschliste", nach einer Linie die der
+anderen ("Lillis Wunschliste"). Zusammen mit "Mein Bestand" in der Personen-Auswahl zeigt das, welche eigenen
+DVDs man zum Besuch bei Lilli einpacken kann. Auch Einträge, die nicht im Bestand sind, lassen sich
 wünschen; die Zeile gibt es nur mit Anmeldung.
 
 Gespeichert wird sofort (`PUT api/wishes.php`, mit API-Token wie jede Änderung und nur mit Anmeldung, weil der Wunsch
@@ -679,6 +690,16 @@ wird die Endung in einer Zeile ergänzt, übernehmen die übrigen sie beim Verla
 gibt es dann **"▶ Alle Folgen abspielen"** und neben jeder Folge, der eine Datei zugeordnet ist, ein ▶ für genau
 diese Folge (`play.php?…&episode=3`).
 
+**Im Browser** (`playMedia()` in `app.js`): Sind alle abzuspielenden Dateien MP4 (`.mp4`, `.m4v`) und kann der
+Browser lokale Ordner lesen (Chrome, Edge am Rechner: File System Access API), läuft der Film in einem Player-Fenster
+in der Seite; mehrteilige Filme bzw. alle Folgen einer Staffel nacheinander. Beim ersten Mal erscheint der Dialog
+"Videothek-Ordner" mit dem Hinweis, dass der Browser den Ordner aus Sicherheitsgründen einmal selbst ausgewählt haben
+möchte, danach seine Ordnerauswahl (`D:\videothek`). Das Gerät merkt sich die Freigabe (IndexedDB `videothek`), nach
+einem Neustart des Browsers fragt er einmal kurz nach. Ist der Ordner nicht erreichbar (USB-Speicher nicht
+angeschlossen, Ordner umbenannt) oder fehlt die Datei darin, kommt der Dialog wieder. Kann der Browser eine Datei nicht abspielen, bietet das Fenster den installierten Player an. Alles andere (`.avi`, `.mkv`,
+Firefox, Safari, Handy) geht wie bisher über die Wiedergabeliste (MP4-Dateien für den ganzen USB-Speicher erzeugt
+`bin/convert.php`, siehe "Videos für den Browser umwandeln"):
+
 Der USB-Ordner gilt auf dem Gerät, das abspielt. Beim Klick auf "▶ Abspielen" (bzw. ▶ an einer Folge) fragt die
 App jedes Mal nach dem Ordner, vorbelegt mit dem zuletzt bestätigten Ordner (gespeichert im Browser unter
 `videothek_usb_root`) bzw. mit `USB_ROOT` aus `config.php`; "Abbrechen" spielt nichts ab. Der Play-Link schickt
@@ -688,8 +709,7 @@ verliehen?"), nicht `prompt()`: Darüber schreibt der Browser sonst "<Adresse> m
 Der Button öffnet keinen `file:///`-Link, denn den blockieren Chrome, Edge und Firefox auf einer http(s)-Seite
 kommentarlos. Stattdessen liefert `api/play.php` eine Wiedergabeliste (`<slug>.m3u`) mit dem vollständigen Pfad
 (`<USB-Ordner>/<slug>/<Datei>`), die das Betriebssystem mit dem installierten Player öffnet (VLC, Windows Media
-Player, …); mehrteilige Filme laufen nacheinander. Abgespielt wird also nicht im Browser, ein Player wird
-vorausgesetzt. Tipp: In Chrome/Edge beim ersten Mal im Download-Menü "Dateien dieses Typs immer öffnen" wählen,
+Player, …); mehrteilige Filme laufen nacheinander. Dafür wird ein installierter Player vorausgesetzt. Tipp: In Chrome/Edge beim ersten Mal im Download-Menü "Dateien dieses Typs immer öffnen" wählen,
 dann startet der Film mit einem Klick.
 
 ### Token-Authentifizierung

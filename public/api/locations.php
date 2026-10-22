@@ -5,7 +5,8 @@
  *
  * GET /api/locations.php -> {"locations": {<slug>: {"<eigentümer>/<art>": {at, since, by}}}}. Kein Token nötig.
  * PUT /api/locations.php -> Body {"slug", "owner", "type", "at"}: at = bei wem das Medium jetzt ist, ein Benutzer
- *                           (Login) oder ein beliebiger Name ("Oma Erna"); leer oder der Eigentümer = zurück beim
+ *                           (Login, gespeichert wird sein Haushalt) bzw. Haushalt (Eigentümer) oder ein beliebiger
+ *                           Name ("Oma Erna"); leer oder der Eigentümer = zurück beim
  *                           Eigentümer. "since" und "by" setzt der Server. Token nötig.
  *                           -> {"slug", "locations": {…des Eintrags}}
  */

@@ -113,11 +113,17 @@ const typeSel = document.getElementById('typeSel');
 const genreSel = document.getElementById('genreSel');
 const mediumSel = document.getElementById('mediumSel');
 const personSel = document.getElementById('personSel');
-/** Wert der Medium-Auswahl für Einträge ohne Medium; kann kein echtes Medium sein, der Server entfernt Leerzeichen am Rand. */
-const NOT_OWNED = ' none';
-/** Wert der Medium-Auswahl "Blu-ray + DVD": Einträge mit einer Scheibe (DISC_MEDIA), gleich gebildet wie NOT_OWNED. */
+/**
+ * Wert der Medium-Auswahl "Blu-ray und DVD": Einträge mit einer Scheibe (DISC_MEDIA); kann kein echtes Medium sein, der
+ * Server entfernt Leerzeichen am Rand.
+ */
 const DISCS = ' discs';
 const DISC_MEDIA = ['Blu-ray', 'DVD'];
+/**
+ * Linie in einer Auswahlliste: eine nicht wählbare Option aus Strichen (Farbe: .separator in app.css). Ein <hr> in
+ * <select> zeichnet Chrome in fester Farbe, auf dunklem Grund kaum zu sehen; die Farbe einer Option übernimmt er.
+ */
+const SEPARATOR_OPTION = '<option class="separator" value="" disabled>────────────</option>';
 /** Werte der Art-Auswahl für Wunschlisten: WISH_PREFIX + Login ("wish:lilli"), siehe refreshTypeFilter(). */
 const WISH_PREFIX = 'wish:';
 /** Wert der Art-Auswahl für "Meine Favoriten": Alles, was der angemeldete Benutzer mit dem Herz (+2) bewertet hat. */
@@ -249,6 +255,20 @@ function ownerName(owner){
   return OWNERS[owner] || userName(owner);
 }
 
+/**
+ * Bei wem ein verliehenes Medium ist (Location.at): verliehen wird an einen Haushalt (Eigentümer, "feldmann" für Barbara
+ * und Arne) oder an einen frei eingegebenen Namen. Ältere Einträge mit einem Login ("arne") zählen für seinen Haushalt.
+ * @param {string} at
+ */
+function holderOf(at){
+  return USERS[at] ? ownerOf(at) : at;
+}
+
+/** Anzeigename zu holderOf(): "Feldmann", "Lilli", "Oma Erna". @param {string} at */
+function holderName(at){
+  return ownerName(holderOf(at));
+}
+
 /** Genitiv vor dem Medium: "Lilies", aber "Klaus’", "Max’". @param {string} name */
 function possessive(name){
   return /[sßxz]$/i.test(name) ? `${name}’` : `${name}s`;
@@ -289,8 +309,9 @@ function playUrl(m, episode = null, root = usbRoot()){
 }
 
 /**
- * Abspielen (Klick auf ▶): erst den USB-Ordner dieses Geräts bestätigen bzw. ändern (leer = Vorgabe aus config.php,
- * gemerkt im Browser), dann die Wiedergabeliste mit diesem Ordner laden. Abbrechen spielt nichts ab.
+ * Abspielen im installierten Player (playMedia()): erst den USB-Ordner dieses Geräts bestätigen bzw. ändern (leer =
+ * Vorgabe aus config.php, gemerkt im Browser), dann die Wiedergabeliste mit diesem Ordner laden. Abbrechen spielt
+ * nichts ab.
  * @param {HTMLElement} link  .play-btn bzw. .ep-play mit data-slug (und data-episode)
  */
 async function playWithFolder(link){
@@ -310,6 +331,199 @@ async function playWithFolder(link){
     // Speichern nicht erlaubt (privates Fenster o. Ä.): dann nur für dieses Abspielen
   }
   window.location.href = playUrl(m, link.dataset.episode ? parseInt(link.dataset.episode, 10) : null, value);
+}
+
+/** Dateien, die der Browser selbst abspielt (MP4 mit H.264/H.265 und AAC); alles andere geht an den installierten Player. */
+const BROWSER_PLAYABLE = /\.(mp4|m4v)$/i;
+// IndexedDB: freigegebener Videothek-Ordner dieses Geräts (ein Ordner-Handle lässt sich nicht in localStorage ablegen).
+const FOLDER_DB = 'videothek';
+const FOLDER_STORE = 'handles';
+const FOLDER_KEY = 'usbFolder';
+
+/**
+ * Abspielen (Klick auf ▶): Sind alle Dateien MP4 und kann der Browser auf lokale Ordner zugreifen (Chrome, Edge am
+ * Rechner: File System Access API), läuft das Video im Browser (playInBrowser()); sonst die Wiedergabeliste für den
+ * installierten Player (playWithFolder()).
+ * @param {HTMLElement} link  .play-btn bzw. .ep-play mit data-slug (und data-episode)
+ */
+async function playMedia(link){
+  const m = MOVIES.find(x => x.slug === link.dataset.slug);
+  if(!m) return;
+  const items = playItems(m, link.dataset.episode ? parseInt(link.dataset.episode, 10) : null);
+  if('showDirectoryPicker' in window && items.length && items.every(x => BROWSER_PLAYABLE.test(x.path))){
+    await playInBrowser(m, items, () => playWithFolder(link));
+  } else {
+    await playWithFolder(link);
+  }
+}
+
+/**
+ * Was abgespielt wird, in Reihenfolge, wie die Wiedergabeliste von api/play.php: Film (mehrteilig: alle Teile), alle
+ * Folgen einer Staffel bzw. nur eine. path ist relativ zum Ordner des Eintrags.
+ * @param {Movie} m
+ * @param {?number} episode
+ * @returns {{title: string, path: string}[]}
+ */
+function playItems(m, episode){
+  const files = myFiles(m);
+  const part = (list, i) => list.length > 1 ? ` (Teil ${i + 1})` : '';
+  if(!isSeason(m)) return files.map((f, i) => ({title: m.title + part(files, i), path: f}));
+  // Ohne Folgenliste zählt jede Datei als eine Folge.
+  const season = m.episodes.length ? m : {...m, episodes: files.map((f, i) => ({number: i + 1, title: null}))};
+  return season.episodes.filter(e => episode === null || e.number === episode).flatMap(e => {
+    const list = episodeFiles(files, season, e.number);
+    const code = m.season !== null && m.season !== undefined ? `S${pad2(m.season)}E${pad2(e.number)}` : `Folge ${e.number}`;
+    return list.map((f, i) => ({title: `${m.title} – ${code}${e.title ? ' ' + e.title : ''}${part(list, i)}`, path: f}));
+  });
+}
+
+/**
+ * Spielt die Dateien im Browser ab: aus dem freigegebenen Videothek-Ordner (<Ordner>/<slug>/<Datei>). Den Ordner wählt
+ * man einmal aus (askFolder()), das Gerät merkt ihn sich (IndexedDB); nach einem Neustart des Browsers fragt er
+ * einmal nach. Ist der gemerkte Ordner nicht erreichbar (USB-Speicher nicht angeschlossen, Ordner umbenannt) oder
+ * fehlt die Datei darin, kommt die Auswahl wieder.
+ * @param {Movie} m
+ * @param {{title: string, path: string}[]} items
+ * @param {function(): void} fallback  installierter Player, falls der Browser die Datei nicht abspielen kann
+ * @param {boolean} [pickNew]  Ordner neu wählen statt des gemerkten
+ */
+async function playInBrowser(m, items, fallback, pickNew = false){
+  let folder = pickNew ? null : await storedFolder();
+  try {
+    if(!folder){
+      folder = await askFolder(m);
+      if(!folder) return;
+      await storeFolder(folder);
+    } else if(await folder.queryPermission({mode: 'read'}) !== 'granted'
+      && await folder.requestPermission({mode: 'read'}) !== 'granted'){
+      return;
+    }
+    const urls = [];
+    for(const x of items){
+      urls.push(URL.createObjectURL(await (await fileInFolder(folder, [m.slug, ...x.path.split('/')])).getFile()));
+    }
+    showPlayer(items, urls, fallback);
+  } catch(err){
+    if(err.name === 'NotFoundError' || err.name === 'TypeMismatchError'){
+      if(!pickNew) await playInBrowser(m, items, fallback, true);
+      else alert(`Im gewählten Ordner fehlt „${m.slug}/${items[0].path}“.`);
+    } else if(err.name !== 'AbortError'){
+      alert('Kein Zugriff auf die Datei: ' + err.message);
+    }
+  }
+}
+
+/**
+ * Dialog "Videothek-Ordner" wie beim installierten Player (playWithFolder()), dann die Ordnerauswahl des Browsers: Er
+ * lässt eine Seite nur in einen Ordner schauen, den man selbst ausgewählt hat. Liefert den Ordner bzw. null bei Abbruch.
+ * @param {Movie} m
+ * @returns {Promise<?FileSystemDirectoryHandle>}
+ */
+async function askFolder(m){
+  const ok = await new Promise(resolve => showDialog(`<h3>Videothek-Ordner</h3>
+    <p>Ordner mit den Filmdateien (z. B. ${escapeHtml(usbRoot() || DEFAULT_USB_ROOT || 'D:\\videothek')}). Darin liegt der
+    Ordner „${escapeHtml(m.slug)}“.</p>
+    <p>Aus Sicherheitsgründen möchte der Browser, dass du diesen Ordner einmal selbst auswählst. Danach merkt er ihn sich.</p>`,
+    'Ordner wählen', d => resolve(d.returnValue === 'ok')));
+  return ok ? window.showDirectoryPicker({id: 'videothek', mode: 'read'}) : null;
+}
+
+/** Datei unter einem Ordner-Handle, parts = Unterordner und Dateiname. @returns {Promise<FileSystemFileHandle>} */
+async function fileInFolder(folder, parts){
+  let dir = folder;
+  for(const name of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(name);
+  return dir.getFileHandle(parts[parts.length - 1]);
+}
+
+/** Öffnet die IndexedDB mit dem gemerkten Ordner. @returns {Promise<IDBDatabase>} */
+function folderDb(){
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(FOLDER_DB, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(FOLDER_STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/** Gemerkter Videothek-Ordner dieses Geräts oder null. @returns {Promise<?FileSystemDirectoryHandle>} */
+async function storedFolder(){
+  try {
+    const db = await folderDb();
+    return await new Promise((resolve, reject) => {
+      const req = db.transaction(FOLDER_STORE).objectStore(FOLDER_STORE).get(FOLDER_KEY);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  } catch {
+    return null; // ohne IndexedDB (privates Fenster o. Ä.): Ordner jedes Mal wählen
+  }
+}
+
+/** Merkt sich den Videothek-Ordner. @param {FileSystemDirectoryHandle} folder */
+async function storeFolder(folder){
+  try {
+    const db = await folderDb();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction(FOLDER_STORE, 'readwrite');
+      tx.objectStore(FOLDER_STORE).put(folder, FOLDER_KEY);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+  } catch {
+    // nur für dieses Abspielen
+  }
+}
+
+/**
+ * Player-Fenster: spielt die Dateien nacheinander (mehrteilige Filme, alle Folgen einer Staffel). Schließen (×,
+ * Escape) beendet die Wiedergabe. Kann der Browser eine Datei nicht abspielen (etwa ein Format, das er nicht kennt),
+ * bietet er den installierten Player an.
+ * @param {{title: string}[]} items
+ * @param {string[]} urls  Blob-URLs zu items
+ * @param {function(): void} fallback
+ */
+function showPlayer(items, urls, fallback){
+  const dialog = document.createElement('dialog');
+  dialog.className = 'player-dialog';
+  dialog.innerHTML = `<button class="dialog-close" type="button" aria-label="Schließen">&times;</button>
+    <h3></h3>
+    <video controls playsinline></video>
+    <p class="player-error" hidden>Diese Datei kann der Browser nicht abspielen.
+      <button class="btn btn-small" type="button">Im installierten Player öffnen</button></p>`;
+  const video = dialog.querySelector('video');
+  const heading = dialog.querySelector('h3');
+  const error = dialog.querySelector('.player-error');
+  let k = 0;
+  const show = () => {
+    heading.textContent = items[k].title + (items.length > 1 ? ` · ${k + 1} von ${items.length}` : '');
+    error.hidden = true;
+    video.src = urls[k];
+    video.play().catch(() => {}); // Autoplay verweigert: dann startet man mit dem Play-Knopf des Videos
+  };
+  video.addEventListener('ended', () => {
+    if(k < items.length - 1){
+      k++;
+      show();
+    }
+  });
+  video.addEventListener('error', () => { error.hidden = false; });
+  error.querySelector('button').addEventListener('click', () => {
+    dialog.close();
+    fallback();
+  });
+  // Escape schließt nur den Player, nicht auch die Detailansicht darunter (keydown-Handler am document).
+  dialog.addEventListener('keydown', e => { if(e.key === 'Escape') e.stopPropagation(); });
+  dialog.querySelector('.dialog-close').addEventListener('click', () => dialog.close());
+  dialog.addEventListener('close', () => {
+    video.pause();
+    video.removeAttribute('src');
+    video.load();
+    urls.forEach(url => URL.revokeObjectURL(url));
+    dialog.remove();
+  });
+  document.body.appendChild(dialog);
+  dialog.showModal();
+  show();
 }
 
 /**
@@ -371,26 +585,26 @@ function askText({title, text = '', value = '', placeholder = '', ok = 'OK'}){
 function askBorrowSelf(md){
   return new Promise(resolve => {
     showDialog(`<h3>${escapeHtml(mediumLabel(md))} ausleihen?</h3>
-      <p>Eingetragen wird „hat ${escapeHtml(userName(ME))} seit heute“.</p>`,
+      <p>Eingetragen wird „hat ${escapeHtml(ownerName(ownerOf(ME)))} seit heute“.</p>`,
       'Ausleihen',
-      d => resolve(d.returnValue === 'ok' ? ME : null));
+      d => resolve(d.returnValue === 'ok' ? ownerOf(ME) : null));
   });
 }
 
 /**
- * "An wen verliehen?" (showDialog()): je Benutzer und je Name, bei dem gerade etwas ausgeliehen ist, ein Knopf (ein
- * Klick wählt), dazu ein Feld "Andere Person" (ohne Knöpfe, etwa so lange es nur einen Benutzer gibt, nur "Name").
- * Ein eingetippter Anzeigename eines Benutzers ("Thomas") wird
- * zu seinem Login. Liefert Login bzw. Name oder null bei Abbruch.
+ * "An wen verliehen?" (showDialog()): je Haushalt (Eigentümer, "Feldmann" für Barbara und Arne) und je Name, bei dem
+ * gerade etwas ausgeliehen ist, ein Knopf (ein Klick wählt), dazu ein Feld "Andere Person" (ohne Knöpfe nur "Person").
+ * Ein eingetippter Name eines Benutzers ("Arne") oder Haushalts wird zur Kennung des Haushalts. Liefert die Kennung
+ * bzw. den Namen oder null bei Abbruch.
  * @param {Medium} md
  * @returns {Promise<?string>}
  */
 function askBorrower(md){
   return new Promise(resolve => {
-    const people = [...new Set([...Object.keys(USERS), ...borrowerNames()])].filter(u => u !== md.owner && ownerOf(u) !== md.owner);
+    const people = [...new Set([...Object.keys(USERS).map(ownerOf), ...borrowerNames()])].filter(at => at !== md.owner);
     let chosen = null;
     const dialog = showDialog(`<h3>An wen verliehen?</h3>
-      ${people.length ? `<div class="borrower-choices">${people.map(u => `<button class="btn" type="button" data-at="${escapeHtml(u)}">${escapeHtml(userName(u))}</button>`).join('')}</div>` : ''}
+      ${people.length ? `<div class="borrower-choices">${people.map(at => `<button class="btn" type="button" data-at="${escapeHtml(at)}">${escapeHtml(holderName(at))}</button>`).join('')}</div>` : ''}
       <label class="dialog-label" for="borrowerInput">${people.length ? 'Andere Person' : 'Person'}</label>
       <input type="text" id="borrowerInput" placeholder="z. B. Oma Erna">`,
       'Verleihen',
@@ -398,8 +612,10 @@ function askBorrower(md){
         if(d.returnValue !== 'ok') return resolve(null);
         if(chosen !== null) return resolve(chosen);
         const name = d.querySelector('input').value.trim().replace(/\s+/g, ' ');
-        const login = Object.keys(USERS).find(u => u.toLowerCase() === name.toLowerCase() || userName(u).toLowerCase() === name.toLowerCase());
-        resolve(login || name || null);
+        const same = v => v.toLowerCase() === name.toLowerCase();
+        const login = Object.keys(USERS).find(u => same(u) || same(userName(u)));
+        const owner = Object.keys(OWNERS).find(o => same(o) || same(OWNERS[o]));
+        resolve(login ? ownerOf(login) : owner || name || null);
       });
     dialog.querySelectorAll('[data-at]').forEach(btn => btn.addEventListener('click', () => {
       chosen = btn.dataset.at;
@@ -767,7 +983,7 @@ function ratingTagHtml(movies){
 const WISH_BADGE = '<div class="wish-badge" title="Auf deiner Wunschliste">&#10003;</div>';
 
 /**
- * Medien, die eine Karte zeigt: bei der Auswahl "Franks Medien" nur seine, sonst alle.
+ * Medien, die eine Karte zeigt: bei der Auswahl "Franks Bestand" nur seine, sonst alle.
  * @param {Movie} m
  * @returns {Medium[]}
  */
@@ -777,7 +993,7 @@ function shownMedia(m){
 }
 
 /**
- * Karte normal statt blass: im Bestand; bei der Auswahl "Franks Medien" außerdem nicht alles verliehen (blass wie
+ * Karte normal statt blass: im Bestand; bei der Auswahl "Franks Bestand" außerdem nicht alles verliehen (blass wie
  * nicht im Bestand, damit sein Regal auf einen Blick zu sehen ist).
  * @param {Movie} m
  */
@@ -789,7 +1005,7 @@ function isAvailable(m){
 
 /**
  * Medien als Schlagwörter (ohne Doppelte), ohne Medium der Hinweis "nicht im Bestand". Bei den Auswahlen
- * "Franks Medien" und "Lilli hat von Frank" stehen verliehene Scheiben als "DVD bei Lilli" da.
+ * "Franks Bestand" und "Lilli hat von Frank" stehen verliehene Scheiben als "DVD bei Lilli" da.
  * @param {Movie[]} movies  ein Eintrag bzw. alle einer Reihe
  */
 function mediaTagsHtml(movies){
@@ -799,7 +1015,7 @@ function mediaTagsHtml(movies){
   for(const m of movies){
     for(const md of shownMedia(m)){
       const loc = showLent ? locationOf(m, md) : null;
-      tags.set(loc ? `${md.type} bei ${userName(loc.at)}` : md.type, !!loc);
+      tags.set(loc ? `${md.type} bei ${holderName(loc.at)}` : md.type, !!loc);
     }
   }
   if(!tags.size) return '<div class="cat-tag missing-tag">nicht im Bestand</div>';
@@ -900,6 +1116,7 @@ function groupCardHtml(group){
 /**
  * Aufgefächerte Teile einer Reihe bzw. Staffeln einer Serie unter der Zeile ihrer Kachel (über die volle Breite des
  * Rasters). Grenzen Suche oder Filter die Übersicht ein, sind die Treffer hervorgehoben und die übrigen abgeschwächt.
+ * Fehlende Teile laut Katalog stehen wie in der Detailansicht als leere Platzhalter dazwischen (nicht anklickbar).
  * @param {CollectionGroup} group
  */
 function groupPanelHtml(group){
@@ -911,8 +1128,20 @@ function groupPanelHtml(group){
       : owned < group.items.length ? `${owned} von ${group.items.length} im Bestand` : null,
     filtered ? countLabel(group.hits.size, 'Treffer', 'Treffer') : null,
   ].filter(Boolean).join(' · ');
-  const cards = group.items.map(({m, i}, k) => cardHtml(m, i, filtered ? (group.hits.has(i) ? 'hit' : 'other') : '', k));
-  const label = isSeason(group.items[0].m) ? 'Serie' : 'Reihe';
+  const season = isSeason(group.items[0].m);
+  const gaps = info ? [...info.missing, ...info.announced] : [];
+  const cards = withGaps(group.items, ({m}) => m, gaps, season).map((x, k) => {
+    if(!('gap' in x)){
+      const {m, i} = x.part;
+      return cardHtml(m, i, filtered ? (group.hits.has(i) ? 'hit' : 'other') : '', k);
+    }
+    const {title, meta} = gapLabels(x.gap, season, info.announced);
+    return `<div class="card gap-card" style="--k:${k}" title="Nicht im Bestand">
+      <div class="thumb"><span>fehlt</span></div>
+      <div class="body"><h3>${escapeHtml(title)}</h3><div class="meta">${escapeHtml(meta)}</div></div>
+    </div>`;
+  });
+  const label = season ? 'Serie' : 'Reihe';
   return `<div class="collection-panel" id="collectionPanel">
     <div class="collection-head">
       <h3>${escapeHtml(groupOf(group.items[0].m).name)}${note ? ` <span class="collection-count">${escapeHtml(note)}</span>` : ''}</h3>
@@ -952,38 +1181,47 @@ function refreshFilters(){
     return options.length;
   };
   fill(genreSel, m => m.genres, 'Alle Genres');
-  // "Blu-ray + DVD" direkt unter "Alle Medien", wenn es beides gibt
+  // "Blu-ray und DVD" direkt unter "Alle Medien", wenn es beides gibt
   const hasDiscs = DISC_MEDIA.every(type => MOVIES.some(m => mediaOf(m).includes(type)));
-  fill(mediumSel, mediaOf, 'Alle Medien', MOVIES.some(m => !isOwned(m)) ? [[NOT_OWNED, '(nicht im Bestand)']] : [],
-    undefined, hasDiscs ? [[DISCS, DISC_MEDIA.join(' + ')]] : []);
+  fill(mediumSel, mediaOf, 'Alle Medien', [], undefined, hasDiscs ? [[DISCS, DISC_MEDIA.join(' und ')]] : []);
   refreshTypeFilter();
   refreshPersonFilter();
 }
 
 /**
- * Wunschlisten in der Art-Auswahl, nach "Nur Serien": "Meine Wunschliste" und "Meine Favoriten".
- * Darunter die Wunschlisten der anderen User, sofern sie nicht leer sind (derzeit AUSGEBLENDET).
+ * Wunschlisten in der Art-Auswahl, nach "Nur Serien": "Meine Favoriten" und "Meine Wunschliste", nach einer Linie
+ * die Wunschlisten der anderen User.
  */
 function refreshTypeFilter(){
   const current = typeSel.value;
   [...typeSel.options].filter(o => o.value.startsWith(WISH_PREFIX) || o.value === MY_FAVORITES).forEach(o => o.remove());
-  // AUSGEBLENDET: Wunschlisten der anderen ("Lillis Wunschliste") stehen vorerst nicht in der Art-Auswahl.
-  // Wieder einschalten: die drei auskommentierten Zeilen aktivieren und "const others = []" löschen.
-  // const others = [...new Set(Object.values(WISHES).flatMap(Object.keys))]
-  //   .filter(login => login !== ME && MOVIES.some(m => isWished(m, login)))
-  //   .sort((a, b) => userName(a).localeCompare(userName(b), 'de'));
-  const others = [];
-  for(const login of [...(ME ? [ME] : []), ...others]){
-    typeSel.add(new Option(login === ME ? 'Meine Wunschliste' : `${possessive(userName(login))} Wunschliste`, WISH_PREFIX + login));
-    if(login === ME) typeSel.add(new Option('Meine Favoriten', MY_FAVORITES));
+  typeSel.querySelectorAll('.separator').forEach(o => o.remove());
+
+  // Wunschlisten der anderen User
+  // const others = [];
+  const others = [...new Set(Object.values(WISHES).flatMap(Object.keys))]
+    .filter(login => login !== ME && MOVIES.some(m => isWished(m, login)))
+    .sort((a, b) => userName(a).localeCompare(userName(b), 'de'));
+
+  if(ME){
+    typeSel.add(new Option('Meine Favoriten', MY_FAVORITES));
+    typeSel.add(new Option('Meine Wunschliste', WISH_PREFIX + ME));
   }
+  // Linie zwischen den eigenen Listen und denen der anderen
+  if(ME && others.length) typeSel.insertAdjacentHTML('beforeend', SEPARATOR_OPTION);
+  for(const login of others){
+    typeSel.add(new Option(`${possessive(userName(login))} Wunschliste`, WISH_PREFIX + login));
+  }
+
   typeSel.value = [...typeSel.options].some(o => o.value === current) ? current : '';
 }
 
 /**
- * Personen-Auswahl: Eigentümer ("Franks Medien"), Ausleihen ("Lilli hat von Frank", bei mehreren Eigentümern auch
- * "Lilli hat" für alles), jeweils nur, was es gerade gibt. Werte sind JSON (personFilter()). Ohne Ausleihen erscheint
- * sie erst bei mehreren Eigentümern. Die Wunschlisten stehen in der Art-Auswahl (refreshTypeFilter()).
+ * Personen-Auswahl: nach "Gesamtbestand" die Eigentümer, der des angemeldeten Benutzers zuerst als "Mein
+ * Bestand", dann die anderen ("Lillis Bestand"), Ausleihen ("Lilli hat von Frank", bei mehreren Eigentümern auch
+ * "Lilli hat" für alles), nach einer Linie "(nicht im Bestand)", jeweils nur, was es gerade gibt. Werte sind JSON
+ * (personFilter()). Ohne Ausleihen und Einträge ohne Medium erscheint sie erst bei mehreren Eigentümern. Die
+ * Wunschlisten stehen in der Art-Auswahl (refreshTypeFilter()).
  */
 function refreshPersonFilter(){
   const byName = (a, b) => userName(a).localeCompare(userName(b), 'de');
@@ -996,26 +1234,31 @@ function refreshPersonFilter(){
   for(const m of MOVIES){
     for(const md of m.media){
       const loc = locationOf(m, md);
-      if(loc) lent.set(loc.at, (lent.get(loc.at) || new Set()).add(md.owner));
+      if(loc) lent.set(holderOf(loc.at), (lent.get(holderOf(loc.at)) || new Set()).add(md.owner));
     }
   }
-  const lentOptions = [...lent.keys()].sort(byName).flatMap(at => {
+  const lentOptions = [...lent.keys()].sort((a, b) => holderName(a).localeCompare(holderName(b), 'de')).flatMap(at => {
     const from = [...lent.get(at)].sort((a, b) => ownerName(a).localeCompare(ownerName(b), 'de'));
-    const each = from.map(owner => option(['lent', owner, at], `${userName(at)} hat von ${ownerName(owner)}`));
-    return from.length > 1 ? [option(['lent', null, at], `${userName(at)} hat`), ...each] : each;
+    const each = from.map(owner => option(['lent', owner, at], `${holderName(at)} hat von ${ownerName(owner)}`));
+    return from.length > 1 ? [option(['lent', null, at], `${holderName(at)} hat`), ...each] : each;
   });
 
+  const notOwned = MOVIES.some(m => !isOwned(m));
+
   const current = personSel.value;
-  personSel.hidden = owners.length < 2 && !lentOptions.length;
-  personSel.innerHTML = '<option value="">Alle Personen</option>'
-    + group('Eigentümer', owners.map(owner => option(['owner', owner], `${possessive(ownerName(owner))} Medien`)))
-    + group('Ausgeliehen', lentOptions);
+  personSel.hidden = owners.length < 2 && !lentOptions.length && !notOwned;
+  const own = ownerOf(ME);
+  personSel.innerHTML = '<option value="">Gesamtbestand</option>'
+    + (owners.includes(own) ? option(['owner', own], 'Mein Bestand') : '')
+    + owners.filter(owner => owner !== own).map(owner => option(['owner', owner], `${possessive(ownerName(owner))} Bestand`)).join('')
+    + group('Ausgeliehen', lentOptions)
+    + (notOwned ? SEPARATOR_OPTION + option(['none'], '(nicht im Bestand)') : '');
   personSel.value = !personSel.hidden && [...personSel.options].some(o => o.value === current) ? current : '';
 }
 
 /**
  * Auswahl der Personen-Liste: {kind: 'owner', login} (seine Medien), {kind: 'lent', owner, at} (bei at, von owner;
- * owner null = von allen); null = alle.
+ * owner null = von allen), {kind: 'none'} (Einträge ohne Medium); null = alle.
  * @returns {?{kind: string, login?: string, owner?: ?string, at?: string}}
  */
 function personFilter(){
@@ -1077,14 +1320,14 @@ function renderGrid(){
   if(genre){
     items = items.filter(({m}) => m.genres.includes(genre));
   }
-  // Medium und Person zusammen: "Blu-ray" + "Lilies Medien" = Lilies Blu-rays, nicht irgendeine Blu-ray bei Lilies
+  // Medium und Person zusammen: "Blu-ray" + "Lilies Bestand" = Lilies Blu-rays, nicht irgendeine Blu-ray bei Lilies
   // Filmen; "DVD" + "Lilli hat von Frank" = Franks DVDs bei Lilli.
   const mediumFits = md => !medium || (medium === DISCS ? DISC_MEDIA.includes(md.type) : md.type === medium);
   const personFits = (m, md) => !person
     || (person.kind === 'owner' ? md.owner === person.login
-      : (!person.owner || md.owner === person.owner) && locationOf(m, md)?.at === person.at);
-  if(medium === NOT_OWNED){
-    items = items.filter(({m}) => !isOwned(m));
+      : (!person.owner || md.owner === person.owner) && locationOf(m, md) && holderOf(locationOf(m, md).at) === person.at);
+  if(person?.kind === 'none'){
+    items = items.filter(({m}) => !isOwned(m) && !medium); // ohne Medium passt keine Medium-Auswahl
   } else if(medium || person){
     items = items.filter(({m}) => m.media.some(md => mediumFits(md) && personFits(m, md)));
   }
@@ -1101,12 +1344,13 @@ function renderGrid(){
 
   switch(sortSel.value){
     case 'title': {
-      // Einträge einer Reihe bzw. Serie mit mehreren Teilen erscheinen als eine Kachel (siehe unten) und werden
-      // daher unter dem Namen der Gruppe einsortiert, nicht unter dem eigenen Titel ("Couchgeflüster" bei C, auch
-      // wenn die Staffeln "Jakob und Adele" heißen).
-      const groupSizes = new Map();
-      MOVIES.forEach(m => { const key = groupKey(m); if(key) groupSizes.set(key, (groupSizes.get(key) || 0) + 1); });
-      const sortName = m => groupSizes.get(groupKey(m)) > 1 ? groupOf(m).name : m.title;
+      // Einträge einer Reihe bzw. Serie, die als eine Kachel erscheinen (showsAsGroup(), siehe unten), werden
+      // unter dem Namen der Gruppe einsortiert, nicht unter dem eigenen Titel ("Couchgeflüster" bei C, auch wenn
+      // die Staffeln "Jakob und Adele" heißen).
+      const byKey = new Map();
+      MOVIES.forEach(m => { const key = groupKey(m); if(key) byKey.set(key, [...(byKey.get(key) || []), m]); });
+      const asGroup = new Set([...byKey].filter(([, list]) => showsAsGroup(list)).map(([key]) => key));
+      const sortName = m => asGroup.has(groupKey(m)) ? groupOf(m).name : m.title;
       items.sort((a,b) => compareTitles(sortName(a.m), sortName(b.m)) || compareTitles(a.m.title, b.m.title));
       break;
     }
@@ -1142,7 +1386,8 @@ function renderGrid(){
 
   // Filme einer Reihe bzw. Staffeln einer Serie erscheinen gemeinsam auf einer Kachel, an der Stelle ihres ersten
   // Treffers in der gewählten Sortierung. Das gilt auch bei Suche und Filtern: Die Kachel steht dann für die ganze
-  // Gruppe, beim Auffächern sind die Treffer hervorgehoben. Eine Gruppe mit nur einem Eintrag bleibt einzeln.
+  // Gruppe, beim Auffächern sind die Treffer hervorgehoben. Eine Gruppe mit nur einem Eintrag bleibt einzeln, außer
+  // bei Serien mit weiteren Staffeln laut Katalog (showsAsGroup()).
   const hitIdx = new Set(items.map(({i}) => i));
   const hitKeys = new Set(items.map(({m}) => groupKey(m)).filter(Boolean));
   /** @type {Map<string, {m: Movie, i: number}[]>} */
@@ -1152,7 +1397,7 @@ function renderGrid(){
     if(key && hitKeys.has(key)) members.set(key, [...(members.get(key) || []), {m, i}]);
   });
   currentGroups = new Map([...members]
-    .filter(([, list]) => list.length > 1)
+    .filter(([, list]) => showsAsGroup(list.map(({m}) => m)))
     .map(([key, list]) => [key, {
       key,
       items: [...list].sort(groupOrder),
@@ -1173,6 +1418,19 @@ function renderGrid(){
   }
   grid.innerHTML = html.length ? html.join('') : '<p class="empty">Nichts gefunden.</p>';
   placeGroupPanel();
+}
+
+/**
+ * Erscheinen die Einträge einer Reihe bzw. Serie in der Übersicht als gemeinsame Kachel? Bei mehreren Einträgen immer,
+ * bei einer einzelnen Staffel auch, wenn es laut Katalog weitere gibt (Breaking Bad mit nur Staffel 2 im Bestand):
+ * Aufgeklappt zeigt sie dann die fehlenden Staffeln als Platzhalter. Ein einzelner Film einer Reihe bleibt einzeln.
+ * @param {Movie[]} members
+ */
+function showsAsGroup(members){
+  if(members.length > 1) return true;
+  if(!members.length || !isSeason(members[0])) return false;
+  const info = groupCatalog(members);
+  return !!info && info.missing.length + info.announced.length > 0;
 }
 
 /**
@@ -1304,9 +1562,9 @@ function printableSheetHtml(m){
         ${ratingLineHtml(m)}
       </div>
     </div>
+    <div class="screen-only">${groupPartsHtml(m)}</div>
     ${paragraphsHtml('Handlung', m.plot, 'plot')}
     ${isSeason(m) ? episodesHtml(m) : ''}
-    <div class="screen-only">${groupPartsHtml(m)}</div>
     ${trailerHtml(m)}
     ${castHtml(m)}
     ${paragraphsHtml('Notizen', m.notes, 'notes')}
@@ -1425,7 +1683,7 @@ function mediaListHtml(m){
  */
 function borrowerNames(){
   const names = Object.values(LOCATIONS).flatMap(entry => Object.values(entry).map(loc => loc.at));
-  return [...new Set(names)].filter(n => !USERS[n]).sort((a, b) => a.localeCompare(b, 'de'));
+  return [...new Set(names)].filter(n => !USERS[n] && !OWNERS[n]).sort((a, b) => a.localeCompare(b, 'de'));
 }
 
 /** "seit heute", "seit gestern", "seit 48 Tagen" (nach Kalendertagen). @param {string} iso */
@@ -1455,7 +1713,7 @@ function mediumItemHtml(m, md){
   }
   const title = [`seit ${new Date(loc.since).toLocaleDateString('de-DE')}`, loc.by ? `eingetragen von ${userName(loc.by)}` : null]
     .filter(Boolean).join(' · ');
-  return `<li ${data}>${label} <span class="lent" title="${escapeHtml(title)}">hat ${escapeHtml(userName(loc.at))} ${sinceText(loc.since)}</span>`
+  return `<li ${data}>${label} <span class="lent" title="${escapeHtml(title)}">hat ${escapeHtml(holderName(loc.at))} ${sinceText(loc.since)}</span>`
     + `<button class="icon-btn return-btn screen-only" type="button" title="Zurückgegeben" aria-label="Zurückgegeben, wieder bei ${escapeHtml(ownerName(md.owner))}">${UNDO_ICON}</button></li>`;
 }
 
@@ -1527,7 +1785,7 @@ function openMovie(idx){
     ${fanart ? `<div class="fanart" style="background-image:url('${escapeHtml(fanart)}')"></div>` : ''}
     <button class="close" id="closeBtn" aria-label="Schließen">&times;</button>
     <div class="btn-row toolbar">
-      ${isPlayable(m) ? `<a class="btn btn-primary play-btn" href="${escapeHtml(playUrl(m))}" data-slug="${escapeHtml(m.slug)}" title="${isSeason(m) ? 'Öffnet alle Folgen der Staffel' : 'Öffnet die Filmdatei'} im installierten Player">&#9654; ${isSeason(m) ? 'Alle Folgen abspielen' : 'Abspielen'}</a>` : ''}
+      ${isPlayable(m) ? `<a class="btn btn-primary play-btn" href="${escapeHtml(playUrl(m))}" data-slug="${escapeHtml(m.slug)}" title="${isSeason(m) ? 'Spielt alle Folgen der Staffel ab' : 'Spielt die Filmdatei ab'}">&#9654; ${isSeason(m) ? 'Alle Folgen abspielen' : 'Abspielen'}</a>` : ''}
       <button class="btn" id="printBtn" type="button">Drucken</button>
       <button class="btn" id="editBtn" type="button">Bearbeiten</button>
       <button class="btn btn-danger" id="deleteBtn" type="button">Löschen</button>
@@ -1539,6 +1797,38 @@ function openMovie(idx){
   document.getElementById('printBtn').addEventListener('click', () => window.print());
   document.getElementById('editBtn').addEventListener('click', () => openEditForm(m));
   document.getElementById('deleteBtn').addEventListener('click', () => deleteMovieUI(m));
+}
+
+/**
+ * Teile einer Reihe bzw. Staffeln einer Serie (sortiert, groupOrder()) mit den fehlenden Teilen laut Katalog an ihrer
+ * Stelle: ein Platzhalter steht vor dem ersten Eintrag, der danach kommt (Staffelnummer bzw. Jahr), sonst am Ende.
+ * Für die Detailansicht (groupPartsHtml()) und die aufgefächerte Kachel (groupPanelHtml()).
+ * @template T
+ * @param {T[]} parts
+ * @param {function(T): Movie} movieOf
+ * @param {CatalogItem[]} gaps
+ * @param {boolean} season
+ * @returns {Array<{part: T}|{gap: CatalogItem}>}
+ */
+function withGaps(parts, movieOf, gaps, season){
+  const after = (item, x) => season
+    ? (x.season === 0 || x.season === null ? 9999 : x.season) > item.season
+    : (x.year ?? 9999) > (item.year ?? 9999);
+  const slots = parts.map(() => []);
+  const tail = [];
+  for(const item of gaps){
+    const k = parts.findIndex(p => after(item, movieOf(p)));
+    (k < 0 ? tail : slots[k]).push(item);
+  }
+  return [...parts.flatMap((part, k) => [...slots[k].map(gap => ({gap})), {part}]), ...tail.map(gap => ({gap}))];
+}
+
+/** Titel und Zusatz ("2013", "2027 · angekündigt") eines fehlenden Teils laut Katalog. @param {CatalogItem} item @param {boolean} season @param {CatalogItem[]} announced */
+function gapLabels(item, season, announced){
+  return {
+    title: season ? (item.title || `Staffel ${item.season}`) : (item.title || ''),
+    meta: [item.year, announced.includes(item) ? 'angekündigt' : null].filter(Boolean).join(' · '),
+  };
 }
 
 /**
@@ -1569,22 +1859,11 @@ function groupPartsHtml(m){
       <div class="part-title">${escapeHtml(shortTitle(x))}</div><div class="part-year">${escapeHtml(year)}</div></li>`;
   };
   const gapHtml = item => {
-    const title = season ? (item.title || `Staffel ${item.season}`) : (item.title || '');
-    const meta = [item.year, info.announced.includes(item) ? 'angekündigt' : null].filter(Boolean).join(' · ');
+    const {title, meta} = gapLabels(item, season, info.announced);
     return `<li class="gap"><div class="part-poster"></div>
       <div class="part-title">${escapeHtml(title)}</div><div class="part-year">${escapeHtml(meta)}</div></li>`;
   };
-  // Platzhalter vor dem ersten Eintrag, der danach kommt (Staffelnummer bzw. Jahr), sonst ans Ende.
-  const after = (item, x) => season
-    ? (x.season === 0 || x.season === null ? 9999 : x.season) > item.season
-    : (x.year ?? 9999) > (item.year ?? 9999);
-  const slots = parts.map(() => []);
-  const tail = [];
-  for(const item of gaps){
-    const k = parts.findIndex(({m: x}) => after(item, x));
-    (k < 0 ? tail : slots[k]).push(item);
-  }
-  const items = parts.map((p, k) => slots[k].map(gapHtml).join('') + entryHtml(p)).join('') + tail.map(gapHtml).join('');
+  const items = withGaps(parts, p => p.m, gaps, season).map(x => 'gap' in x ? gapHtml(x.gap) : entryHtml(x.part)).join('');
   const stand = info ? ` title="Laut TMDB, Stand ${escapeHtml(new Date(info.updated).toLocaleDateString('de-DE'))}"` : '';
   return `<h4${stand}>${escapeHtml(heading)}</h4><ul class="collection-parts">${items}</ul>`;
 }
@@ -1877,12 +2156,12 @@ function mediumRowHtml(md, slug){
     <button class="btn btn-small medium-remove" type="button" title="Medium entfernen" aria-label="Medium entfernen">&times;</button>
     <div class="form-field files-field"${isDigital(md.type) ? '' : ' hidden'}>
       <span class="label">Dateien im Ordner des Eintrags auf dem USB-Speicher</span>
-      <textarea class="files-input" rows="2" aria-label="Dateien" placeholder="z. B. movie.avi">${escapeHtml(files.join('\n'))}</textarea>
+      <textarea class="files-input" rows="2" aria-label="Dateien" placeholder="z. B. movie.mp4">${escapeHtml(files.join('\n'))}</textarea>
       <div class="hint">Der Speicherort ist "&lt;Videothek-Ordner&gt;/${escapeHtml(slug || '<titel-jahr>')}/".</div>
       <details class="hint files-help">
         <summary>Konvention für Dateinamen</summary>
-        Film: "movie.&lt;ext&gt;", mehrteilig eine Datei pro Zeile in Abspielreihenfolge (z.B. "movie-cd1.avi", "movie-cd2.avi").<br/> 
-        Staffel: Eine Datei pro Folge (z.B. "S01E01.mkv", "S01E02.mkv", …).
+        Film: "movie.&lt;ext&gt;", mehrere Dateien pro Zeile in Abspielreihenfolge (z.B. "movie-disk1.mp4", "movie-disk2.mp4").<br/> 
+        Staffel: Eine Datei pro Folge (z.B. "episode-01.mp4", "episode-02.mp4", …).
       </details>
     </div>
   </div>`;
@@ -2063,9 +2342,10 @@ function collectFormData(current = null){
 }
 
 /**
- * Reihe bzw. Serie zum eingegebenen Namen. Hatte der Eintrag schon diesen Namen, behält er seine TMDB-ID (die
- * Shaun-das-Schaf-DVDs sind bei TMDB verschiedene Serien unter einem Namen). Sonst wird die TMDB-ID einer
- * vorhandenen Gruppe dieses Namens übernommen, bei einem neuen Namen ist sie leer.
+ * Reihe bzw. Serie zum eingegebenen Namen. Hatte der Eintrag schon diesen Namen und eine TMDB-ID, behält er sie (die
+ * Shaun-das-Schaf-DVDs sind bei TMDB verschiedene Serien unter einem Namen). Sonst übernimmt er die TMDB-ID eines
+ * anderen Teils dieses Namens, der eine hat (etwa beim von Hand eingetragenen dritten Teil); hat keiner eine, bleibt
+ * seine eigene (umbenannt) bzw. sie ist leer.
  * @param {string} name
  * @param {function(Movie): ?Collection} of  m => m.collection bzw. m => m.series
  * @param {?Movie} current  bearbeiteter Eintrag oder null
@@ -2075,10 +2355,11 @@ function formGroup(name, of, current){
   if(!name) return null;
   const same = g => g && g.name.trim().toLowerCase() === name.toLowerCase();
   const own = current ? of(current) : null;
-  const existing = same(own) ? own : MOVIES.map(of).find(same);
-  // Umbenannt (kein anderer Eintrag trägt den neuen Namen): Die eigene TMDB-ID bleibt, damit Import und
-  // "2 von 7" die Reihe weiter erkennen.
-  return {name, tmdb: existing ? existing.tmdb : (own ? own.tmdb : null)};
+  if(same(own) && own.tmdb) return {name, tmdb: own.tmdb};
+  const sibling = MOVIES.map(of).find(g => same(g) && g.tmdb);
+  // Umbenannt bzw. kein anderer Teil kennt die TMDB-ID: Die eigene bleibt, damit Import und "2 von 7" die Reihe
+  // weiter erkennen.
+  return {name, tmdb: sibling ? sibling.tmdb : (own ? own.tmdb : null)};
 }
 
 /**
@@ -2264,7 +2545,7 @@ grid.addEventListener('click', e => {
     toggleGroup(tile.dataset.group);
     return;
   }
-  const card = e.target.closest('.card');
+  const card = e.target.closest('.card[data-idx]'); // Platzhalter fehlender Teile (.gap-card) haben keinen Eintrag
   if(card) openMovie(parseInt(card.dataset.idx, 10));
 });
 // Detailansicht: anderen Teil der Reihe bzw. andere Staffel der Serie öffnen (einmal am dauerhaften #sheet, nicht pro Öffnen).
@@ -2283,7 +2564,7 @@ sheet.addEventListener('click', e => {
   const play = e.target.closest('.play-btn, .ep-play');
   if(play){
     e.preventDefault();
-    void playWithFolder(play);
+    void playMedia(play);
     return;
   }
   // Medien: "ausleihen" bzw. zurückgegeben (Undo-Symbol)

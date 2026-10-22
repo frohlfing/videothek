@@ -84,6 +84,8 @@ header p.sub{
   font-size:.95rem;
   color:var(--ink);
 }
+/* Trennlinie in Auswahllisten (SEPARATOR_OPTION in app.js); deaktiviert wäre sie auf Dunkel kaum zu sehen */
+.controls select option.separator{color:var(--ink-soft);}
 .count{
   text-align:center;
   color:var(--ink-soft);
@@ -241,6 +243,11 @@ header p.sub{
 @media (prefers-reduced-motion:reduce){
   .collection-items .card{animation:none;}
 }
+/* Fehlender Teil laut Katalog (groupPanelHtml() in app.js): leerer Platzhalter wie in der Detailansicht, nicht anklickbar */
+.card.gap-card{cursor:default; opacity:.55; border-style:dashed; background:transparent;}
+.card.gap-card:hover{transform:none; border-color:var(--rule); box-shadow:none;}
+.card.gap-card .thumb{background:transparent;}
+.card.gap-card h3{color:var(--ink-soft);}
 .collection-count{font-size:.8rem; font-weight:400; color:var(--ink-soft); margin-left:.4rem;}
 /* Eintrag ohne Medium (nicht im Bestand): blass wie fehlende Staffeln, aber anklickbar */
 .card.not-owned{border-style:dashed;}
@@ -436,6 +443,24 @@ header p.sub{
   background:var(--paper); color:var(--ink); font:inherit;
 }
 .ask-dialog .btn-row{margin:1rem 0 0; justify-content:flex-end;}
+/* Player im Browser (showPlayer() in app.js): Video über fast die ganze Breite, Vollbild über die Bedienleiste */
+.player-dialog{
+  width:min(1200px, calc(100vw - 32px)); padding:.8rem 1rem 1rem;
+  border:1px solid var(--rule); border-radius:6px;
+  background:#000; color:var(--ink);
+  box-shadow:0 20px 50px rgba(0,0,0,.6);
+}
+.player-dialog::backdrop{background:rgba(0,0,0,.8);}
+.player-dialog h3{margin:0 0 .6rem; padding-right:2.5rem; font-size:1rem; font-weight:400; color:var(--ink-soft);}
+.player-dialog video{display:block; width:100%; max-height:calc(100vh - 140px); background:#000;}
+.player-dialog .dialog-close{
+  position:absolute; top:.1rem; right:.25rem;
+  width:44px; height:44px; padding:0;
+  background:none; border:none; font-size:1.6rem; line-height:1;
+  color:var(--ink-soft); cursor:pointer;
+}
+.player-dialog .dialog-close:hover{color:var(--accent);}
+.player-dialog .player-error{margin:.6rem 0 0; font-size:.9rem; color:var(--ink-soft);}
 .borrower-choices{display:flex; flex-wrap:wrap; gap:.5rem; margin-bottom:.8rem;}
 .ask-dialog .dialog-label{display:block; margin-bottom:.3rem; font-size:.78rem; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-soft);}
 .sheet .created-date{

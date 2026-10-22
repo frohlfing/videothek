@@ -4,10 +4,11 @@
  * Wo sich eine DVD bzw. Blu-ray gerade befindet: data/locations.json, getrennt von movie.json. So überschreibt ein
  * Hochladen geänderter Filmordner keine Ausleihen, und ein Klick schreibt nur diese kleine Datei.
  *
- *   {"matrix-1999": {"lilie/DVD": {"at": "frank", "since": "2026-10-18T20:15:00+02:00", "by": "frank"}}}
+ *   {"matrix-1999": {"lilie/DVD": {"at": "rohlfing", "since": "2026-10-18T20:15:00+02:00", "by": "frank"}}}
  *
- * Schlüssel ist der Slug und das Medium (Eigentümer/Art, siehe medium_key()). "at" ist ein Benutzer (Login aus
- * users.json) oder ein beliebiger Name für jemanden ohne Zugang ("Oma Erna"). Ohne Eintrag liegt das Medium beim
+ * Schlüssel ist der Slug und das Medium (Eigentümer/Art, siehe medium_key()). "at" ist ein Haushalt (Eigentümer wie
+ * "feldmann" für Barbara und Arne, siehe owner_of()) oder ein beliebiger Name für jemanden ohne Zugang ("Oma Erna");
+ * ein Login wird beim Speichern zu seinem Haushalt, ältere Einträge mit Login wertet app.js ebenso (holderOf()). Ohne Eintrag liegt das Medium beim
  * Eigentümer; "zurück beim Eigentümer" löscht den Eintrag. "since" und "by" setzt der Server. Dateien (Medium USB)
  * haben keinen Standort.
  */
@@ -41,14 +42,18 @@ function update_locations(callable $change): array
 }
 
 /**
- * Setzt den Standort eines Mediums: $at ist der Benutzer bzw. Name, bei dem es jetzt ist; null, der Eigentümer
- * selbst oder ein Benutzer, der zu ihm gehört (Tinka bei Rohlfings DVD), = zurück beim Eigentümer. Liefert die Standorte des Eintrags.
+ * Setzt den Standort eines Mediums: $at ist der Haushalt, Benutzer (gespeichert wird sein Haushalt) bzw. Name, bei
+ * dem es jetzt ist; null, der Eigentümer selbst oder ein Benutzer, der zu ihm gehört (Tinka bei Rohlfings DVD), =
+ * zurück beim Eigentümer. Liefert die Standorte des Eintrags.
  */
 function set_location(string $slug, string $owner, string $type, ?string $at, ?string $by): array
 {
     $key = medium_key($owner, $type);
+    if ($at !== null && isset(read_users()[$at])) {
+        $at = owner_of($at); // verliehen wird an den Haushalt: "arne" => "feldmann"
+    }
     $data = update_locations(function (array $data) use ($slug, $key, $owner, $at, $by) {
-        if ($at === null || $at === $owner || (isset(read_users()[$at]) && owner_of($at) === $owner)) {
+        if ($at === null || $at === $owner) {
             unset($data[$slug][$key]);
         } elseif (($data[$slug][$key]['at'] ?? null) !== $at) {
             $data[$slug][$key] = ['at' => $at, 'since' => date('c'), 'by' => $by];
