@@ -14,7 +14,7 @@
  * Wiedergabeliste ist der einfachste Weg, den lokalen Player zu starten. Tipp: In Chrome/Edge beim
  * ersten Download "Dateien dieses Typs immer öffnen" wählen, dann startet der Film mit einem Klick.
  *
- * GET /api/play.php?slug=xyz[&root=D:\videothek]          -> Film: <slug>.m3u, Staffel: alle Folgen
+ * GET /api/play.php?slug=xyz[&root=D:\Videos]             -> Film: <slug>.m3u, Staffel: alle Folgen
  * GET /api/play.php?slug=xyz&episode=3[&root=…]           -> Staffel: nur Folge 3 (<slug>-e03.m3u)
  *   Optional owner=<kennung>: Dateien dieses Eigentümers statt der eigenen (owner_of() des Benutzers).
  *   404, falls keine passende Datei eingetragen ist.
@@ -83,7 +83,7 @@ if (!$items) {
     json_error(404, 'Dafür ist keine Datei eingetragen');
 }
 
-// Trennzeichen passend zum USB-Ordner: "D:\videothek" bzw. "E:" -> Windows-Pfade mit "\", "E:/filme" oder
+// Trennzeichen passend zum USB-Ordner: "D:\Videos" bzw. "E:" -> Windows-Pfade mit "\", "E:/filme" oder
 // "/media/usb" -> "/".
 $sep = str_contains($root, '\\') || (preg_match('/^[a-z]:/i', $root) && !str_contains($root, '/')) ? '\\' : '/';
 $root = rtrim($root, '\\/');

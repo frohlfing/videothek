@@ -426,7 +426,7 @@ neuen; dessen URL trägt man selbst ein.
 
 ### Abspielen (Medium USB)
 
-Unter dem **USB-Ordner** (z. B. `D:\videothek`) liegen die Filmdateien jeweils in einem eigenen Ordner. 
+Unter dem **USB-Ordner** (Vorgabe `USB_ROOT` in `config.php`, z. B. `D:\Videos`) liegen die Filmdateien jeweils in einem eigenen Ordner. 
 Der Ordnername muss dem Slug des Eintrags entsprechen, also dem Ordnernamen in der Datenbank (`<slugify(title)>-<year>`,
 ohne Jahr nur `<slugify(title)>`, bei gleichem Titel und Jahr mit `-2`, `-3` …).
 
@@ -439,7 +439,7 @@ breaking-bad-staffel-1-2008\episode-01.mp4, episode-02.mp4 …
 ```
 
 Mit Chrome oder Edge am Rechner laufen `.mp4`- und `.m4v`-Dateien in einem Player-Fenster im Browser. Beim ersten Mal
-erscheint der Dialog "Videothek-Ordner": Aus Sicherheitsgründen muss man den Ordner (z. B. `D:\videothek`) einmal 
+erscheint der Dialog "Videothek-Ordner": Aus Sicherheitsgründen muss man den Ordner (z. B. `D:\Videos`) einmal 
 selbst auswählen. Der Browser merkt ihn sich (IndexedDB `videothek`) und fragt nach einem Neustart nur kurz nach der 
 Erlaubnis. Ist der Ordner nicht erreichbar (USB-Speicher nicht angeschlossen, umbenannt) oder fehlt die Datei darin, 
 kommt der Dialog wieder. 

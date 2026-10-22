@@ -40,7 +40,7 @@ const TMDB_API_KEY = 'f090bb54758cabf231fb605d3e3e0468';
 const TMDB_LANGUAGE = 'de-DE';
 
 // Vorgabe für den lokalen Ordner mit den Filmdateien für Medium "USB" (USB-Platte/-Stick).
-const USB_ROOT = 'D:\videothek';
+const USB_ROOT = 'D:\Videos';
 
 // Websuche für den Barcode-Scan beim Import (api/lib/ean.php)
 //   'duckduckgo' – HTML-Version von DuckDuckGo, ohne Schlüssel (Voreinstellung)

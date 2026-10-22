@@ -421,7 +421,7 @@ async function playInBrowser(m, items, fallback, pickNew = false){
  */
 async function askFolder(m){
   const ok = await new Promise(resolve => showDialog(`<h3>Videothek-Ordner</h3>
-    <p>Ordner mit den Filmdateien (z. B. ${escapeHtml(usbRoot() || DEFAULT_USB_ROOT || 'D:\\videothek')}). Darin liegt der
+    <p>Ordner mit den Filmdateien (z. B. ${escapeHtml(usbRoot() || DEFAULT_USB_ROOT || 'D:\\Videos')}). Darin liegt der
     Ordner „${escapeHtml(m.slug)}“.</p>
     <p>Aus Sicherheitsgründen möchte der Browser, dass du diesen Ordner einmal selbst auswählst. Danach merkt er ihn sich.</p>`,
     'Ordner wählen', d => resolve(d.returnValue === 'ok')));
