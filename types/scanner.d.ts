@@ -1,4 +1,4 @@
-// Nur für die IDE (PhpStorm), wird nicht ausgeliefert: Typen für den Barcode-Scan in public/app.js, die PhpStorm
+// Nur für die IDE (PhpStorm); wird nicht ausgeliefert: Typen für den Barcode-Scan in public/app.js, die PhpStorm
 // sonst nicht kennt. BarcodeDetector ist noch nicht in den Standard-Typen des Browsers, ZXing wird erst zur Laufzeit
 // aus public/vendor/zxing.min.js geladen. Deklariert ist nur, was app.js benutzt.
 
@@ -42,6 +42,8 @@ declare namespace ZXing {
     }
 }
 
+// Ergänzt das Window des Browsers (gleichnamige Interfaces verschmelzen); PhpStorm hält es sonst für unbenutzt.
+// noinspection JSUnusedGlobalSymbols
 interface Window {
     BarcodeDetector?: typeof BarcodeDetector;
     ZXing?: typeof ZXing;

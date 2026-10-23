@@ -33,8 +33,8 @@ const ENTRY_TYPES = [TYPE_MOVIE, TYPE_SEASON];
 const TYPE_SERIES = 'series';
 
 /**
- * Medien, die Dateien sind (auf dem eigenen USB-Speicher): Sie haben "files" statt eines Standorts und werden nicht
- * verliehen. Alle anderen (DVD, Blu-ray, …) sind Scheiben mit Standort (lib/locations.php).
+ * Medien, die Dateien sind (auf dem eigenen USB-Speicher): Sie haben "paths" (Dateien) statt eines Standorts und
+ * werden nicht verliehen. Alle anderen (DVD, Blu-ray, …) sind Scheiben mit Standort (lib/locations.php).
  */
 const DIGITAL_MEDIA = ['USB'];
 
@@ -67,7 +67,8 @@ function movie_dir(string $slug): string
  * Liest und dekodiert movie.json eines Films bzw. einer Staffel. Null, wenn Ordner/Datei fehlt oder JSON ungültig ist.
  * Ältere Dateien kennen noch kein "type" (= Film) und statt "media" nur "medium" und "files" (Exemplare ohne
  * Eigentümer); beides wird hier ergänzt bzw. umgewandelt (legacy_media()), damit alle Aufrufer nur das aktuelle
- * Format sehen. Gespeichert wird es so beim nächsten Schreiben.
+ * Format sehen. Gespeichert wird es so beim nächsten Schreiben. Medien mit "files" (relativ zum Ordner des Eintrags,
+ * bis Oktober 2026) bleiben, wie sie sind: Sie haben noch keine "paths", bis `bin/fix_usb_mp4.php` sie umstellt.
  */
 function read_movie_json(string $slug): ?array
 {
@@ -83,7 +84,7 @@ function read_movie_json(string $slug): ?array
         $data = ['type' => TYPE_MOVIE] + $data;
     }
     if (!isset($data['media']) && (array_key_exists('medium', $data) || array_key_exists('files', $data))) {
-        $data['media'] = legacy_media($data, $slug, owner_of(first_user() ?? current_user() ?? ''))[0];
+        $data['media'] = legacy_media($data, owner_of(first_user() ?? current_user() ?? ''));
     }
     unset($data['medium'], $data['files']);
     return $data;
@@ -358,7 +359,7 @@ function valid_optional_int(mixed $value, int $min, int $max): bool
 }
 
 /**
- * Prüft die Medien: Liste von {owner, type, files?}, je Eigentümer und pro Art höchstens einmal. Dass bei USB
+ * Prüft die Medien: Liste von {owner, type, paths?}, je Eigentümer und pro Art höchstens einmal. Dass bei USB
  * Dateien eingetragen sind, prüft das Formular (app.js: saveMovie()), nicht die API: Ein Import bzw. ein Freund kann
  * das Medium auch erst eintragen und die Dateien später.
  * @return string[]
@@ -375,7 +376,7 @@ function validate_media_input(mixed $media): array
     $seen = [];
     foreach ($media as $m) {
         if (!is_array($m) || !is_string($m['owner'] ?? null) || !is_string($m['type'] ?? null) || trim($m['type']) === '') {
-            $errors[] = 'Jedes Medium braucht die Form {owner, type, files}';
+            $errors[] = 'Jedes Medium braucht die Form {owner, type, paths}';
             break;
         }
         $owner = trim($m['owner']);
@@ -387,27 +388,27 @@ function validate_media_input(mixed $media): array
             $errors[] = "Medium $key ist doppelt eingetragen";
         }
         $seen[$key] = true;
-        array_push($errors, ...validate_files_input($m['files'] ?? null, "$key: files"));
+        array_push($errors, ...validate_paths_input($m['paths'] ?? null, "$key: paths"));
     }
     return $errors;
 }
 
 /**
- * Prüft eine Dateiliste (files eines Mediums): Array relativer Pfade ohne Laufwerk und "..".
+ * Prüft eine Dateiliste (paths eines Mediums): Array relativer Pfade ohne Laufwerk und "..".
  * @return string[]
  */
-function validate_files_input(mixed $files, string $label): array
+function validate_paths_input(mixed $paths, string $label): array
 {
-    if ($files === null) {
+    if ($paths === null) {
         return [];
     }
-    if (!is_array($files)) {
+    if (!is_array($paths)) {
         return ["$label muss ein Array sein"];
     }
     $errors = [];
-    foreach (normalize_movie_files($files) as $f) {
+    foreach (normalize_media_paths($paths) as $f) {
         if (preg_match('#^([a-z]:|/)#i', $f) || in_array('..', explode('/', $f), true)) {
-            $errors[] = "Datei '$f' muss relativ zum Ordner des Eintrags angegeben werden (ohne Laufwerk und ohne '..')";
+            $errors[] = "Datei '$f' muss relativ zum USB-Ordner angegeben werden (ohne Laufwerk und ohne '..')";
         }
     }
     return $errors;
@@ -441,24 +442,49 @@ function validate_episodes_input(mixed $episodes): array
 }
 
 /**
- * Dateien eines Mediums USB relativ zum Ordner des Eintrags auf dem USB-Speicher (<USB-Ordner>/<slug>/), z. B.
- * ["movie.avi"]; bei mehrteiligen Filmen mehrere in Abspielreihenfolge ("movie-cd1.avi", "movie-cd2.avi"), bei
- * Staffeln die Folgen ("episode-01.mp4", …). Gespeichert immer mit "/" (play.php wandelt für Windows um).
+ * Dateien eines Mediums USB relativ zum USB-Ordner, z. B. ["hangover/hangover-2009.mp4"]; bei mehrteiligen Filmen
+ * mehrere in Abspielreihenfolge, bei Staffeln die Folgen. Die Struktur ist frei; der Vorschlag fürs Formular und für
+ * `bin/fix_usb_mp4.php` macht `usb_base_path()`. Gespeichert immer mit "/" (play.php wandelt für Windows um).
  * @return string[]
  */
-function normalize_movie_files(array $files): array
+function normalize_media_paths(array $paths): array
 {
     return array_values(array_filter(array_map(
         fn($f) => trim(str_replace('\\', '/', trim((string) $f)), '/'),
-        $files
+        $paths
     ), 'strlen'));
 }
 
 /**
+ * Vorgeschlagener Pfad (relativ zum USB-Ordner, ohne Endung) für die Datei eines Eintrags, gleiche Regel wie
+ * suggestFiles() in app.js:
+ *   Film ohne Reihe   <titel>/<slug>                            bruchreif/bruchreif-2009
+ *   Film einer Reihe  <reihe>/<slug>                            hangover/hangover-2009
+ *   Folge             <serie>/<slug>/<serie>-s<staffel>e<folge>  scrubs-die-anfaenger/scrubs-die-anfaenger-staffel-2-2002/scrubs-die-anfaenger-s02e01
+ *
+ * Die erste Ebene (Titel, Reihe, Serie) sortiert im Dateiexplorer Filme und Serien gemeinsam alphabetisch. Mehrere
+ * Dateien eines Films bzw. einer Folge bekommen -cd1, -cd2, … angehängt. "S02E01" erkennen Player und Mediaserver
+ * als Folge, season_episode_files() als Folgennummer.
+ */
+function usb_base_path(array $movie, ?int $episode = null): string
+{
+    $slug = $movie['slug'];
+    if (($movie['type'] ?? TYPE_MOVIE) !== TYPE_SEASON) {
+        $folder = slugify($movie['collection']['name'] ?? '') ?: slugify($movie['title'] ?? '') ?: $slug;
+        return "$folder/$slug";
+    }
+    $series = slugify($movie['series']['name'] ?? '') ?: $slug;
+    $season = $movie['season'] ?? null;
+    $code = ($season !== null ? sprintf('s%02d', $season) : '') . sprintf('e%02d', $episode ?? 1);
+    return "$series/$slug/$series-$code";
+}
+
+/**
  * Medien eines Eintrags: Wem welches Exemplar gehört, z. B. [{"owner": "lilie", "type": "DVD"}, {"owner": "frank",
- * "type": "USB", "files": ["movie.avi"]}]. Leer = nicht im Bestand. Dateien gibt es nur bei DIGITAL_MEDIA; doppelte
- * Medien (gleicher Eigentümer und gleiche Art) fallen weg.
- * @return array<array{owner: string, type: string, files?: string[]}>
+ * "type": "USB", "paths": ["bruchreif/bruchreif-2009.mp4"], "video": {…}, "audio": {…}}]. Leer = nicht im Bestand.
+ * Dateien (und video, audio, siehe normalize_video(), normalize_audio()) gibt es nur bei DIGITAL_MEDIA; doppelte Medien
+ * (gleicher Eigentümer und gleiche Art) fallen weg.
+ * @return array<array{owner: string, type: string, paths?: string[], video?: array, audio?: array}>
  */
 function normalize_media(array $media): array
 {
@@ -471,35 +497,88 @@ function normalize_media(array $media): array
             continue;
         }
         $result[$key] = in_array($type, DIGITAL_MEDIA, true)
-            ? ['owner' => $owner, 'type' => $type, 'files' => normalize_movie_files($m['files'] ?? [])]
+            ? ['owner' => $owner, 'type' => $type, 'paths' => normalize_media_paths($m['paths'] ?? [])]
+                + array_filter(['video' => normalize_video($m['video'] ?? null), 'audio' => normalize_audio($m['audio'] ?? null)])
             : ['owner' => $owner, 'type' => $type];
     }
     return array_values($result);
 }
 
 /**
- * Medien aus dem alten Format: "medium" (Liste oder Text, auch kommagetrennt "DVD, USB") und "files" relativ zum
- * USB-Ordner ("<slug>/movie.avi"), alles von $owner. Die Dateien stehen danach relativ zum Ordner des Eintrags
- * ("movie.avi"). Liegt eine Datei in einem anderen Ordner, bleibt nur ihr Name, und der Ordner kommt in die zweite
- * Rückgabe (er muss auf dem USB-Speicher umbenannt werden).
- * @return array{0: array, 1: string[]} Medien und abweichende Ordner
+ * Technische Angaben zum Bild der Datei auf dem USB-Speicher (bei mehreren Dateien die erste), eingetragen von
+ * bin/fix_usb_mp4.php: {codec, width, height, sar, fps, kbps}, z. B. {"codec": "h264", "width": 672, "height": 272,
+ * "sar": "1:1", "fps": 25, "kbps": 635}. codec ist der Name bei ffprobe (h264, hevc, mpeg4 = XviD/DivX, …), sar das
+ * Seitenverhältnis eines Bildpunkts, kbps die Video-Bitrate. Die Beurteilung macht die App (app.js: videoQuality()).
+ * Ungültig bzw. ohne Breite und Höhe: null.
+ * @return ?array{codec: string, width: int, height: int, sar: string, fps: ?float, kbps: ?int}
  */
-function legacy_media(array $movie, string $slug, string $owner): array
+function normalize_video(mixed $video): ?array
+{
+    if (!is_array($video) || (int) ($video['width'] ?? 0) <= 0 || (int) ($video['height'] ?? 0) <= 0) {
+        return null;
+    }
+    $sar = preg_match('/^\d+:\d+$/', (string) ($video['sar'] ?? '')) && !str_starts_with((string) $video['sar'], '0') ? $video['sar'] : '1:1';
+    return [
+        'codec' => strtolower(trim((string) ($video['codec'] ?? ''))),
+        'width' => (int) $video['width'],
+        'height' => (int) $video['height'],
+        'sar' => $sar,
+        'fps' => is_numeric($video['fps'] ?? null) && $video['fps'] > 0 ? round((float) $video['fps'], 3) : null,
+        'kbps' => is_numeric($video['kbps'] ?? null) && $video['kbps'] > 0 ? (int) $video['kbps'] : null,
+    ];
+}
+
+/**
+ * Technische Angaben zur (ersten) Tonspur der Datei auf dem USB-Speicher, eingetragen von bin/fix_usb_mp4.php:
+ * {codec, channels, kbps, lang}, z. B. {"codec": "aac", "channels": 6, "kbps": 384, "lang": "ger"}. codec ist der Name
+ * bei ffprobe (aac, mp3, …), lang der Sprachcode (ger, eng, und = unbekannt). Ungültig: null.
+ * @return ?array{codec: string, channels: ?int, kbps: ?int, lang: string}
+ */
+function normalize_audio(mixed $audio): ?array
+{
+    if (!is_array($audio) || trim((string) ($audio['codec'] ?? '')) === '') {
+        return null;
+    }
+    return [
+        'codec' => strtolower(trim((string) $audio['codec'])),
+        'channels' => is_numeric($audio['channels'] ?? null) && $audio['channels'] > 0 ? (int) $audio['channels'] : null,
+        'kbps' => is_numeric($audio['kbps'] ?? null) && $audio['kbps'] > 0 ? (int) $audio['kbps'] : null,
+        'lang' => strtolower(trim((string) ($audio['lang'] ?? ''))) ?: 'und',
+    ];
+}
+
+/**
+ * Das Formular kennt "video" und "audio" nicht: Beim Speichern bleiben sie von einem Medium mit gleichem Eigentümer,
+ * gleicher Art und gleichen Dateien erhalten.
+ */
+function keep_media_facts(array $media, array $before): array
+{
+    foreach ($media as &$m) {
+        foreach ($before as $old) {
+            if (isset($m['paths']) && $old['owner'] === $m['owner'] && $old['type'] === $m['type']
+                && ($old['paths'] ?? null) === $m['paths']) {
+                foreach (['video', 'audio'] as $key) {
+                    if (!isset($m[$key]) && isset($old[$key])) {
+                        $m[$key] = $old[$key];
+                    }
+                }
+            }
+        }
+    }
+    return $media;
+}
+
+/**
+ * Medien aus dem alten Format: "medium" (Liste oder Text, auch kommagetrennt "DVD, USB") und "files" relativ zum
+ * USB-Ordner ("<slug>/movie.avi"), alles von $owner.
+ */
+function legacy_media(array $movie, string $owner): array
 {
     $types = $movie['medium'] ?? [];
     $types = is_array($types) ? $types : explode(',', (string) $types);
-    $files = [];
-    $otherDirs = [];
-    foreach (normalize_movie_files($movie['files'] ?? []) as $f) {
-        if (str_starts_with($f, "$slug/")) {
-            $files[] = substr($f, strlen($slug) + 1);
-        } else {
-            $files[] = basename($f);
-            $otherDirs[] = dirname($f);
-        }
-    }
-    $media = array_map(fn($t) => ['owner' => $owner, 'type' => trim((string) $t), 'files' => $files], $types);
-    return [normalize_media($media), array_values(array_unique($otherDirs))];
+    $paths = normalize_media_paths($movie['files'] ?? []);
+    $media = array_map(fn($t) => ['owner' => $owner, 'type' => trim((string) $t), 'paths' => $paths], $types);
+    return normalize_media($media);
 }
 
 /**
@@ -604,20 +683,19 @@ function episode_plot(mixed $plot): ?string
 }
 
 /**
- * Dateien einer Folge unter den Dateien $files eines Mediums einer Staffel (in Abspielreihenfolge, mehrteilig, z. B.
- * episode-03-cd1, episode-03-cd2). Zuordnung über die Folgennummer im Dateinamen ("episode-03", "E03", "S01E03",
- * "e3"); trägt keine Datei eine
- * solche Nummer, zählt die Position (1. Datei = 1. Folge der Liste). Gegenstück in app.js: episodeFiles().
+ * Dateien einer Folge unter den Dateien $files (paths) eines Mediums einer Staffel (in Abspielreihenfolge, mehrteilig,
+ * z. B. serie-s01e03-cd1, serie-s01e03-cd2). Zuordnung über die Folgennummer im Dateinamen ("serie-s01e03", "S01E03",
+ * "E03", "e3", "episode-03"); trägt keine Datei eine solche Nummer, zählt die Position (1. Datei = 1. Folge der
+ * Liste). Gegenstück in app.js: episodeFiles().
  * @param string[] $files
  * @return string[]
  */
 function season_episode_files(array $files, array $season, int $episode): array
 {
-    $pattern = '/(?:^|[^a-z0-9])(?:s\d+)?e(?:pisode[\s._-]*)?0*(\d+)(?!\d)/i';
     $numbered = [];
     foreach ($files as $f) {
-        if (preg_match($pattern, basename($f), $m)) {
-            $numbered[] = [(int) $m[1], $f];
+        if (($n = file_episode_number($f)) !== null) {
+            $numbered[] = [$n, $f];
         }
     }
     if ($numbered) {
@@ -626,6 +704,12 @@ function season_episode_files(array $files, array $season, int $episode): array
     $numbers = array_column($season['episodes'] ?? [], 'number');
     $pos = array_search($episode, $numbers, true);
     return $pos !== false && isset($files[$pos]) ? [$files[$pos]] : [];
+}
+
+/** Folgennummer im Dateinamen (siehe season_episode_files()) oder null. */
+function file_episode_number(string $file): ?int
+{
+    return preg_match('/(?:^|[^a-z0-9])(?:s\d+)?e(?:pisode[\s._-]*)?0*(\d+)(?!\d)/i', basename($file), $m) ? (int) $m[1] : null;
 }
 
 /** Dateiname eines Darstellerfotos unter actors/ (ohne Pfad, Bildendung) oder null; alles andere wird verworfen. */
@@ -750,6 +834,7 @@ function update_movie(string $slug, array $data): array
     // Das Formular schickt alles mit, was es zeigt (auch Handlung der Folgen, Foto- und Cover-Dateinamen). Was
     // fehlt, ist gewollt leer; nicht mehr benutzte Bilder werden unten aufgeräumt.
     $fields = normalize_movie_fields($data);
+    $fields['media'] = keep_media_facts($fields['media'], $existing['media'] ?? []);
     if (title_exists($fields['title'], $fields['year'], $fields['type'], $slug)) {
         throw new ValidationException([type_label($fields['type']) . ' mit diesem Titel und Jahr bereits vorhanden']);
     }

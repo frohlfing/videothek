@@ -238,6 +238,7 @@ videothek/                            # Projektroot
  │    └── index.html                  # Frontend (lädt/schreibt ausschließlich über /api/*)
  ├── .gitignore                       # Vom Git-Repository auszuschließende Dateien
  ├── .htpasswd                        # Apache Passwortdatei (nicht im Git-Repository)
+ ├── types/filesystem.d.ts            # Nur für die IDE: Typen für den Ordnerzugriff des Browser-Players (nicht deployen)
  ├── types/scanner.d.ts               # Nur für die IDE: Typen für BarcodeDetector und ZXing (nicht deployen)
  ├── config.example.php               # Vorlage für config.php
  ├── config.php                       # Zentrale Konfigurationsdatei (nicht im Git-Repository)
@@ -273,7 +274,7 @@ selbst mit abdeckt. Ausnahme: `dev/sync.php` verlangt das Token auch zum Lesen.
 | GET          | `/api/image.php?slug=xyz&actor=Sean%20Astin`         | Darstellerfoto ausliefern                                                                                                                                                          |
 | GET          | `/api/search.php?query=…&year=…`                     | Suche nach Filmen und Serien in TMDB (Titel, IMDb-ID oder EAN, Jahr optional), markiert bereits vorhandene                                                                         |
 | POST         | `/api/import.php`                                    | Film bzw. Serie (je Staffel ein Eintrag) aus TMDB importieren inkl. Bilder (Body: `{"tmdb": 9340, "type": "movie"}`, Serie: `{"tmdb": 1396, "type": "series", "seasons": [1, 2]}`) |
-| GET          | `/api/play.php?slug=xyz[&episode=3][&root=D:\…]`     | Wiedergabeliste (`.m3u`) mit den eigenen Dateien (`<root>/<slug>/<Datei>`, ohne `root`: USB_ROOT) für den lokalen Player: Film, alle Folgen einer Staffel bzw. eine Folge          |
+| GET          | `/api/play.php?slug=xyz[&episode=3][&root=D:\…]`     | Wiedergabeliste (`.m3u`) mit den eigenen Dateien (`<root>/<Pfad>`, ohne `root`: USB_ROOT)     für den lokalen Player: Film, alle Folgen einer Staffel bzw. eine Folge              |
 | GET          | `/api/users.php`                                     | Angemeldeter Benutzer (`me`), alle Benutzer mit Anzeigenamen, Vorgabe für den USB-Ordner                                                                                           |
 | GET          | `/api/locations.php`                                 | Standorte aller Scheiben, die nicht beim Eigentümer sind (`data/locations.json`)                                                                                                   |
 | PUT          | `/api/locations.php`                                 | Standort einer Scheibe setzen (Body: `{"slug", "owner", "type", "at"}`; `at` = Login oder freier Name, leer oder der Eigentümer = zurück)                                          |
@@ -299,7 +300,9 @@ selbst mit abdeckt. Ausnahme: `dev/sync.php` verlangt das Token auch zum Lesen.
   "collection": null,
   "director": "Richard Donner",
   "media": [
-    { "owner": "frank", "type": "USB", "files": ["movie.mp4"] },
+    { "owner": "frank", "type": "USB", "paths": ["die-goonies/die-goonies-1985.mp4"],
+      "video": { "codec": "h264", "width": 720, "height": 576, "sar": "64:45", "fps": 25, "kbps": 2400 },
+      "audio": { "codec": "aac", "channels": 6, "kbps": 384, "lang": "ger" } },
     { "owner": "lilie", "type": "DVD" }
   ],
   "poster": "poster.jpg",
@@ -337,7 +340,7 @@ eines Films, siehe "Filmreihen und Serien"), `season` (Nummer, `0` = Specials), 
   "creator": "Vince Gilligan",
   "media": [
     { "owner": "frank", "type": "DVD" },
-    { "owner": "frank", "type": "USB", "files": ["episode-01.mp4", "episode-02.mp4"] }
+    { "owner": "frank", "type": "USB", "paths": ["breaking-bad/breaking-bad-staffel-1-2008/breaking-bad-s01e01.mp4", "breaking-bad/breaking-bad-staffel-1-2008/breaking-bad-s01e02.mp4"] }
   ],
   "episodes": [
     { "number": 1, "title": "Der Einstieg", "plot": "Ein Chemielehrer mit Lungenkrebs im Endstadium ..." },
@@ -426,17 +429,32 @@ neuen; dessen URL trägt man selbst ein.
 
 ### Abspielen (Medium USB)
 
-Unter dem **USB-Ordner** (Vorgabe `USB_ROOT` in `config.php`, z. B. `D:\Videos`) liegen die Filmdateien jeweils in einem eigenen Ordner. 
-Der Ordnername muss dem Slug des Eintrags entsprechen, also dem Ordnernamen in der Datenbank (`<slugify(title)>-<year>`,
-ohne Jahr nur `<slugify(title)>`, bei gleichem Titel und Jahr mit `-2`, `-3` …).
+Die Filmdateien liegen unter dem **USB-Ordner** (Vorgabe `USB_ROOT` in `config.php`, z. B. `D:\Videos`). Im Medium
+USB stehen ihre Pfade relativ zu diesem Ordner, die Struktur ist frei. Beim Erfassen schlägt die App vor (der Slug ist
+der Name des Eintrags in der Datenbank, z. B. `hangover-2009`):
 
-Konvention für Dateinamen (aber nicht zwingend): `movie.<ext>`, bei Staffeln `episode-<nr>.<ext>`.
+| Eintrag          | Pfad                                            | Beispiel                                                                                   |
+|------------------|-------------------------------------------------|--------------------------------------------------------------------------------------------|
+| Film             | `<titel>/<slug>.mp4`                            | `bruchreif/bruchreif-2009.mp4`                                                             |
+| Film einer Reihe | `<reihe>/<slug>.mp4`                            | `hangover/hangover-2009.mp4`                                                               |
+| Folge            | `<serie>/<slug>/<serie>-s<staffel>e<folge>.mp4` | `scrubs-die-anfaenger/scrubs-die-anfaenger-staffel-2-2002/scrubs-die-anfaenger-s02e01.mp4` |
 
-Beispiel:
-```
-am-sonntag-bist-du-tot-2014\movie.mp4
-breaking-bad-staffel-1-2008\episode-01.mp4, episode-02.mp4 … 
-```
+Mehrere Dateien eines Films bzw. einer Folge bekommen `-cd1`, `-cd2`, … angehängt. Die erste Ordnerebene (Titel,
+Reihe, Serie) sortiert im Dateiexplorer Filme und Serien gemeinsam alphabetisch. Der Dateiname allein sagt, um welchen
+Film es geht. Das ist wichtig, weil VLC und Mediaserver (z. B. FRITZ!Box) oft nur ihn anzeigen. Ändert sich später
+Titel, Jahr oder Reihe, bleiben die Pfade unverändert.
+
+In der Detailansicht steht bei einer Datei, wie gut das Bild ist (gut, mittel, schlecht, die Angaben dazu als
+Tooltip), dazu der Ton (Sprache, Kanäle, Codec, Bitrate). Die Angaben (`video` und `audio` am Medium) misst
+`bin/fix_usb_mp4.php` an der MP4-Datei selbst; die Umwandlung mit CRF 18 gibt ihr so viele Bits, wie die Vorlage braucht. Zwei Kriterien, das schlechtere zählt (`videoQuality()` in `app.js`):
+
+| Kriterium                                                                                       | gut           | mittel       | schlecht   |
+|-------------------------------------------------------------------------------------------------|---------------|--------------|------------|
+| Auflösung: Breite in quadratischen Bildpunkten, bei Kinoformat mindestens Höhe × 16/9           | ab 1100 (HD)  | ab 640 (SD)  | darunter   |
+| Kompression: Bits je Bildpunkt und Bild, umgerechnet auf H.264 (z. B. XviD ÷ 1,5, MPEG-2 ÷ 2,5) | ab 0,08       | ab 0,05      | darunter   |
+
+SD (Standard Definition) ist Fernsehauflösung bis DVD (720×576), HD 1280×720, Full HD 1920×1080, UHD 3840×2160. Ohne
+Bitrate zählt nur die Auflösung.
 
 Mit Chrome oder Edge am Rechner laufen `.mp4`- und `.m4v`-Dateien in einem Player-Fenster im Browser. Beim ersten Mal
 erscheint der Dialog "Videothek-Ordner": Aus Sicherheitsgründen muss man den Ordner (z. B. `D:\Videos`) einmal 
@@ -540,6 +558,13 @@ Nach Änderungen an `convert.php` muss das Paket neu erstellt werden.
 Zum Aufteilen auf meherer Rechner könnte z.B. Rechner 1 mit `--only=0-m` und Rechner 2 mit `--only=n-z` auf einer
 lokalen Kopie arbeiten. Danach die Ergebnisse ins Ziel von Rechner 1 kopieren und die Zeilen seines `convert-log.jsonl`
 an das dortige anhängen (Befehle in `LIESMICH.txt`).
+
+Ist alles umgewandelt, trägt `bin/fix_usb_mp4.php` die MP4-Dateien in die Medien USB ein und verschiebt sie aus dem
+Zielordner von `convert.php` (`--from`, Vorgabe `D:\videothek2`) an die vorgeschlagenen Pfade im USB-Ordner (`--to`,
+Vorgabe `USB_ROOT`, siehe "Abspielen (Medium USB)"). Außerdem schreibt es Titel, Handlung und das Poster als Cover in
+die MP4-Dateien und die Angaben zu Bild und Ton in `movie.json`. Mit `--only=bruchreif` lässt es sich an einzelnen
+Einträgen ausprobieren. Verschobene Dateien fehlen danach im Zielordner von `convert.php`; ein erneuter Lauf von
+`convert.php` würde sie noch einmal umwandeln.
 
 ## Stand / Roadmap
 

@@ -24,11 +24,33 @@
 
 /**
  * Ein Exemplar: Wem es gehört und in welcher Form. Dateien (DIGITAL_MEDIA, z. B. USB) liegen auf dem USB-Speicher
- * des Eigentümers unter <USB-Ordner>/<slug>/; Scheiben (DVD, Blu-ray) haben einen Standort (LOCATIONS).
+ * des Eigentümers unter <USB-Ordner>/<Pfad>; Scheiben (DVD, Blu-ray) haben einen Standort (LOCATIONS).
  * @typedef {Object} Medium
  * @property {string} owner  Benutzer (data/users.json)
  * @property {string} type   "DVD", "Blu-ray", "USB", …
- * @property {string[]} [files]  nur DIGITAL_MEDIA: Datei(en) relativ zum Ordner des Eintrags, bei Staffeln die Folgen
+ * @property {string[]} [paths]  nur DIGITAL_MEDIA: Datei(en) relativ zum USB-Ordner, bei Staffeln die Folgen
+ * @property {VideoInfo} [video]  nur DIGITAL_MEDIA: Bild der (ersten) Datei (bin/fix_usb_mp4.php), siehe videoQuality()
+ * @property {AudioInfo} [audio]  nur DIGITAL_MEDIA: Tonspur der (ersten) Datei, siehe audioText()
+ */
+
+/**
+ * Technische Angaben zum Bild einer Datei (normalize_video() in api/lib/crud.php).
+ * @typedef {Object} VideoInfo
+ * @property {string} codec  Name bei ffprobe: mpeg4 (XviD/DivX), mpeg2video (DVD), h264, hevc, …
+ * @property {number} width
+ * @property {number} height
+ * @property {string} sar  Seitenverhältnis eines Bildpunkts, z. B. "1:1", "16:15"
+ * @property {?number} fps
+ * @property {?number} kbps  Video-Bitrate
+ */
+
+/**
+ * Technische Angaben zur Tonspur einer Datei (normalize_audio() in api/lib/crud.php).
+ * @typedef {Object} AudioInfo
+ * @property {string} codec  Name bei ffprobe: mp3, ac3, dts, aac, …
+ * @property {?number} channels
+ * @property {?number} kbps
+ * @property {string} lang  ger, eng, … bzw. und (unbekannt)
  */
 
 /**
@@ -114,8 +136,8 @@ const genreSel = document.getElementById('genreSel');
 const mediumSel = document.getElementById('mediumSel');
 const personSel = document.getElementById('personSel');
 /**
- * Wert der Medium-Auswahl "Blu-ray und DVD": Einträge mit einer Scheibe (DISC_MEDIA); kann kein echtes Medium sein, der
- * Server entfernt Leerzeichen am Rand.
+ * Wert der Medium-Auswahl "Blu-ray und DVD": Einträge mit einer Scheibe (DISC_MEDIA); können kein echtes Medium sein,
+ * der Server entfernt Leerzeichen am Rand.
  */
 const DISCS = ' discs';
 const DISC_MEDIA = ['Blu-ray', 'DVD'];
@@ -282,8 +304,8 @@ function mediumLabel(md){
 
 /** Dateien des angemeldeten Benutzers zu einem Eintrag (zum Abspielen), sonst leer. @param {Movie} m @returns {string[]} */
 function myFiles(m){
-  const md = m.media.find(x => x.owner === ownerOf(ME) && isDigital(x.type) && x.files.length);
-  return md ? md.files : [];
+  const md = m.media.find(x => x.owner === ownerOf(ME) && isDigital(x.type) && x.paths.length);
+  return md ? md.paths : [];
 }
 
 /** USB-Ordner dieses Geräts oder '' (dann gilt USB_ROOT aus config.php). */
@@ -319,7 +341,7 @@ async function playWithFolder(link){
   if(!m) return;
   const value = await askText({
     title: 'Videothek-Ordner',
-    text: `Ordner mit den Filmdateien. Darin liegt der Ordner "${m.slug}".`,
+    text: `Ordner mit den Filmdateien. Darin liegt "${myFiles(m)[0] || m.slug}".`,
     value: usbRoot() || DEFAULT_USB_ROOT,
     ok: 'Abspielen',
   });
@@ -335,7 +357,7 @@ async function playWithFolder(link){
 
 /** Dateien, die der Browser selbst abspielt (MP4 mit H.264/H.265 und AAC); alles andere geht an den installierten Player. */
 const BROWSER_PLAYABLE = /\.(mp4|m4v)$/i;
-// IndexedDB: freigegebener Videothek-Ordner dieses Geräts (ein Ordner-Handle lässt sich nicht in localStorage ablegen).
+// IndexedDB: Freigegebener Videothek-Ordner dieses Geräts (ein Ordner-Handle lässt sich nicht in localStorage ablegen).
 const FOLDER_DB = 'videothek';
 const FOLDER_STORE = 'handles';
 const FOLDER_KEY = 'usbFolder';
@@ -359,7 +381,7 @@ async function playMedia(link){
 
 /**
  * Was abgespielt wird, in Reihenfolge, wie die Wiedergabeliste von api/play.php: Film (mehrteilig: alle Teile), alle
- * Folgen einer Staffel bzw. nur eine. path ist relativ zum Ordner des Eintrags.
+ * Folgen einer Staffel bzw. nur eine. path ist relativ zum USB-Ordner.
  * @param {Movie} m
  * @param {?number} episode
  * @returns {{title: string, path: string}[]}
@@ -378,7 +400,7 @@ function playItems(m, episode){
 }
 
 /**
- * Spielt die Dateien im Browser ab: aus dem freigegebenen Videothek-Ordner (<Ordner>/<slug>/<Datei>). Den Ordner wählt
+ * Spielt die Dateien im Browser ab: aus dem freigegebenen Videothek-Ordner (<Ordner>/<Pfad>). Den Ordner wählt
  * man einmal aus (askFolder()), das Gerät merkt ihn sich (IndexedDB); nach einem Neustart des Browsers fragt er
  * einmal nach. Ist der gemerkte Ordner nicht erreichbar (USB-Speicher nicht angeschlossen, Ordner umbenannt) oder
  * fehlt die Datei darin, kommt die Auswahl wieder.
@@ -400,13 +422,13 @@ async function playInBrowser(m, items, fallback, pickNew = false){
     }
     const urls = [];
     for(const x of items){
-      urls.push(URL.createObjectURL(await (await fileInFolder(folder, [m.slug, ...x.path.split('/')])).getFile()));
+      urls.push(URL.createObjectURL(await (await fileInFolder(folder, x.path.split('/'))).getFile()));
     }
     showPlayer(items, urls, fallback);
   } catch(err){
     if(err.name === 'NotFoundError' || err.name === 'TypeMismatchError'){
       if(!pickNew) await playInBrowser(m, items, fallback, true);
-      else alert(`Im gewählten Ordner fehlt „${m.slug}/${items[0].path}“.`);
+      else alert(`Im gewählten Ordner fehlt „${items[0].path}“.`);
     } else if(err.name !== 'AbortError'){
       alert('Kein Zugriff auf die Datei: ' + err.message);
     }
@@ -421,8 +443,8 @@ async function playInBrowser(m, items, fallback, pickNew = false){
  */
 async function askFolder(m){
   const ok = await new Promise(resolve => showDialog(`<h3>Videothek-Ordner</h3>
-    <p>Ordner mit den Filmdateien (z. B. ${escapeHtml(usbRoot() || DEFAULT_USB_ROOT || 'D:\\Videos')}). Darin liegt der
-    Ordner „${escapeHtml(m.slug)}“.</p>
+    <p>Ordner mit den Filmdateien (z. B. ${escapeHtml(usbRoot() || DEFAULT_USB_ROOT || 'D:\\Videos')}). Darin liegt
+    „${escapeHtml(myFiles(m)[0] || m.slug)}“.</p>
     <p>Aus Sicherheitsgründen möchte der Browser, dass du diesen Ordner einmal selbst auswählst. Danach merkt er ihn sich.</p>`,
     'Ordner wählen', d => resolve(d.returnValue === 'ok')));
   return ok ? window.showDirectoryPicker({id: 'videothek', mode: 'read'}) : null;
@@ -631,9 +653,10 @@ function pad2(n){
 }
 
 /**
- * Dateien einer Folge unter den Dateien files eines Mediums der Staffel – wie season_episode_files() in
- * api/lib/crud.php: Zuordnung über die Folgennummer im Dateinamen ("episode-03", "E03", "S01E03", "e3",
- * mehrteilig "episode-03-cd1", "episode-03-cd2"); trägt keine Datei eine solche Nummer, zählt die Position (1. Datei = 1. Folge der Liste).
+ * Dateien einer Folge unter den Dateien (paths) eines Mediums der Staffel – wie season_episode_files() in
+ * api/lib/crud.php: Zuordnung über die Folgennummer im Dateinamen ("serie-s01e03", "S01E03", "E03", "e3",
+ * "episode-03", mehrteilig "serie-s01e03-cd1", "serie-s01e03-cd2"); trägt keine Datei eine solche Nummer, zählt die
+ * Position (1. Datei = 1. Folge der Liste).
  * @param {string[]} files
  * @param {Movie} season
  * @param {number} episode
@@ -667,7 +690,7 @@ function withDefaults(m){
   m.genres = m.genres || [];
   m.cast = m.cast || [];
   m.media = m.media || [];
-  m.media.forEach(md => { if(isDigital(md.type)) md.files = md.files || []; });
+  m.media.forEach(md => { if(isDigital(md.type)) md.paths = md.paths || []; });
   if(isSeason(m)){
     m.series = m.series && m.series.name ? m.series : null;
     m.season = m.season ?? null;
@@ -734,6 +757,15 @@ function groupCatalog(members){
   const itemKey = (id, item) => season ? `${id}:${item.season}` : String(item.tmdb);
   const entryKey = m => season ? (m.series?.tmdb ? `${m.series.tmdb}:${m.season}` : null) : (m.uniqueids?.tmdb || null);
   const present = new Set(MOVIES.filter(m => isSeason(m) === season).map(entryKey).filter(Boolean));
+  // Staffelnummer von Hand vergeben (z. B. Shaun das Schaf nach Wikipedia: bei TMDB je DVD eine Serie mit nur Staffel
+  // 1, bei uns Staffel 4, 5): Hat die TMDB-Serie genau eine Staffel und kennt sie die eigene Nummer nicht, ist diese
+  // eine Staffel vorhanden.
+  if(season){
+    MOVIES.filter(m => isSeason(m) && m.series?.tmdb).forEach(m => {
+      const seasons = CATALOG.series[m.series.tmdb]?.seasons || [];
+      if(seasons.length === 1 && seasons[0].season !== m.season) present.add(`${m.series.tmdb}:${seasons[0].season}`);
+    });
+  }
   const today = new Date().toISOString().slice(0, 10);
   const seen = new Set();
   const missing = [], announced = [];
@@ -1130,7 +1162,7 @@ function groupPanelHtml(group){
   ].filter(Boolean).join(' · ');
   const season = isSeason(group.items[0].m);
   const gaps = info ? [...info.missing, ...info.announced] : [];
-  const cards = withGaps(group.items, ({m}) => m, gaps, season).map((x, k) => {
+  const cards = withGaps(group.items, p => p.m, gaps, season).map((x, k) => {
     if(!('gap' in x)){
       const {m, i} = x.part;
       return cardHtml(m, i, filtered ? (group.hits.has(i) ? 'hit' : 'other') : '', k);
@@ -1217,14 +1249,13 @@ function refreshTypeFilter(){
 }
 
 /**
- * Personen-Auswahl: nach "Gesamtbestand" die Eigentümer, der des angemeldeten Benutzers zuerst als "Mein
- * Bestand", dann die anderen ("Lillis Bestand"), Ausleihen ("Lilli hat von Frank", bei mehreren Eigentümern auch
- * "Lilli hat" für alles), nach einer Linie "(nicht im Bestand)", jeweils nur, was es gerade gibt. Werte sind JSON
- * (personFilter()). Ohne Ausleihen und Einträge ohne Medium erscheint sie erst bei mehreren Eigentümern. Die
- * Wunschlisten stehen in der Art-Auswahl (refreshTypeFilter()).
+ * Personen-Auswahl: nach "Gesamtbestand" die Eigentümer, der des angemeldeten Benutzers zuerst als "Mein Bestand",
+ * dann die anderen ("Lillis Bestand"), Ausleihen ("Lilli hat von Frank", bei mehreren Eigentümern auch "Lilli hat" für
+ * alles), nach einer Linie "(nicht im Bestand)", jeweils nur, was es gerade gibt. Werte sind JSON (personFilter()).
+ * Ohne Ausleihen und Einträge ohne Medium erscheint sie erst bei mehreren Eigentümern. Die Wunschlisten stehen in der
+ * Art-Auswahl (refreshTypeFilter()).
  */
 function refreshPersonFilter(){
-  const byName = (a, b) => userName(a).localeCompare(userName(b), 'de');
   const option = (value, label) => `<option value="${escapeHtml(JSON.stringify(value))}">${escapeHtml(label)}</option>`;
   const group = (label, options) => options.length ? `<optgroup label="${label}">${options.join('')}</optgroup>` : '';
 
@@ -1703,7 +1734,10 @@ function sinceText(iso){
 function mediumItemHtml(m, md){
   const label = escapeHtml(mediumLabel(md));
   if(isDigital(md.type)){
-    return `<li>${label}</li>`;
+    const q = md.video ? videoQuality(md.video) : null;
+    const audio = md.audio ? audioText(md.audio) : '';
+    return `<li>${label}${q ? ` <span class="video-quality q-${q.grade}" title="${escapeHtml(q.why)}">Bild ${q.verdict} · ${escapeHtml(q.facts)}</span>` : ''}`
+      + `${audio ? ` <span class="audio-info">· Ton ${escapeHtml(audio)}</span>` : ''}</li>`;
   }
   const data = `data-owner="${escapeHtml(md.owner)}" data-type="${escapeHtml(md.type)}"`;
   const loc = locationOf(m, md);
@@ -1715,6 +1749,51 @@ function mediumItemHtml(m, md){
     .filter(Boolean).join(' · ');
   return `<li ${data}>${label} <span class="lent" title="${escapeHtml(title)}">hat ${escapeHtml(holderName(loc.at))} ${sinceText(loc.since)}</span>`
     + `<button class="icon-btn return-btn screen-only" type="button" title="Zurückgegeben" aria-label="Zurückgegeben, wieder bei ${escapeHtml(ownerName(md.owner))}">${UNDO_ICON}</button></li>`;
+}
+
+/** Lesbare Codec-Namen (ffprobe-Name => Anzeige). */
+const CODEC_NAMES = {mpeg4: 'XviD/DivX', msmpeg4v3: 'DivX 3', mpeg2video: 'MPEG-2', mpeg1video: 'MPEG-1', h264: 'H.264', hevc: 'H.265', vp8: 'VP8', vp9: 'VP9', av1: 'AV1', wmv3: 'WMV 9', vc1: 'VC-1'};
+/**
+ * Bits pro Bildpunkt, die ein Codec für dasselbe Bild etwa braucht, im Verhältnis zu H.264 (ältere Codecs brauchen
+ * mehr, neuere weniger). Grobe Erfahrungswerte.
+ */
+const CODEC_EFFICIENCY = {mpeg1video: 3, mpeg2video: 2.5, msmpeg4v3: 1.8, mpeg4: 1.5, wmv3: 1.5, vc1: 1.2, vp8: 1.2, h264: 1, vp9: 0.7, hevc: 0.6, av1: 0.5};
+
+/** Sprachen der Tonspur (Code bei ffprobe => Anzeige). */
+const AUDIO_LANGS = {ger: 'Deutsch', deu: 'Deutsch', de: 'Deutsch', eng: 'Englisch', en: 'Englisch', fre: 'Französisch', fra: 'Französisch', spa: 'Spanisch', ita: 'Italienisch'};
+const AUDIO_CODECS = {mp3: 'MP3', mp2: 'MP2', ac3: 'AC-3', eac3: 'E-AC-3', dts: 'DTS', aac: 'AAC', vorbis: 'Vorbis', opus: 'Opus', flac: 'FLAC', truehd: 'TrueHD', pcm_s16le: 'PCM'};
+
+/** Ton einer Datei als Text: "Deutsch, 5.1, AC-3 448 kbit/s" (ohne Beurteilung). @param {AudioInfo} a */
+function audioText(a){
+  const channels = {1: 'Mono', 2: 'Stereo', 6: '5.1', 8: '7.1'}[a.channels] || (a.channels ? `${a.channels} Kanäle` : null);
+  const codec = [AUDIO_CODECS[a.codec] || a.codec, a.kbps ? `${a.kbps} kbit/s` : null].filter(Boolean).join(' ');
+  return [AUDIO_LANGS[a.lang] || (a.lang !== 'und' ? a.lang : null), channels, codec].filter(Boolean).join(', ');
+}
+
+/**
+ * Beurteilt das Bild einer Datei aus ihren technischen Angaben (Medium.video), zwei Kriterien, das Schlechtere zählt:
+ *   Auflösung: Breite in quadratischen Bildpunkten, bei Breitbild (Kinoformat-Streifen) mindestens Höhe × 16/9;
+ *     ab 1100 HD und besser (gut), ab 640 SD wie DVD (mittel), darunter schlecht
+ *   Kompression: Video-Bitrate je Bildpunkt und Bild, umgerechnet auf H.264 (CODEC_EFFICIENCY); ab 0,08 gut, ab 0,05
+ *     mittel, darunter schlecht (sichtbare Blöcke, verwaschene Flächen). Ohne Bitrate zählt nur die Auflösung.
+ * @param {VideoInfo} v
+ * @returns {{grade: number, verdict: string, facts: string, why: string}}  grade 2 = gut, 1 = mittel, 0 = schlecht
+ */
+function videoQuality(v){
+  const [sn, sd] = (v.sar || '1:1').split(':').map(Number);
+  const width = Math.round(v.width * (sn > 0 && sd > 0 ? sn / sd : 1));
+  const eqWidth = Math.max(width, Math.round(v.height * 16 / 9));
+  const resolution = eqWidth >= 3200 ? 'UHD' : eqWidth >= 1700 ? 'Full HD' : eqWidth >= 1100 ? 'HD' : eqWidth >= 640 ? 'SD' : 'unter SD';
+  const resGrade = eqWidth >= 1100 ? 2 : eqWidth >= 640 ? 1 : 0;
+  const bpp = v.kbps && v.fps ? v.kbps * 1000 / (v.width * v.height * v.fps) / (CODEC_EFFICIENCY[v.codec] || 1.5) : null;
+  const compGrade = bpp === null ? 2 : bpp >= 0.08 ? 2 : bpp >= 0.05 ? 1 : 0;
+  const grade = Math.min(resGrade, compGrade);
+  const mbit = v.kbps ? `${(v.kbps / 1000).toLocaleString('de-DE', {maximumFractionDigits: 2})} Mbit/s` : null;
+  const facts = [`${resolution} ${width}×${v.height}`, [CODEC_NAMES[v.codec] || v.codec, mbit].filter(Boolean).join(' ')].join(' · ');
+  const why = [`Auflösung: ${resolution} (${['schlecht', 'mittel', 'gut'][resGrade]})`,
+    bpp === null ? 'Kompression: unbekannt' : `Kompression: ${bpp.toLocaleString('de-DE', {maximumFractionDigits: 3})} Bit je Bildpunkt (${['schlecht', 'mittel', 'gut'][compGrade]})`,
+    `Datei: ${v.width}×${v.height}${v.sar !== '1:1' ? ` (Pixel ${v.sar})` : ''}${v.fps ? `, ${v.fps.toLocaleString('de-DE')} fps` : ''}`].join('\n');
+  return {grade, verdict: ['schlecht', 'mittel', 'gut'][grade], facts, why};
 }
 
 /**
@@ -1801,7 +1880,7 @@ function openMovie(idx){
 
 /**
  * Teile einer Reihe bzw. Staffeln einer Serie (sortiert, groupOrder()) mit den fehlenden Teilen laut Katalog an ihrer
- * Stelle: ein Platzhalter steht vor dem ersten Eintrag, der danach kommt (Staffelnummer bzw. Jahr), sonst am Ende.
+ * Stelle: Ein Platzhalter steht vor dem ersten Eintrag, der danach kommt (Staffelnummer bzw. Jahr), sonst am Ende.
  * Für die Detailansicht (groupPartsHtml()) und die aufgefächerte Kachel (groupPanelHtml()).
  * @template T
  * @param {T[]} parts
@@ -1987,7 +2066,7 @@ function openEditForm(m){
       <span class="label">Medien</span>
       <div class="media-rows" id="mediaRows">${(isEdit ? m.media : []).map(md => mediumRowHtml(md, m.slug)).join('')}</div>
       <button class="btn" id="addMediumBtn" type="button">+ Medium</button>
-      <div class="hint">Je Exemplar eine Zeile: Wem es gehört und in welcher Form. Keine Zeile = nicht im Bestand. Abgeben: Eigentümer ändern; × entfernt das Medium.</div>
+      <!-- <div class="hint"></div>-->
     </div>
     <div class="form-row">
       ${imageFieldHtml('poster', 'Poster', 'Hochformat, das Thumbnail entsteht automatisch. Klick aufs Bild wählt ein neues, × entfernt es; beides erst beim Speichern.')}
@@ -2141,27 +2220,27 @@ function formType(){
 
 /**
  * Eine Zeile im Formular je Medium: Eigentümer, Art (feste plus alle schon verwendeten), "×"; bei Dateien (USB)
- * darunter die Dateien im Ordner des Eintrags, dazu der Speicherort und aufklappbar die Konvention für Dateinamen.
+ * darunter die Dateien relativ zum USB-Ordner und aufklappbar die Konvention für Dateinamen.
  * @param {Medium} md
- * @param {?string} slug  Ordner des Eintrags; null bei einem neuen (entsteht beim Speichern aus Titel und Jahr)
+ * @param {?string} slug  Slug des Eintrags für den Vorschlag (suggestFiles()); null bei einem neuen
  */
 function mediumRowHtml(md, slug){
   const owners = [...new Set([md.owner, ...Object.keys(OWNERS), ownerOf(ME)])].filter(Boolean);
   const types = [...new Set([...MEDIUM_OPTIONS, ...knownValues(mediaOf), md.type])];
   const option = (value, label, selected) => `<option value="${escapeHtml(value)}"${selected ? ' selected' : ''}>${escapeHtml(label)}</option>`;
-  const files = isDigital(md.type) ? md.files || [] : [];
-  return `<div class="medium-row">
+  const files = isDigital(md.type) ? md.paths || [] : [];
+  return `<div class="medium-row" data-slug="${escapeHtml(slug || '')}">
     <select class="medium-owner" aria-label="Eigentümer">${owners.map(o => option(o, ownerName(o), o === md.owner)).join('')}</select>
     <select class="medium-type" aria-label="Art">${types.map(t => option(t, t, t === md.type)).join('')}</select>
     <button class="btn btn-small medium-remove" type="button" title="Medium entfernen" aria-label="Medium entfernen">&times;</button>
     <div class="form-field files-field"${isDigital(md.type) ? '' : ' hidden'}>
-      <span class="label">Dateien im Ordner des Eintrags auf dem USB-Speicher</span>
-      <textarea class="files-input" rows="2" aria-label="Dateien" placeholder="z. B. movie.mp4">${escapeHtml(files.join('\n'))}</textarea>
-      <div class="hint">Der Speicherort ist "&lt;Videothek-Ordner&gt;/${escapeHtml(slug || '<titel-jahr>')}/".</div>
+      <span class="label">Dateien auf dem USB-Speicher</span>
+      <textarea class="files-input" rows="2" aria-label="Dateien" placeholder="z. B. bruchreif/bruchreif-2009.mp4">${escapeHtml(files.join('\n'))}</textarea>
+      <div class="hint">Datei relativ zum Videothek-Ordner.</div>
       <details class="hint files-help">
-        <summary>Konvention für Dateinamen</summary>
-        Film: "movie.&lt;ext&gt;", mehrere Dateien pro Zeile in Abspielreihenfolge (z.B. "movie-disk1.mp4", "movie-disk2.mp4").<br/> 
-        Staffel: Eine Datei pro Folge (z.B. "episode-01.mp4", "episode-02.mp4", …).
+        <summary>Konvention:</summary>
+        Film: "&lt;filmtitel|reihe&gt;/&lt;filmtitel&gt;-&lt;jahr&gt;.mp4" (z. B. "matrix/matrix-reloaded-2003.mp4").<br/> 
+        Serie: Eine Datei pro Folge, "&lt;serie&gt;/&lt;serie&gt;-&lt;staffel&gt;-&lt;jahr&gt;/&lt;serie&gt;-sXXeYY.mp4" (z. B. "die-tudors/die-tudors-maetresse-des-koenigs-2007/die-tudors-s01e01.mp4").
       </details>
     </div>
   </div>`;
@@ -2261,19 +2340,33 @@ function toggleFilesField(row){
 }
 
 /**
- * Bei Wechsel auf USB ein leeres Datei-Feld mit dem üblichen Namen vorbelegen: Film `movie.mp4`, Staffel
- * episode-01.mp4, episode-02.mp4, … (eine Zeile pro Folge; mp4 wie nach bin/convert.php). Abweichende Endungen trägt
- * man von Hand ein; completeExtensions() ergänzt weiterhin Zeilen, die auf "." enden.
+ * Bei Wechsel auf USB ein leeres Datei-Feld mit dem üblichen Pfad vorbelegen, Regel wie usb_base_path() in
+ * api/lib/crud.php: Film "<titel>/<slug>.mp4", in einer Reihe "<reihe>/<slug>.mp4", Staffel eine Zeile pro Folge
+ * "<serie>/<slug>/<serie>-s02e01.mp4". Ein neuer Eintrag bekommt seinen Slug erst beim Speichern; vorgeschlagen wird
+ * er aus Titel und Jahr. Abweichende Endungen trägt man von Hand ein; completeExtensions() ergänzt Zeilen, die auf
+ * "." enden.
  */
 function suggestFiles(row){
   const filesInput = row.querySelector('.files-input');
   if(filesInput.value.trim()) return;
+  const value = id => document.getElementById(id).value.trim();
+  const slug = row.dataset.slug || slugify(`${value('titleInput')} ${value('yearInput')}`);
   if(formType() !== 'season'){
-    filesInput.value = 'movie.mp4';
+    const folder = slugify(value('collectionInput')) || slugify(value('titleInput')) || slug;
+    filesInput.value = `${folder}/${slug}.mp4`;
     return;
   }
+  const series = slugify(value('seriesInput')) || slug;
+  const season = /^\d+$/.test(value('seasonInput')) ? `s${pad2(parseInt(value('seasonInput'), 10))}` : '';
   const episodes = parseEpisodesText(document.getElementById('episodesInput').value).episodes.map(e => e.number);
-  filesInput.value = (episodes.length ? episodes : [1]).map(e => `episode-${pad2(e)}.mp4`).join('\n');
+  filesInput.value = (episodes.length ? episodes : [1]).map(e => `${series}/${slug}/${series}-${season}e${pad2(e)}.mp4`).join('\n');
+}
+
+/** Wie slugify() in api/lib/slug.php: Umlaute und Akzente umschreiben, klein, alles außer a-z0-9 wird "-". */
+function slugify(text){
+  // noinspection NonAsciiCharacters
+  const map = {ä: 'ae', ö: 'oe', ü: 'ue', Ä: 'Ae', Ö: 'Oe', Ü: 'Ue', ß: 'ss', é: 'e', è: 'e', ê: 'e', à: 'a', â: 'a', ô: 'o', î: 'i', ç: 'c', ñ: 'n'};
+  return text.trim().replace(/[äöüÄÖÜßéèêàâôîçñ]/g, c => map[c]).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
 /** Überträgt die Dateiendung der ersten Zeile mit Endung auf alle Zeilen, die noch auf "." enden (Vorschlag). */
@@ -2288,7 +2381,7 @@ function completeExtensions(textarea){
 function formMedia(){
   return [...document.querySelectorAll('#mediaRows .medium-row')].map(row => {
     const md = {owner: row.querySelector('.medium-owner').value, type: row.querySelector('.medium-type').value};
-    return isDigital(md.type) ? {...md, files: textLines(row.querySelector('.files-input').value)} : md;
+    return isDigital(md.type) ? {...md, paths: textLines(row.querySelector('.files-input').value)} : md;
   });
 }
 
@@ -2438,12 +2531,12 @@ async function saveMovie(slug){
     return;
   }
   for(const md of payload.media.filter(x => isDigital(x.type))){
-    if(!md.files.length){
+    if(!md.paths.length){
       showError(`Bei ${mediumLabel(md)} bitte ${payload.type === 'season' ? 'die Dateien der Folgen' : 'die Filmdatei'} angeben.`);
       return;
     }
     // Fängt von Hand eingetragene Namen ohne Endung ab (z. B. "movie.").
-    if(md.files.some(f => !/\.[a-z0-9]+$/i.test(f))){
+    if(md.paths.some(f => !/\.[a-z0-9]+$/i.test(f))){
       showError(`Bei ${mediumLabel(md)} fehlt mindestens einer Datei die Dateiendung (z. B. .avi, .mkv, .mp4).`);
       return;
     }
@@ -2510,12 +2603,7 @@ async function saveMovie(slug){
   if(renameErrors.length){
     alert('Gespeichert, aber nicht alle Teile umbenannt:\n' + renameErrors.join('\n'));
   }
-  // Der Ordner auf dem USB-Speicher heißt wie der Eintrag: Nach einer Titel- oder Jahresänderung muss er mit.
-  const usbOwners = saved.media.filter(md => isDigital(md.type)).map(md => ownerName(md.owner));
-  if(before && before.slug !== saved.slug && usbOwners.length){
-    alert(`Der Ordner des Eintrags heißt jetzt „${saved.slug}“. Bitte auf dem USB-Speicher den Ordner „${before.slug}“ `
-      + `genauso umbenennen (${usbOwners.join(', ')}), sonst findet der Player die Datei nicht.`);
-  }
+  // Die Dateipfade (paths) hängen nicht am Slug: Ein neuer Titel bzw. ein neues Jahr ändert auf dem USB-Speicher nichts.
 }
 
 /** @param {Movie} m */

@@ -2,8 +2,8 @@
 
 /**
  * Play-Button für Filme und Staffeln mit Medium "USB": liefert eine Wiedergabeliste (.m3u) mit den vollständigen
- * Pfaden der Datei(en) des angemeldeten Benutzers – <USB-Ordner>/<slug>/<Datei> (Dateien aus seinem Medium USB in
- * movie.json). Der Browser lädt sie herunter und das Betriebssystem öffnet sie mit dem installierten Player (VLC,
+ * Pfaden der Datei(en) des angemeldeten Benutzers – <USB-Ordner>/<Pfad> (paths seines Mediums USB in movie.json,
+ * relativ zum USB-Ordner). Der Browser lädt sie herunter und das Betriebssystem öffnet sie mit dem installierten Player (VLC,
  * Windows Media Player, …); mehrteilige Filme (cd1, cd2, …) bzw. alle Folgen einer Staffel laufen nacheinander.
  *
  * Jeder hat seinen eigenen USB-Speicher: Der USB-Ordner gilt auf dem Gerät, das abspielt. Das Frontend merkt ihn sich
@@ -33,7 +33,7 @@ $user = current_user() ?? first_user();
 $owner = (string) ($_GET['owner'] ?? ($user !== null ? owner_of($user) : ''));
 $medium = null;
 foreach ($movie['media'] ?? [] as $m) {
-    if ($m['owner'] === $owner && in_array($m['type'], DIGITAL_MEDIA, true) && !empty($m['files'])) {
+    if ($m['owner'] === $owner && in_array($m['type'], DIGITAL_MEDIA, true) && !empty($m['paths'])) {
         $medium = $m;
         break;
     }
@@ -41,7 +41,7 @@ foreach ($movie['media'] ?? [] as $m) {
 if ($medium === null) {
     json_error(404, 'Dafür ist bei dir keine Datei eingetragen');
 }
-$files = $medium['files'];
+$files = $medium['paths'];
 
 $root = trim((string) ($_GET['root'] ?? ''));
 // Steht als Zeile in der Wiedergabeliste: keine Zeilenumbrüche.
@@ -49,7 +49,7 @@ if ($root === '' || preg_match('/[\x00-\x1f]/', $root)) {
     $root = USB_ROOT;
 }
 
-/** @var array<array{0: string, 1: string}> $items [Titel in der Wiedergabeliste, Pfad relativ zum Ordner des Eintrags] */
+/** @var array<array{0: string, 1: string}> $items [Titel in der Wiedergabeliste, Pfad relativ zum USB-Ordner] */
 $items = [];
 if ($movie['type'] === TYPE_SEASON) {
     $episodeNo = isset($_GET['episode']) ? filter_var($_GET['episode'], FILTER_VALIDATE_INT) : null;
@@ -91,7 +91,7 @@ $root = rtrim($root, '\\/');
 $lines = ['#EXTM3U'];
 foreach ($items as [$title, $file]) {
     $lines[] = '#EXTINF:-1,' . $title;
-    $lines[] = $root . $sep . $movie['slug'] . $sep . str_replace('/', $sep, $file);
+    $lines[] = $root . $sep . str_replace('/', $sep, $file);
 }
 
 header('Content-Type: audio/x-mpegurl; charset=utf-8');

@@ -387,6 +387,10 @@ header p.sub{
 .media-list li{margin:0 0 .35rem;}
 .media-list li:last-child{margin-bottom:0;}
 .media-list .lent{color:var(--accent); margin-left:.6rem;}
+/* Bild der Datei (videoQuality()): schlecht rot, sonst gedämpft */
+.media-list .video-quality{color:var(--ink-soft); font-size:.85rem; margin-left:.6rem; cursor:help;}
+.media-list .video-quality.q-0{color:var(--danger);}
+.media-list .audio-info{color:var(--ink-soft); font-size:.85rem; margin-left:.3rem;}
 .link-btn{
   background:none; border:none; padding:0; margin-left:.8rem;
   color:var(--ink-soft); font:inherit; font-size:.85rem; text-decoration:underline; cursor:pointer;
