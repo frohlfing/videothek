@@ -1,0 +1,10 @@
+{
+  "//": "Nur für die IDE (PhpStorm): Standard-Typen, gegen die die .d.ts-Dateien hier geprüft werden (Map u. a. ab ES2015, Browser-API). Wird nicht ausgeliefert.",
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2022", "dom", "dom.iterable"],
+    "noEmit": true,
+    "strict": true
+  },
+  "include": ["*.d.ts"]
+}
