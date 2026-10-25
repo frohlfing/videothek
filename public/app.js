@@ -31,6 +31,8 @@
  * @property {string[]} [paths]  nur DIGITAL_MEDIA: Datei(en) relativ zum USB-Ordner, bei Staffeln die Folgen
  * @property {VideoInfo} [video]  nur DIGITAL_MEDIA: Bild der (ersten) Datei (bin/fix_usb_mp4.php), siehe videoQuality()
  * @property {AudioInfo} [audio]  nur DIGITAL_MEDIA: Tonspur der (ersten) Datei, siehe audioText()
+ * @property {'gut'|'mittel'|'schlecht'} [quality]  nur DIGITAL_MEDIA: eigene Einschätzung des Bilds, hat Vorrang vor
+ *   videoQuality() (siehe mediumQuality())
  */
 
 /**
@@ -142,6 +144,13 @@ const personSel = document.getElementById('personSel');
 const DISCS = ' discs';
 const DISC_MEDIA = ['Blu-ray', 'DVD'];
 /**
+ * Werte der Medium-Auswahl nach Bildqualität der USB-Dateien (usbQuality()), direkt unter "USB"; Leerzeichen am Anfang
+ * wie bei DISCS.
+ */
+const USB_QUALITY = [[' usb-good', 'USB (Qualität gut)'], [' usb-fair', 'USB (Qualität so lala)'], [' usb-bad', 'USB (Qualität schlecht)']];
+/** Gesamturteil zum Bild (videoQuality().grade) in Detailansicht und Medium-Auswahl; der Tooltip sagt "mittel". */
+const QUALITY_WORDS = ['schlecht', 'so lala', 'gut'];
+/**
  * Linie in einer Auswahlliste: eine nicht wählbare Option aus Strichen (Farbe: .separator in app.css). Ein <hr> in
  * <select> zeichnet Chrome in fester Farbe, auf dunklem Grund kaum zu sehen; die Farbe einer Option übernimmt er.
  */
@@ -171,6 +180,12 @@ const IMPORT_WISH = 'wish';
 // Undo-Pfeil für "zurückgegeben" und "doch nicht sehen".
 const UNDO_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" '
   + 'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>';
+// Pfad kopieren, kopiert (Häkchen) und USB-Ordner ändern (Stift), gleicher Stil.
+const ICON_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" '
+  + 'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">';
+const COPY_ICON = ICON_SVG + '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+const CHECK_ICON = ICON_SVG + '<path d="M20 6 9 17l-5-5"/></svg>';
+const EDIT_ICON = ICON_SVG + '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
 
 // Bewertungsstufen (wie RATING_VALUES in api/lib/ratings.php), in der Detailansicht in dieser Reihenfolge. Symbole aus
 // Googles Material Symbols (Rounded, gefüllt; Apache-Lizenz 2.0), Farbe über die Klasse (app.css).
@@ -318,44 +333,91 @@ function usbRoot(){
 }
 
 /**
- * Link auf die Wiedergabeliste der eigenen Datei(en).
- * @param {Movie} m
- * @param {?number} [episode]  nur diese Folge einer Staffel
- * @param {string} [root]  USB-Ordner; Vorgabe der dieses Geräts, leer = USB_ROOT aus config.php
+ * Wo die Datei(en) eines Mediums USB auf diesem Gerät liegen, zum Kopieren (Explorer, Dateimanager): USB-Ordner dieses
+ * Geräts bzw. defaultUsbRoot() plus Pfad. Eine Datei als Datei, mehrere (Staffel) als ihr gemeinsamer Ordner.
+ * Trennzeichen passend zum USB-Ordner: "D:\Videos" -> "\", "/storage/emulated/0/Videos" -> "/".
+ * @param {Medium} md
+ * @returns {string}  '' ohne Dateien
  */
-function playUrl(m, episode = null, root = usbRoot()){
-  const params = new URLSearchParams({slug: m.slug});
-  if(episode !== null) params.set('episode', String(episode));
-  if(root) params.set('root', root);
-  return `api/play.php?${params}`;
+function usbPath(md){
+  const paths = md.paths || [];
+  if(!paths.length) return '';
+  let rel = paths[0];
+  if(paths.length > 1){
+    const dirs = paths.map(p => p.split('/').slice(0, -1));
+    const common = [];
+    for(let k = 0; dirs.every(d => k < d.length && d[k] === dirs[0][k]); k++) common.push(dirs[0][k]);
+    rel = common.length ? common.join('/') + '/' : '';
+  }
+  const root = (usbRoot() || defaultUsbRoot()).replace(/[\\/]+$/, '');
+  const sep = root.includes('\\') || (/^[a-z]:$/i.test(root)) ? '\\' : '/';
+  return (root ? root + sep : '') + rel.split('/').join(sep);
+}
+
+/** Android: dort liegt der interne Speicher ("Interner Speicher" in der Dateien-App). */
+const IS_ANDROID = /Android/i.test(navigator.userAgent);
+const ANDROID_STORAGE = '/storage/emulated/0';
+const ANDROID_STORAGE_NAME = 'Interner Speicher';
+
+/** Vorgabe für den USB-Ordner dieses Geräts: unter Android "Interner Speicher/Videos", sonst USB_ROOT aus config.php. */
+function defaultUsbRoot(){
+  return IS_ANDROID ? `${ANDROID_STORAGE}/Videos` : DEFAULT_USB_ROOT;
 }
 
 /**
- * Abspielen im installierten Player (playMedia()): erst den USB-Ordner dieses Geräts bestätigen bzw. ändern (leer =
- * Vorgabe aus config.php, gemerkt im Browser), dann die Wiedergabeliste mit diesem Ordner laden. Abbrechen spielt
- * nichts ab.
- * @param {HTMLElement} link  .play-btn bzw. .ep-play mit data-slug (und data-episode)
+ * Pfad zum Anzeigen: unter Android "Interner Speicher/…" statt "/storage/emulated/0/…" (kopiert wird der echte Pfad).
+ * @param {string} path
  */
-async function playWithFolder(link){
-  const m = MOVIES.find(x => x.slug === link.dataset.slug);
-  if(!m) return;
-  const value = await askText({
-    title: 'Videothek-Ordner',
-    text: `Ordner mit den Filmdateien. Darin liegt "${myFiles(m)[0] || m.slug}".`,
-    value: usbRoot() || DEFAULT_USB_ROOT,
-    ok: 'Abspielen',
-  });
-  if(value === null) return;
-  try {
-    if(value && value !== DEFAULT_USB_ROOT) localStorage.setItem(USB_ROOT_KEY, value);
-    else localStorage.removeItem(USB_ROOT_KEY);
-  } catch {
-    // Speichern nicht erlaubt (privates Fenster o. Ä.): dann nur für dieses Abspielen
-  }
-  window.location.href = playUrl(m, link.dataset.episode ? parseInt(link.dataset.episode, 10) : null, value);
+function displayPath(path){
+  return path.startsWith(ANDROID_STORAGE + '/') ? ANDROID_STORAGE_NAME + path.slice(ANDROID_STORAGE.length) : path;
 }
 
-/** Dateien, die der Browser selbst abspielt (MP4 mit H.264/H.265 und AAC); alles andere geht an den installierten Player. */
+/**
+ * Fragt nach dem USB-Ordner dieses Geräts (jeder hat seinen eigenen USB-Speicher; leer = defaultUsbRoot()) und merkt ihn
+ * im Browser. "Interner Speicher/…" wird zu "/storage/emulated/0/…". @returns {Promise<boolean>} ob bestätigt
+ */
+async function askUsbRoot(){
+  const fallback = defaultUsbRoot();
+  let value = await askText({
+    title: 'USB-Ordner auf diesem Gerät',
+    text: 'Wird vor die Pfade der Dateien gesetzt, z. B. "D:\\Videos" am Rechner oder "Interner Speicher/Videos" '
+      + `unter Android. Leer = Vorgabe${fallback ? ` (${displayPath(fallback)})` : ''}.`,
+    value: displayPath(usbRoot() || fallback),
+    ok: 'Übernehmen',
+  });
+  if(value === null) return false;
+  if(value === ANDROID_STORAGE_NAME || value.startsWith(ANDROID_STORAGE_NAME + '/')){
+    value = ANDROID_STORAGE + value.slice(ANDROID_STORAGE_NAME.length);
+  }
+  try {
+    if(value && value !== fallback) localStorage.setItem(USB_ROOT_KEY, value);
+    else localStorage.removeItem(USB_ROOT_KEY);
+  } catch {
+    // Speichern nicht erlaubt (privates Fenster o. Ä.)
+  }
+  return true;
+}
+
+/**
+ * Kopiert den Pfad (Knopf neben dem Medium USB) in die Zwischenablage, als Bestätigung kurz ein Häkchen. Ohne
+ * Zwischenablage wird der Pfad markiert (dann Strg+C).
+ * @param {HTMLElement} btn  .copy-path-btn mit data-path
+ */
+async function copyPath(btn){
+  try {
+    await navigator.clipboard.writeText(btn.dataset.path);
+  } catch {
+    const range = document.createRange();
+    range.selectNodeContents(btn.parentElement.querySelector('code'));
+    getSelection().removeAllRanges();
+    getSelection().addRange(range);
+    return;
+  }
+  btn.innerHTML = CHECK_ICON;
+  setTimeout(() => { btn.innerHTML = COPY_ICON; }, 1500);
+}
+
+/** Dateien, die der Browser selbst abspielt (MP4 mit H.264/H.265 und AAC). */
 const BROWSER_PLAYABLE = /\.(mp4|m4v)$/i;
 // IndexedDB: Freigegebener Videothek-Ordner dieses Geräts (ein Ordner-Handle lässt sich nicht in localStorage ablegen).
 const FOLDER_DB = 'videothek';
@@ -363,25 +425,29 @@ const FOLDER_STORE = 'handles';
 const FOLDER_KEY = 'usbFolder';
 
 /**
- * Abspielen (Klick auf ▶): Sind alle Dateien MP4 und kann der Browser auf lokale Ordner zugreifen (Chrome, Edge am
- * Rechner: File System Access API), läuft das Video im Browser (playInBrowser()); sonst die Wiedergabeliste für den
- * installierten Player (playWithFolder()).
- * @param {HTMLElement} link  .play-btn bzw. .ep-play mit data-slug (und data-episode)
+ * Kann dieser Browser die eigenen Dateien des Eintrags (bzw. einer Folge) selbst abspielen? Nur mit Zugriff auf lokale
+ * Ordner (Chrome, Edge am Rechner: File System Access API) und nur MP4. Sonst gibt es keinen Play-Button; der Pfad steht
+ * bei den Medien zum Kopieren (usbPath()).
+ * @param {Movie} m
+ * @param {?number} [episode]  nur diese Folge einer Staffel
  */
-async function playMedia(link){
-  const m = MOVIES.find(x => x.slug === link.dataset.slug);
-  if(!m) return;
-  const items = playItems(m, link.dataset.episode ? parseInt(link.dataset.episode, 10) : null);
-  if('showDirectoryPicker' in window && items.length && items.every(x => BROWSER_PLAYABLE.test(x.path))){
-    await playInBrowser(m, items, () => playWithFolder(link));
-  } else {
-    await playWithFolder(link);
-  }
+function canPlayInBrowser(m, episode = null){
+  const items = playItems(m, episode);
+  return 'showDirectoryPicker' in window && items.length > 0 && items.every(x => BROWSER_PLAYABLE.test(x.path));
 }
 
 /**
- * Was abgespielt wird, in Reihenfolge, wie die Wiedergabeliste von api/play.php: Film (mehrteilig: alle Teile), alle
- * Folgen einer Staffel bzw. nur eine. path ist relativ zum USB-Ordner.
+ * Abspielen (Klick auf ▶) im Player-Fenster (playInBrowser()).
+ * @param {HTMLElement} btn  .play-btn bzw. .ep-play mit data-slug (und data-episode)
+ */
+async function playMedia(btn){
+  const m = MOVIES.find(x => x.slug === btn.dataset.slug);
+  if(!m) return;
+  await playInBrowser(m, playItems(m, btn.dataset.episode ? parseInt(btn.dataset.episode, 10) : null));
+}
+
+/**
+ * Was abgespielt wird, in Reihenfolge: Film (mehrteilig: alle Teile), alle Folgen einer Staffel bzw. nur eine. path ist relativ zum USB-Ordner.
  * @param {Movie} m
  * @param {?number} episode
  * @returns {{title: string, path: string}[]}
@@ -406,10 +472,9 @@ function playItems(m, episode){
  * fehlt die Datei darin, kommt die Auswahl wieder.
  * @param {Movie} m
  * @param {{title: string, path: string}[]} items
- * @param {function(): void} fallback  installierter Player, falls der Browser die Datei nicht abspielen kann
  * @param {boolean} [pickNew]  Ordner neu wählen statt des gemerkten
  */
-async function playInBrowser(m, items, fallback, pickNew = false){
+async function playInBrowser(m, items, pickNew = false){
   let folder = pickNew ? null : await storedFolder();
   try {
     if(!folder){
@@ -424,10 +489,10 @@ async function playInBrowser(m, items, fallback, pickNew = false){
     for(const x of items){
       urls.push(URL.createObjectURL(await (await fileInFolder(folder, x.path.split('/'))).getFile()));
     }
-    showPlayer(items, urls, fallback);
+    showPlayer(items, urls);
   } catch(err){
     if(err.name === 'NotFoundError' || err.name === 'TypeMismatchError'){
-      if(!pickNew) await playInBrowser(m, items, fallback, true);
+      if(!pickNew) await playInBrowser(m, items, true);
       else alert(`Im gewählten Ordner fehlt „${items[0].path}“.`);
     } else if(err.name !== 'AbortError'){
       alert('Kein Zugriff auf die Datei: ' + err.message);
@@ -436,7 +501,7 @@ async function playInBrowser(m, items, fallback, pickNew = false){
 }
 
 /**
- * Dialog "Videothek-Ordner" wie beim installierten Player (playWithFolder()), dann die Ordnerauswahl des Browsers: Er
+ * Dialog "Videothek-Ordner", dann die Ordnerauswahl des Browsers: Er
  * lässt eine Seite nur in einen Ordner schauen, den man selbst ausgewählt hat. Liefert den Ordner bzw. null bei Abbruch.
  * @param {Movie} m
  * @returns {Promise<?FileSystemDirectoryHandle>}
@@ -498,20 +563,19 @@ async function storeFolder(folder){
 
 /**
  * Player-Fenster: spielt die Dateien nacheinander (mehrteilige Filme, alle Folgen einer Staffel). Schließen (×,
- * Escape) beendet die Wiedergabe. Kann der Browser eine Datei nicht abspielen (etwa ein Format, das er nicht kennt),
- * bietet er den installierten Player an.
+ * Escape) beendet die Wiedergabe. Kann der Browser eine Datei nicht abspielen (etwa einen Codec, den er nicht kennt),
+ * steht das darunter; dann den Pfad bei den Medien kopieren und die Datei im installierten Player öffnen.
  * @param {{title: string}[]} items
  * @param {string[]} urls  Blob-URLs zu items
- * @param {function(): void} fallback
  */
-function showPlayer(items, urls, fallback){
+function showPlayer(items, urls){
   const dialog = document.createElement('dialog');
   dialog.className = 'player-dialog';
   dialog.innerHTML = `<button class="dialog-close" type="button" aria-label="Schließen">&times;</button>
     <h3></h3>
     <video controls playsinline></video>
-    <p class="player-error" hidden>Diese Datei kann der Browser nicht abspielen.
-      <button class="btn btn-small" type="button">Im installierten Player öffnen</button></p>`;
+    <p class="player-error" hidden>Diese Datei kann der Browser nicht abspielen. Den Pfad bei den Medien kopieren und
+      im installierten Player öffnen.</p>`;
   const video = dialog.querySelector('video');
   const heading = dialog.querySelector('h3');
   const error = dialog.querySelector('.player-error');
@@ -529,10 +593,6 @@ function showPlayer(items, urls, fallback){
     }
   });
   video.addEventListener('error', () => { error.hidden = false; });
-  error.querySelector('button').addEventListener('click', () => {
-    dialog.close();
-    fallback();
-  });
   // Escape schließt nur den Player, nicht auch die Detailansicht darunter (keydown-Handler am document).
   dialog.addEventListener('keydown', e => { if(e.key === 'Escape') e.stopPropagation(); });
   dialog.querySelector('.dialog-close').addEventListener('click', () => dialog.close());
@@ -672,11 +732,6 @@ function episodeFiles(files, season, episode){
   }
   const pos = season.episodes.findIndex(e => e.number === episode);
   return pos >= 0 && files[pos] ? [files[pos]] : [];
-}
-
-/** Hat der angemeldete Benutzer den Film bzw. die Staffel als Datei (mit eingetragenen Dateien)? @param {Movie} m */
-function isPlayable(m){
-  return myFiles(m).length > 0;
 }
 
 /**
@@ -1204,10 +1259,10 @@ function knownValues(valuesOf){
  * https://learn.microsoft.com/en-us/answers/questions/5583325/datalist-tag-not-properly-rendered-on-microsoft-ed
  */
 function refreshFilters(){
-  const fill = (select, valuesOf, allLabel, extra = [], labelOf = v => v, first = []) => {
+  const fill = (select, valuesOf, allLabel, extra = [], labelOf = v => v, first = [], after = {}) => {
     const values = knownValues(valuesOf);
     const current = select.value;
-    const options = [...first, ...values.map(v => [v, labelOf(v)]), ...extra];
+    const options = [...first, ...values.flatMap(v => [[v, labelOf(v)], ...(after[v] || [])]), ...extra];
     select.innerHTML = `<option value="">${allLabel}</option>` + options.map(([v, label]) => `<option value="${escapeHtml(v)}">${escapeHtml(label)}</option>`).join('');
     select.value = options.some(([v]) => v === current) ? current : '';
     return options.length;
@@ -1215,7 +1270,10 @@ function refreshFilters(){
   fill(genreSel, m => m.genres, 'Alle Genres');
   // "Blu-ray und DVD" direkt unter "Alle Medien", wenn es beides gibt
   const hasDiscs = DISC_MEDIA.every(type => MOVIES.some(m => mediaOf(m).includes(type)));
-  fill(mediumSel, mediaOf, 'Alle Medien', [], undefined, hasDiscs ? [[DISCS, DISC_MEDIA.join(' und ')]] : []);
+  // Qualitätsstufen unter "USB", nur die vorkommenden
+  const qualities = new Set(MOVIES.flatMap(m => m.media.map(usbQuality)));
+  fill(mediumSel, mediaOf, 'Alle Medien', [], undefined, hasDiscs ? [[DISCS, DISC_MEDIA.join(' und ')]] : [],
+    {USB: USB_QUALITY.filter(([v]) => qualities.has(v))});
   refreshTypeFilter();
   refreshPersonFilter();
 }
@@ -1353,7 +1411,8 @@ function renderGrid(){
   }
   // Medium und Person zusammen: "Blu-ray" + "Lilies Bestand" = Lilies Blu-rays, nicht irgendeine Blu-ray bei Lilies
   // Filmen; "DVD" + "Lilli hat von Frank" = Franks DVDs bei Lilli.
-  const mediumFits = md => !medium || (medium === DISCS ? DISC_MEDIA.includes(md.type) : md.type === medium);
+  const mediumFits = md => !medium || (medium === DISCS ? DISC_MEDIA.includes(md.type)
+    : medium.startsWith(' usb-') ? usbQuality(md) === medium : md.type === medium);
   const personFits = (m, md) => !person
     || (person.kind === 'owner' ? md.owner === person.login
       : (!person.owner || md.owner === person.owner) && locationOf(m, md) && holderOf(locationOf(m, md).at) === person.at);
@@ -1727,7 +1786,8 @@ function sinceText(iso){
 /**
  * Ein Medium in der Detailansicht. Scheiben beim Eigentümer: "Lilies DVD" mit dem Link "ausleihen" (fragt, an wen,
  * siehe lendMedium()); verliehen: "Lilies DVD hat Thomas seit 48 Tagen" mit Undo-Symbol (zurückgegeben), Datum und wer
- * es eingetragen hat als Tooltip. Im Ausdruck fehlen die Links. Dateien ohne beides.
+ * es eingetragen hat als Tooltip. Im Ausdruck fehlen die Links. Dateien ohne beides, dafür Bild, Ton und darunter der
+ * Pfad auf diesem Gerät (usbPath()) mit Knöpfen zum Kopieren und zum Ändern des USB-Ordners.
  * @param {Movie} m
  * @param {Medium} md
  */
@@ -1735,9 +1795,17 @@ function mediumItemHtml(m, md){
   const label = escapeHtml(mediumLabel(md));
   if(isDigital(md.type)){
     const q = md.video ? videoQuality(md.video) : null;
+    const grade = mediumQuality(md);
     const audio = md.audio ? audioText(md.audio) : '';
-    return `<li>${label}${q ? ` <span class="video-quality q-${q.grade}" title="${escapeHtml(q.why)}">Bild ${q.verdict} · ${escapeHtml(q.facts)}</span>` : ''}`
-      + `${audio ? ` <span class="audio-info">· Ton ${escapeHtml(audio)}</span>` : ''}</li>`;
+    const path = usbPath(md);
+    const own = md.quality ? `Eigene Einschätzung${q ? `, automatisch: ${QUALITY_WORDS[q.grade]}` : ''}` : null;
+    const hint = [own, q?.why, audio ? `Ton: ${audio}` : null].filter(Boolean).join('\n');
+    const text = [q?.facts, `(${QUALITY_WORDS[grade]})`].filter(Boolean).join(' ');
+    return `<li>${label}${grade !== null ? ` <span class="video-quality q-${grade}" title="${escapeHtml(hint)}">${escapeHtml(text)}</span>` : ''}`
+      + (path ? `<span class="usb-path"><code title="${escapeHtml(path)}">${escapeHtml(displayPath(path))}</code>`
+        + `<button class="icon-btn copy-path-btn screen-only" type="button" data-path="${escapeHtml(path)}" title="Pfad kopieren" aria-label="Pfad kopieren">${COPY_ICON}</button>`
+        + `<button class="icon-btn usb-root-btn screen-only" type="button" title="USB-Ordner auf diesem Gerät ändern" aria-label="USB-Ordner auf diesem Gerät ändern">${EDIT_ICON}</button></span>` : '')
+      + '</li>';
   }
   const data = `data-owner="${escapeHtml(md.owner)}" data-type="${escapeHtml(md.type)}"`;
   const loc = locationOf(m, md);
@@ -1763,6 +1831,27 @@ const CODEC_EFFICIENCY = {mpeg1video: 3, mpeg2video: 2.5, msmpeg4v3: 1.8, mpeg4:
 const AUDIO_LANGS = {ger: 'Deutsch', deu: 'Deutsch', de: 'Deutsch', eng: 'Englisch', en: 'Englisch', fre: 'Französisch', fra: 'Französisch', spa: 'Spanisch', ita: 'Italienisch'};
 const AUDIO_CODECS = {mp3: 'MP3', mp2: 'MP2', ac3: 'AC-3', eac3: 'E-AC-3', dts: 'DTS', aac: 'AAC', vorbis: 'Vorbis', opus: 'Opus', flac: 'FLAC', truehd: 'TrueHD', pcm_s16le: 'PCM'};
 
+/**
+ * Qualitätsstufe eines USB-Mediums für die Medium-Auswahl (USB_QUALITY) nach videoQuality(): gut, mittel ("so lala"),
+ * schlecht; null ohne Angaben zum Bild. @param {Medium} md @returns {?string}
+ */
+function usbQuality(md){
+  const grade = md.type === 'USB' ? mediumQuality(md) : null;
+  return grade === null ? null : [' usb-bad', ' usb-fair', ' usb-good'][grade];
+}
+
+/** Werte von Medium.quality => grade wie bei videoQuality(). */
+const QUALITY_GRADES = {schlecht: 0, mittel: 1, gut: 2};
+
+/**
+ * Urteil zum Bild eines Mediums: die eigene Einschätzung (Medium.quality), sonst videoQuality(); null ohne beides.
+ * @param {Medium} md @returns {?number}  2 = gut, 1 = mittel, 0 = schlecht
+ */
+function mediumQuality(md){
+  if(md.quality && Object.hasOwn(QUALITY_GRADES, md.quality)) return QUALITY_GRADES[md.quality];
+  return md.video ? videoQuality(md.video).grade : null;
+}
+
 /** Ton einer Datei als Text: "Deutsch, 5.1, AC-3 448 kbit/s" (ohne Beurteilung). @param {AudioInfo} a */
 function audioText(a){
   const channels = {1: 'Mono', 2: 'Stereo', 6: '5.1', 8: '7.1'}[a.channels] || (a.channels ? `${a.channels} Kanäle` : null);
@@ -1772,28 +1861,37 @@ function audioText(a){
 
 /**
  * Beurteilt das Bild einer Datei aus ihren technischen Angaben (Medium.video), zwei Kriterien, das Schlechtere zählt:
- *   Auflösung: Breite in quadratischen Bildpunkten, bei Breitbild (Kinoformat-Streifen) mindestens Höhe × 16/9;
- *     ab 1100 HD und besser (gut), ab 640 SD wie DVD (mittel), darunter schlecht
+ *   Auflösung: Bildpunkte (Breite in quadratischen Pixeln × Höhe); ab 640.000 HD und besser (gut, z. B. 1280×536),
+ *     ab 155.000 SD (mittel, z. B. 624×256), darunter schlecht (z. B. 592×240, 448×336). Nach den Bildpunkten, nicht
+ *     der Breite: Bei gleicher Breite wirkt ein flacheres Bild (592×240 statt 592×320) deutlich schlechter.
  *   Kompression: Video-Bitrate je Bildpunkt und Bild, umgerechnet auf H.264 (CODEC_EFFICIENCY); ab 0,08 gut, ab 0,05
  *     mittel, darunter schlecht (sichtbare Blöcke, verwaschene Flächen). Ohne Bitrate zählt nur die Auflösung.
  * @param {VideoInfo} v
- * @returns {{grade: number, verdict: string, facts: string, why: string}}  grade 2 = gut, 1 = mittel, 0 = schlecht
+ * @returns {{grade: number, verdict: string, facts: string, why: string}}  grade 2 = gut, 1 = mittel, 0 = schlecht;
+ *   facts z. B. "SD 640×272", why die Gründe und Angaben der Datei (für den Tooltip)
  */
 function videoQuality(v){
   const [sn, sd] = (v.sar || '1:1').split(':').map(Number);
-  const width = Math.round(v.width * (sn > 0 && sd > 0 ? sn / sd : 1));
-  const eqWidth = Math.max(width, Math.round(v.height * 16 / 9));
-  const resolution = eqWidth >= 3200 ? 'UHD' : eqWidth >= 1700 ? 'Full HD' : eqWidth >= 1100 ? 'HD' : eqWidth >= 640 ? 'SD' : 'unter SD';
-  const resGrade = eqWidth >= 1100 ? 2 : eqWidth >= 640 ? 1 : 0;
+  const sar = sn > 0 && sd > 0 ? sn / sd : 1;
+  // Fast quadratische Pixel (z. B. 1215:1216) als quadratisch, sonst stünde 639×270 statt 640×270 da
+  const width = Math.round(v.width * (Math.abs(sar - 1) < 0.01 ? 1 : sar));
+  const pixels = width * v.height;
+  const resolution = pixels >= 5e6 ? 'UHD' : pixels >= 1.3e6 ? 'Full HD' : pixels >= 640000 ? 'HD' : pixels >= 155000 ? 'SD' : 'unter SD';
+  const resGrade = pixels >= 640000 ? 2 : pixels >= 155000 ? 1 : 0;
   const bpp = v.kbps && v.fps ? v.kbps * 1000 / (v.width * v.height * v.fps) / (CODEC_EFFICIENCY[v.codec] || 1.5) : null;
   const compGrade = bpp === null ? 2 : bpp >= 0.08 ? 2 : bpp >= 0.05 ? 1 : 0;
   const grade = Math.min(resGrade, compGrade);
   const mbit = v.kbps ? `${(v.kbps / 1000).toLocaleString('de-DE', {maximumFractionDigits: 2})} Mbit/s` : null;
-  const facts = [`${resolution} ${width}×${v.height}`, [CODEC_NAMES[v.codec] || v.codec, mbit].filter(Boolean).join(' ')].join(' · ');
-  const why = [`Auflösung: ${resolution} (${['schlecht', 'mittel', 'gut'][resGrade]})`,
-    bpp === null ? 'Kompression: unbekannt' : `Kompression: ${bpp.toLocaleString('de-DE', {maximumFractionDigits: 3})} Bit je Bildpunkt (${['schlecht', 'mittel', 'gut'][compGrade]})`,
-    `Datei: ${v.width}×${v.height}${v.sar !== '1:1' ? ` (Pixel ${v.sar})` : ''}${v.fps ? `, ${v.fps.toLocaleString('de-DE')} fps` : ''}`].join('\n');
-  return {grade, verdict: ['schlecht', 'mittel', 'gut'][grade], facts, why};
+  const facts = `${resolution} ${width}×${v.height}`;
+  const grades = ['schlecht', 'mittel', 'gut'];
+  // Gespeicherte Größe nur, wenn sie von der angezeigten abweicht (nicht quadratische Pixel, z. B. DVD 720×576 als 16:9)
+  const stored = width !== v.width ? `, gespeichert ${v.width}×${v.height} mit Pixeln ${v.sar}` : '';
+  const encoding = [CODEC_NAMES[v.codec] || v.codec, mbit, v.fps ? `${v.fps.toLocaleString('de-DE', {maximumFractionDigits: 2})} fps` : null]
+    .filter(Boolean).join(', ');
+  const why = [`Auflösung: ${facts} (${grades[resGrade]})${stored}`,
+    bpp === null ? `Kompression: unbekannt (${encoding})`
+      : `Kompression: ${bpp.toLocaleString('de-DE', {maximumFractionDigits: 3})} Bit je Bildpunkt (${grades[compGrade]}) bei ${encoding}`].join('\n');
+  return {grade, verdict: grades[grade], facts, why};
 }
 
 /**
@@ -1830,16 +1928,15 @@ async function lendMedium(btn){
 }
 
 /**
- * Folgen einer Staffel; hat der angemeldete Benutzer sie als Datei, je Folge ein Button zum Abspielen. Die Handlung
+ * Folgen einer Staffel; kann der Browser die eigene Datei abspielen (canPlayInBrowser()), je Folge ein Button dazu. Die Handlung
  * ist zugeklappt, ein Klick auf den Titel (mit Pfeil ▸/▾) zeigt sie (Handler am #sheet).
  * @param {Movie} m
  */
 function episodesHtml(m){
   if(!m.episodes.length) return '';
-  const files = myFiles(m);
   const items = m.episodes.map(e => {
-    const play = episodeFiles(files, m, e.number).length
-      ? `<a class="ep-play screen-only" href="${escapeHtml(playUrl(m, e.number))}" data-slug="${escapeHtml(m.slug)}" data-episode="${e.number}" title="Folge abspielen" aria-label="Folge ${e.number} abspielen">&#9654;</a>`
+    const play = canPlayInBrowser(m, e.number)
+      ? `<button class="ep-play screen-only" type="button" data-slug="${escapeHtml(m.slug)}" data-episode="${e.number}" title="Folge abspielen" aria-label="Folge ${e.number} abspielen">&#9654;</button>`
       : '';
     return `<li>
       <span class="ep-no">${e.number}</span>
@@ -1864,7 +1961,7 @@ function openMovie(idx){
     ${fanart ? `<div class="fanart" style="background-image:url('${escapeHtml(fanart)}')"></div>` : ''}
     <button class="close" id="closeBtn" aria-label="Schließen">&times;</button>
     <div class="btn-row toolbar">
-      ${isPlayable(m) ? `<a class="btn btn-primary play-btn" href="${escapeHtml(playUrl(m))}" data-slug="${escapeHtml(m.slug)}" title="${isSeason(m) ? 'Spielt alle Folgen der Staffel ab' : 'Spielt die Filmdatei ab'}">&#9654; ${isSeason(m) ? 'Alle Folgen abspielen' : 'Abspielen'}</a>` : ''}
+      ${canPlayInBrowser(m) ? `<button class="btn btn-primary play-btn" type="button" data-slug="${escapeHtml(m.slug)}" title="${isSeason(m) ? 'Spielt alle Folgen der Staffel ab' : 'Spielt die Filmdatei ab'}">&#9654; ${isSeason(m) ? 'Alle Folgen abspielen' : 'Abspielen'}</button>` : ''}
       <button class="btn" id="printBtn" type="button">Drucken</button>
       <button class="btn" id="editBtn" type="button">Bearbeiten</button>
       <button class="btn btn-danger" id="deleteBtn" type="button">Löschen</button>
@@ -2220,7 +2317,8 @@ function formType(){
 
 /**
  * Eine Zeile im Formular je Medium: Eigentümer, Art (feste plus alle schon verwendeten), "×"; bei Dateien (USB)
- * darunter die Dateien relativ zum USB-Ordner und aufklappbar die Konvention für Dateinamen.
+ * darunter die Dateien relativ zum USB-Ordner, aufklappbar die Konvention für Dateinamen und die Bildqualität
+ * (automatisch = videoQuality(), sonst eigene Einschätzung, Medium.quality).
  * @param {Medium} md
  * @param {?string} slug  Slug des Eintrags für den Vorschlag (suggestFiles()); null bei einem neuen
  */
@@ -2229,13 +2327,19 @@ function mediumRowHtml(md, slug){
   const types = [...new Set([...MEDIUM_OPTIONS, ...knownValues(mediaOf), md.type])];
   const option = (value, label, selected) => `<option value="${escapeHtml(value)}"${selected ? ' selected' : ''}>${escapeHtml(label)}</option>`;
   const files = isDigital(md.type) ? md.paths || [] : [];
+  const auto = md.video ? videoQuality(md.video).grade : null; // ohne eigene Einschätzung
   return `<div class="medium-row" data-slug="${escapeHtml(slug || '')}">
     <select class="medium-owner" aria-label="Eigentümer">${owners.map(o => option(o, ownerName(o), o === md.owner)).join('')}</select>
     <select class="medium-type" aria-label="Art">${types.map(t => option(t, t, t === md.type)).join('')}</select>
     <button class="btn btn-small medium-remove" type="button" title="Medium entfernen" aria-label="Medium entfernen">&times;</button>
     <div class="form-field files-field"${isDigital(md.type) ? '' : ' hidden'}>
-      <span class="label">Dateien auf dem USB-Speicher</span>
-      <textarea class="files-input" rows="2" aria-label="Dateien" placeholder="z. B. bruchreif/bruchreif-2009.mp4">${escapeHtml(files.join('\n'))}</textarea>
+      <div class="files-grid">
+        <span class="label">Dateien auf dem USB-Speicher</span>
+        <span class="label">Qualität</span>
+        <textarea class="files-input" rows="${filesRows(files.length)}" wrap="off" aria-label="Dateien" placeholder="z. B. bruchreif/bruchreif-2009.mp4">${escapeHtml(files.join('\n'))}</textarea>
+        <select class="medium-quality" aria-label="Qualität">${option('', auto === null ? 'automatisch' : `automatisch (${QUALITY_WORDS[auto]})`, !md.quality)}${
+          Object.entries(QUALITY_GRADES).reverse().map(([v, g]) => option(v, QUALITY_WORDS[g], v === md.quality)).join('')}</select>
+      </div>
       <div class="hint">Datei relativ zum Videothek-Ordner.</div>
       <details class="hint files-help">
         <summary>Konvention:</summary>
@@ -2354,12 +2458,19 @@ function suggestFiles(row){
   if(formType() !== 'season'){
     const folder = slugify(value('collectionInput')) || slugify(value('titleInput')) || slug;
     filesInput.value = `${folder}/${slug}.mp4`;
+    filesInput.rows = filesRows(1);
     return;
   }
   const series = slugify(value('seriesInput')) || slug;
   const season = /^\d+$/.test(value('seasonInput')) ? `s${pad2(parseInt(value('seasonInput'), 10))}` : '';
   const episodes = parseEpisodesText(document.getElementById('episodesInput').value).episodes.map(e => e.number);
   filesInput.value = (episodes.length ? episodes : [1]).map(e => `${series}/${slug}/${series}-${season}e${pad2(e)}.mp4`).join('\n');
+  filesInput.rows = filesRows(filesInput.value.split('\n').length);
+}
+
+/** Höhe des Datei-Felds: eine Zeile je Datei, höchstens 8 (mehr per Scrollen). @param {number} count */
+function filesRows(count){
+  return Math.min(Math.max(count, 1), 8);
 }
 
 /** Wie slugify() in api/lib/slug.php: Umlaute und Akzente umschreiben, klein, alles außer a-z0-9 wird "-". */
@@ -2381,7 +2492,8 @@ function completeExtensions(textarea){
 function formMedia(){
   return [...document.querySelectorAll('#mediaRows .medium-row')].map(row => {
     const md = {owner: row.querySelector('.medium-owner').value, type: row.querySelector('.medium-type').value};
-    return isDigital(md.type) ? {...md, paths: textLines(row.querySelector('.files-input').value)} : md;
+    const quality = row.querySelector('.medium-quality').value;
+    return isDigital(md.type) ? {...md, paths: textLines(row.querySelector('.files-input').value), ...(quality ? {quality} : {})} : md;
   });
 }
 
@@ -2648,12 +2760,22 @@ sheet.addEventListener('click', e => {
     toggle.closest('li').querySelector('.ep-plot').hidden = !open;
     return;
   }
-  // Abspielen: erst den USB-Ordner dieses Geräts bestätigen bzw. ändern (leer = Vorgabe aus config.php, gemerkt im
-  // Browser), dann die Wiedergabeliste mit diesem Ordner laden. Abbrechen spielt nichts ab.
+  // Abspielen im Player-Fenster
   const play = e.target.closest('.play-btn, .ep-play');
   if(play){
-    e.preventDefault();
     void playMedia(play);
+    return;
+  }
+  // Pfad einer Datei kopieren bzw. den USB-Ordner dieses Geräts ändern (zeigt die Pfade danach neu an)
+  const copy = e.target.closest('.copy-path-btn');
+  if(copy){
+    void copyPath(copy);
+    return;
+  }
+  const rootBtn = e.target.closest('.usb-root-btn');
+  if(rootBtn){
+    const slug = rootBtn.closest('.media-list').dataset.slug;
+    void askUsbRoot().then(ok => { if(ok) openMovie(MOVIES.findIndex(x => x.slug === slug)); });
     return;
   }
   // Medien: "ausleihen" bzw. zurückgegeben (Undo-Symbol)

@@ -39,6 +39,12 @@ const TYPE_SERIES = 'series';
 const DIGITAL_MEDIA = ['USB'];
 
 /**
+ * Eigene Einschätzung des Bilds bei DIGITAL_MEDIA ("quality" am Medium); hat in der App Vorrang vor der Beurteilung aus
+ * "video" (app.js: mediumQuality()). Fehlt sie, beurteilt die App automatisch.
+ */
+const MEDIA_QUALITY = ['gut', 'mittel', 'schlecht'];
+
+/**
  * Felder, die nur eine der beiden Arten hat. Wechselt ein Eintrag die Art, fallen die Felder der anderen Art beim
  * Speichern weg.
  */
@@ -444,7 +450,7 @@ function validate_episodes_input(mixed $episodes): array
 /**
  * Dateien eines Mediums USB relativ zum USB-Ordner, z. B. ["hangover/hangover-2009.mp4"]; bei mehrteiligen Filmen
  * mehrere in Abspielreihenfolge, bei Staffeln die Folgen. Die Struktur ist frei; der Vorschlag fürs Formular und für
- * `bin/fix_usb_mp4.php` macht `usb_base_path()`. Gespeichert immer mit "/" (play.php wandelt für Windows um).
+ * `bin/fix_usb_mp4.php` macht `usb_base_path()`. Gespeichert immer mit "/" (app.js: usbPath() wandelt für Windows um).
  * @return string[]
  */
 function normalize_media_paths(array $paths): array
@@ -498,7 +504,8 @@ function normalize_media(array $media): array
         }
         $result[$key] = in_array($type, DIGITAL_MEDIA, true)
             ? ['owner' => $owner, 'type' => $type, 'paths' => normalize_media_paths($m['paths'] ?? [])]
-                + array_filter(['video' => normalize_video($m['video'] ?? null), 'audio' => normalize_audio($m['audio'] ?? null)])
+                + array_filter(['video' => normalize_video($m['video'] ?? null), 'audio' => normalize_audio($m['audio'] ?? null),
+                    'quality' => in_array($m['quality'] ?? null, MEDIA_QUALITY, true) ? $m['quality'] : null])
             : ['owner' => $owner, 'type' => $type];
     }
     return array_values($result);

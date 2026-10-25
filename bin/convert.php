@@ -34,6 +34,10 @@
  * Fortschritt: Jede erledigte Aufgabe wird in <dst>\convert-log.jsonl festgehalten (mit Größe und Änderungsdatum
  * der Quelle). Nach einem Abbruch (Strg+C, Neustart) einfach erneut starten: Erledigtes wird übersprungen, die
  * unterbrochene Datei (*.part) neu begonnen. Fehlgeschlagene Aufgaben werden beim nächsten Lauf erneut versucht.
+ *
+ * Weicht die Dauer des Ergebnisses von der Quelle ab (mehr als 2 %, mind. 10 s), wird es trotzdem abgelegt und als
+ * Warnung gemeldet (direkt, in der Zusammenfassung am Ende und als "warning" im Log). Meist stimmt dann schon die
+ * Dauer im Kopf der Quelle nicht, z. B. bei einer abgebrochenen Datei oder AVI mit MP3 in variabler Bitrate.
  */
 
 if (isset($_SERVER['REQUEST_METHOD'])) {
@@ -722,21 +726,29 @@ function build_concat_filter(array $job, string $out): array
     return $args;
 }
 
-/** Ergebnis prüfen: Dauer muss zur Quelle passen. */
-function verify(string $file, float $dur): ?string
+const VERIFY_OK = 'ok';
+const VERIFY_UNREADABLE = 'unreadable';
+const VERIFY_DURATION = 'duration';
+
+/**
+ * Ergebnis prüfen: lesbar, und passt die Dauer zur Quelle?
+ * @returns array{string, string} [Code (VERIFY_*), Meldung]
+ */
+function verify(string $file, float $dur): array
 {
     $p = probe($file);
     if ($p === null || video_stream($p) === null) {
-        return 'Ergebnis nicht lesbar';
+        return [VERIFY_UNREADABLE, 'Ergebnis nicht lesbar'];
     }
     $d = duration($p);
     if ($dur > 0 && abs($d - $dur) > max(10, $dur * 0.02)) {
-        return sprintf('Dauer passt nicht: %s statt %s', fmt_time($d), fmt_time($dur));
+        return [VERIFY_DURATION, sprintf('Dauer passt nicht: %s statt %s', fmt_time($d), fmt_time($dur))];
     }
-    return null;
+    return [VERIFY_OK, ''];
 }
 
 $ok = $failed = 0;
+$warnings = [];
 foreach ($plan as $idx => $job) {
     $current = ['start' => microtime(true)];
     $out = $DST . '\\' . $job['dstRel'];
@@ -748,7 +760,7 @@ foreach ($plan as $idx => $job) {
     @unlink($tmp);
     show_progress($idx, 0);
 
-    $error = null;
+    $error = $warning = null;
     $subFiles = [];
     $how = $job['mode'];
     if ($job['mode'] === 'copy') {
@@ -777,8 +789,12 @@ foreach ($plan as $idx => $job) {
             [$success, $err] = run_ffmpeg(build_concat_demuxer($job, $tmp, $list), $idx, $job['dur']);
             @unlink($list);
             $how .= '+concat';
-            if ($success && ($e = verify($tmp, $job['dur']))) {
-                [$success, $err] = [false, $e];
+            // Abweichende Dauer: Teile passen doch nicht zusammen, dann lieber über den concat-Filter neu kodieren
+            if ($success) {
+                [$code, $msg] = verify($tmp, $job['dur']);
+                if ($code !== VERIFY_OK) {
+                    [$success, $err] = [false, $msg];
+                }
             }
         }
         if (!$success) {
@@ -793,7 +809,12 @@ foreach ($plan as $idx => $job) {
         $error = $success ? null : ($err ?: 'ffmpeg fehlgeschlagen');
     }
     if ($error === null && $job['mode'] !== 'copy') {
-        $error = verify($tmp, $job['dur']);
+        [$code, $msg] = verify($tmp, $job['dur']);
+        if ($code === VERIFY_UNREADABLE) {
+            $error = $msg;
+        } elseif ($code === VERIFY_DURATION) {
+            $warning = $msg;
+        }
     }
 
     $wall = microtime(true) - $current['start'];
@@ -818,8 +839,13 @@ foreach ($plan as $idx => $job) {
         $stats[$job['mode']][0] += $job['cost'];
         $stats[$job['mode']][1] += $wall;
         log_entry(['status' => 'done', 'dst' => $job['dstRel'], 'src' => array_map('rel', $job['files']), 'sig' => $job['sig'],
-            'mode' => $job['mode'], 'how' => $how, 'bytes' => $job['bytes'], 'size' => filesize($out), 'cost' => $job['cost'], 'wall' => round($wall, 1)]);
+            'mode' => $job['mode'], 'how' => $how, 'bytes' => $job['bytes'], 'size' => filesize($out), 'cost' => $job['cost'], 'wall' => round($wall, 1)]
+            + ($warning ? ['warning' => $warning] : []));
         println(done_line($job['dstRel'], $how, $job['bytes'], filesize($out), $wall));
+        if ($warning) {
+            $warnings[] = "{$job['dstRel']}: $warning";
+            println("  ⚠ {$job['dstRel']}: $warning – trotzdem abgelegt, bitte prüfen");
+        }
     } else {
         $failed++;
         @unlink($tmp);
@@ -850,4 +876,7 @@ foreach ($others as $f) {
 
 println(sprintf("Fertig in %s: %d erfolgreich, %d fehlgeschlagen, %d schon erledigt, %d weitere Dateien kopiert. Log: %s",
     fmt_time(microtime(true) - $startAll), $ok, $failed, $skipped, $copiedOthers, $LOG));
+if ($warnings) {
+    println(count($warnings) . " mit abweichender Dauer (abgelegt, bitte prüfen):\n  " . implode("\n  ", $warnings));
+}
 exit($failed > 0 ? 2 : 0);

@@ -2,16 +2,13 @@
 
 // Vorlage für config.php
 
-// Ordner, in dem alle Filmdaten liegen. Bewusst außerhalb von public/ (= außerhalb des
-// Document Root), damit der Browser nicht direkt darauf zugreifen kann. Der Zugriff läuft
-// ausschließlich über die API (api/movies.php, api/image.php).
+// Daten-Ordner. Der Zugriff läuft ausschließlich über die API.
 const DATA_DIR = __DIR__ . '/data';
 
-// Ein Unterordner pro Film: MOVIES_DIR/<slug>/movie.json, image.<ext> (Cover), thumb.<ext>
+// Unterordner für Filmdateien (inkl. Serien)
 const MOVIES_DIR = DATA_DIR . '/movies';
 
-// Muss im Header X-API-Token mitgeschickt werden, damit POST/PUT/DELETE auf movies.php
-// und der Upload auf upload.php akzeptiert werden. GET bleibt ohne Token offen.
+// Muss im Header X-API-Token mitgeschickt werden, wenn Daten geändert werden.
 const API_TOKEN = 'CHANGE_ME';
 
 // Zielmaße für automatisch generierte Thumbnails (Center-Crop im Hochformat 2:3 wie ein Filmplakat,
@@ -39,7 +36,8 @@ const TMDB_API_KEY = 'f090bb54758cabf231fb605d3e3e0468';
 // Das Land für die Altersfreigabe (hier: DE -> FSK) wird daraus abgeleitet.
 const TMDB_LANGUAGE = 'de-DE';
 
-// Vorgabe für den lokalen Ordner mit den Filmdateien für Medium "USB" (USB-Platte/-Stick).
+// Vorgabe für den lokalen Ordner mit den Filmdateien für Medium "USB" (USB-Platte/-Stick): steht in der Detailansicht
+// vor dem Pfad der Datei; jedes Gerät kann ihn ändern.
 const USB_ROOT = 'D:\Videos';
 
 // Websuche für den Barcode-Scan beim Import (api/lib/ean.php)

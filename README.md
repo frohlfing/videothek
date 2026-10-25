@@ -189,8 +189,11 @@ videothek/                            # Projektroot
  ├── bin/                             # Skripte für die Kommandozeile (lokal, php bin/…)
  │    ├── account.php                 # Benutzer lokal anlegen, ändern, entfernen (.htpasswd, users.json)
  │    ├── build_convert_portable.cmd  # convert.php samt PHP und ffmpeg als Paket für einen zweiten Rechner (<Zielordner>)
- │    ├── convert.php                 # Filme des USB-Speichers in browsertaugliches MP4 umwandeln (ffmpeg)
- │    └── remote.php                  # Abgleich mit dem Server: --download-data, --upload-data, --upload-account
+ │    ├── build_usb_convert_portable.cmd # usb_convert.php samt PHP, ffmpeg und api/lib als Paket (<Zielordner>)
+ │    ├── convert.php                 # erste Umstellung: Filme des USB-Speichers in MP4 umwandeln (ffmpeg)
+ │    ├── fix_usb_mp4.php             # erste Umstellung: umgewandelte Dateien einsortieren, taggen, eintragen
+ │    ├── remote.php                  # Abgleich mit dem Server: --download-data, --upload-data, --upload-account
+ │    └── usb_convert.php             # neue Platte aufnehmen: je Film umwandeln, taggen, ablegen, eintragen
  ├── public/                          # Document Root
  │    ├── api/                        # API-Endpunkte
  │    │    └── lib/                   # Gemeinsam genutzte Hilfsfunktionen der API-Endpunkte
@@ -216,8 +219,8 @@ videothek/                            # Projektroot
  │    │    ├── image.php              # Liefert Poster, Thumbnail, Hintergrundbild, Darstellerfoto
  │    │    ├── import.php             # Film oder Serie (je Staffel ein Eintrag) aus TMDB importieren
  │    │    ├── locations.php          # Standorte der Scheiben lesen und setzen (Ausleihe)
+ │    │    ├── media.php              # Pfade, Bild und Ton eines USB-Mediums setzen (für bin/usb_convert.php)
  │    │    ├── movies.php             # Filme und Staffeln lesen, anlegen, bearbeiten, löschen
- │    │    ├── play.php               # Play-Button: Wiedergabeliste (.m3u) mit den lokalen Dateipfaden
  │    │    ├── ratings.php            # Bewertungen lesen und setzen
  │    │    ├── search.php             # Suche nach Filmen und Serien in TMDB (Titel, IMDb-ID, Barcode)
  │    │    ├── upload.php             # Poster-/Hintergrundbild-Upload, zum Poster inkl. Thumbnail
@@ -274,10 +277,10 @@ selbst mit abdeckt. Ausnahme: `dev/sync.php` verlangt das Token auch zum Lesen.
 | GET          | `/api/image.php?slug=xyz&actor=Sean%20Astin`         | Darstellerfoto ausliefern                                                                                                                                                          |
 | GET          | `/api/search.php?query=…&year=…`                     | Suche nach Filmen und Serien in TMDB (Titel, IMDb-ID oder EAN, Jahr optional), markiert bereits vorhandene                                                                         |
 | POST         | `/api/import.php`                                    | Film bzw. Serie (je Staffel ein Eintrag) aus TMDB importieren inkl. Bilder (Body: `{"tmdb": 9340, "type": "movie"}`, Serie: `{"tmdb": 1396, "type": "series", "seasons": [1, 2]}`) |
-| GET          | `/api/play.php?slug=xyz[&episode=3][&root=D:\…]`     | Wiedergabeliste (`.m3u`) mit den eigenen Dateien (`<root>/<Pfad>`, ohne `root`: USB_ROOT)     für den lokalen Player: Film, alle Folgen einer Staffel bzw. eine Folge              |
 | GET          | `/api/users.php`                                     | Angemeldeter Benutzer (`me`), alle Benutzer mit Anzeigenamen, Vorgabe für den USB-Ordner                                                                                           |
 | GET          | `/api/locations.php`                                 | Standorte aller Scheiben, die nicht beim Eigentümer sind (`data/locations.json`)                                                                                                   |
 | PUT          | `/api/locations.php`                                 | Standort einer Scheibe setzen (Body: `{"slug", "owner", "type", "at"}`; `at` = Login oder freier Name, leer oder der Eigentümer = zurück)                                          |
+| PUT          | `/api/media.php`                                     | Nur Pfade, Bild und Ton eines USB-Mediums setzen, der Rest des Eintrags bleibt (Body: `{"slug", "owner", "type": "USB", "paths", "video", "audio"}`; für `bin/usb_convert.php`)   |
 | GET          | `/api/wishes.php`                                    | Wunschlisten aller Benutzer (`data/wishes.json`): je Slug Login und Zeitpunkt                                                                                                      |
 | PUT          | `/api/wishes.php`                                    | Eigenen Wunsch setzen bzw. entfernen (Body: `{"slug", "wish": true\|false}`; Anmeldung nötig)                                                                                      |
 | GET          | `/api/ratings.php`                                   | Bewertungen aller Benutzer (`data/ratings.json`): je Slug Login und -1, 0, 1 oder 2                                                                                                |
@@ -444,17 +447,28 @@ Reihe, Serie) sortiert im Dateiexplorer Filme und Serien gemeinsam alphabetisch.
 Film es geht. Das ist wichtig, weil VLC und Mediaserver (z. B. FRITZ!Box) oft nur ihn anzeigen. Ändert sich später
 Titel, Jahr oder Reihe, bleiben die Pfade unverändert.
 
-In der Detailansicht steht bei einer Datei, wie gut das Bild ist (gut, mittel, schlecht, die Angaben dazu als
-Tooltip), dazu der Ton (Sprache, Kanäle, Codec, Bitrate). Die Angaben (`video` und `audio` am Medium) misst
+In der Detailansicht steht bei einer Datei Auflösung und Urteil, z. B. "SD 640×272 (so lala)" (gut, so lala, schlecht
+wie im Medium-Filter). Der Tooltip nennt die Gründe, Codec, Bitrate und den Ton (Sprache, Kanäle, Codec, Bitrate). Die Angaben (`video` und `audio` am Medium) misst
 `bin/fix_usb_mp4.php` an der MP4-Datei selbst; die Umwandlung mit CRF 18 gibt ihr so viele Bits, wie die Vorlage braucht. Zwei Kriterien, das schlechtere zählt (`videoQuality()` in `app.js`):
 
-| Kriterium                                                                                       | gut           | mittel       | schlecht   |
-|-------------------------------------------------------------------------------------------------|---------------|--------------|------------|
-| Auflösung: Breite in quadratischen Bildpunkten, bei Kinoformat mindestens Höhe × 16/9           | ab 1100 (HD)  | ab 640 (SD)  | darunter   |
-| Kompression: Bits je Bildpunkt und Bild, umgerechnet auf H.264 (z. B. XviD ÷ 1,5, MPEG-2 ÷ 2,5) | ab 0,08       | ab 0,05      | darunter   |
+| Kriterium                                                                                       | gut                             | mittel                         | schlecht                 |
+|-------------------------------------------------------------------------------------------------|---------------------------------|--------------------------------|--------------------------|
+| Auflösung: Bildpunkte (Breite in quadratischen Pixeln × Höhe)                                   | ab 640.000 (HD, z. B. 1280×536) | ab 155.000 (SD, z. B. 624×256) | darunter (z. B. 592×240) |
+| Kompression: Bits je Bildpunkt und Bild, umgerechnet auf H.264 (z. B. XviD ÷ 1,5, MPEG-2 ÷ 2,5) | ab 0,08                         | ab 0,05                        | darunter                 |
 
-SD (Standard Definition) ist Fernsehauflösung bis DVD (720×576), HD 1280×720, Full HD 1920×1080, UHD 3840×2160. Ohne
-Bitrate zählt nur die Auflösung.
+SD (Standard Definition) ist Fernsehauflösung bis DVD (720×576), HD 1280×720, Full HD 1920×1080, UHD 3840×2160; als
+Full HD gilt ab 1,3 Mio. Bildpunkten (1920×800), als UHD ab 5 Mio. Gezählt werden die Bildpunkte, nicht die Breite: Bei
+gleicher Breite wirkt ein flacheres Bild schlechter (Hangover 592×240 schlecht, Gamer 592×320 mittel). Ohne
+Bitrate zählt nur die Auflösung. Fast quadratische Pixel (weniger als 1 % Abweichung, z. B. 1215:1216) gelten als
+quadratisch.
+
+Im Medium-Filter stehen unter "USB" die Stufen "USB (Qualität gut)", "USB (Qualität so lala)" (= mittel) und
+"USB (Qualität schlecht)", jeweils nur, wenn es Einträge dazu gibt.
+
+Passt die automatische Beurteilung nicht (z. B. wirkt ein Trickfilm in SD oft gut), lässt sie sich im
+Bearbeitungsformular beim Medium unter "Bildqualität" überschreiben: "automatisch (…)" zeigt, was die Regel ergibt,
+"gut", "so lala" oder "schlecht" speichert eine eigene Einschätzung als `"quality": "gut" | "mittel" | "schlecht"` am
+Medium. Sie gilt in Detailansicht und Medium-Filter; der Tooltip nennt dann zusätzlich das automatische Urteil.
 
 Mit Chrome oder Edge am Rechner laufen `.mp4`- und `.m4v`-Dateien in einem Player-Fenster im Browser. Beim ersten Mal
 erscheint der Dialog "Videothek-Ordner": Aus Sicherheitsgründen muss man den Ordner (z. B. `D:\Videos`) einmal 
@@ -462,13 +476,12 @@ selbst auswählen. Der Browser merkt ihn sich (IndexedDB `videothek`) und fragt 
 Erlaubnis. Ist der Ordner nicht erreichbar (USB-Speicher nicht angeschlossen, umbenannt) oder fehlt die Datei darin, 
 kommt der Dialog wieder. 
 
-Scheitert ein MP4 im Browser-Player (z. B. unbekannter Codec), bietet der Player den Knopf 
-"Im installierten Player öffnen" an.
-
-In allen anderen Fällen (`.avi`, `.mkv`, Firefox, Safari, Handy) geht es gleich über den installierten Player, ohne
-Versuch im Browser. Das gilt auch, wenn nur eine Datei einer Staffel kein MP4 ist. Die App fragt nach dem Pfad des
-USB-Ordners (vorbelegt aus `config.php`, pro Gerät gemerkt) und lädt eine Wiedergabeliste `<slug>.m3u` herunter. Ein 
-Klick darauf startet den installierten Player (VLC, Windows Media Player, …). 
+In allen anderen Fällen (`.avi`, `.mkv`, Firefox, Safari, Handy) gibt es keinen Play-Button. Dafür steht bei jeder
+Datei (USB) der Pfad auf diesem Gerät, z. B. `D:\Videos\bruchreif\bruchreif-2009.mp4`, bei Staffeln der Ordner, mit
+einem Knopf zum Kopieren. In die Adresszeile des Explorers eingefügt, öffnet Windows die Datei im installierten Player
+bzw. den Ordner. Der Stift daneben ändert den USB-Ordner für dieses Gerät (gemerkt im Browser). Vorgabe ist `USB_ROOT`,
+unter Android "Interner Speicher/Videos" (so angezeigt; kopiert wird der echte Pfad `/storage/emulated/0/Videos/…`).
+Scheitert ein MP4 im Browser-Player (z. B. unbekannter Codec), geht es ebenso über den Pfad.
 
 ### Import-Funktion
 
@@ -546,7 +559,36 @@ Die Websuche, eingestellt in `config.php`:
 Handlung, die ersten 6 Darsteller, Notizen, bei Staffeln die Folgen und den Trailer als QR-Code zum Abscannen mit dem
 Handy. "Als PDF speichern" im Druckdialog ergibt eine PDF-Datei.
 
-## Videos für den Browser umwandeln
+## Videos aufnehmen
+
+Neue Filme einer Platte kommen mit `bin/usb_convert.php` Film für Film in die Videothek. Das Skript arbeitet direkt
+mit dem Server (Vorgabe `https://videothek.frank-rohlfing.de`, Zugang wie `bin/remote.php`: `--password` bzw.
+Umgebungsvariable `VIDEOTHEK_PASSWORD`, dazu das API-Token per `--api-token` bzw. `VIDEOTHEK_API_TOKEN`, sonst
+`API_TOKEN` aus `config.php`); `data/movies` wird nicht gebraucht. Ein falsches Token oder ein fehlendes
+`api/media.php` auf dem Server meldet das Skript gleich zu Beginn.
+
+1. Alle Filme bzw. Staffeln über die Import-Funktion der App importieren, Medium "USB" des Eigentümers der Platte.
+   Beim USB-Medium unter "Dateien" den Dateinamen der Quelle relativ zum Quellordner eintragen (z. B.
+   `Filme/Kick Ass (2010)/kickass.avi`; bei Staffeln eine Zeile je Folge, bei Mehrteilern alle Teile). Fehlt er,
+   sucht das Skript über den Namen: Titel oder Originaltitel als ganze Wörter im Pfad, passendes Jahr; bei Staffeln
+   Serie, Staffelnummer und Folgennummer wie `S01E05`.
+2. `php bin/usb_convert.php --owner=rohlfing --src=E:\Filme --password=… --dry-run` zeigt, welche Datei zu welchem
+   Eintrag gehört. Was nicht eindeutig ist, steht am Ende unter "Ohne Quelle" bzw. "Videos ohne Eintrag"; dafür den
+   Dateinamen in der App nachtragen.
+3. Ohne `--dry-run` wandelt das Skript je Eintrag um (Mehrteiler zusammengefügt, H.264 + AAC/MP3, eine Tonspur),
+   schreibt Titel, Handlung und das Poster als Cover mit in die MP4, legt sie unter dem Pfad nach der Regel oben in
+   den USB-Ordner (`--to`, Vorgabe `USB_ROOT`), misst Bild und Ton und trägt Pfade, Bild und Ton über
+   `PUT /api/media.php` auf dem Server ein. Die Quelle bleibt unverändert. Abbruch mit Strg+C; ein erneuter Start
+   setzt fort (`usb_convert-log.jsonl` im USB-Ordner).
+4. `php bin/remote.php --download-data` holt den neuen Stand in die lokale Kopie.
+
+`--owner` ist Pflicht: Nur USB-Medien dieses Eigentümers werden bearbeitet. Für viele Filme gibt es eine portable
+Version für einen zweiten Rechner: `bin\build_usb_convert_portable.cmd E:\usb_convert` (PHP mit openssl und ffmpeg,
+ohne `config.php`; dort beim Aufruf `--api-token=…` und `--to=…` angeben). Mit `--with-config` kommt eine
+`config.php` nur mit `API_TOKEN` und `USB_ROOT` dazu; das Paket enthält dann das Token und sollte nicht weitergegeben
+werden. Es arbeitet genauso direkt mit dem Server.
+
+## Videos für den Browser umwandeln (erste Umstellung, abgeschlossen)
 
 `bin/convert.php` wandelt die Filme auf dem USB-Speicher in MP4 (H.264 + AAC/MP3) um, damit sie im Player-Fenster
 der App laufen (siehe "Abspielen (Medium USB)"), und legt sie mit gleicher Ordnerstruktur in einem zweiten Ordner ab.

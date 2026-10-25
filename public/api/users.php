@@ -4,7 +4,7 @@
  * Wer angemeldet ist und welche Benutzer es gibt (für Eigentümer und Standorte der Medien).
  *
  * GET /api/users.php -> {"me": "frank", "users": {"frank": {"name": "Frank", "owner": "rohlfing"}, …},
- *                        "owners": {"rohlfing": "Rohlfing", "lilie": "Lilie"}, "usbRoot": "D:\\videothek"}
+ *                        "owners": {"rohlfing": "Rohlfing", "lilie": "Lilie"}, "usbRoot": "D:\\Videos"}
  *   me: angemeldeter Benutzer oder null (ohne Basic Auth). users[…].owner: Kennung des Eigentümers seiner Medien
  *   (owner_of()), owners: Kennung => Anzeigename aller Eigentümer (siehe lib/users.php). usbRoot: USB_ROOT aus
  *   config.php (Vorgabe für den USB-Ordner, jedes Gerät kann ihn ändern). Kein Token nötig.

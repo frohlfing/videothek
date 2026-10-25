@@ -390,7 +390,10 @@ header p.sub{
 /* Bild der Datei (videoQuality()): schlecht rot, sonst gedämpft */
 .media-list .video-quality{color:var(--ink-soft); font-size:.85rem; margin-left:.6rem; cursor:help;}
 .media-list .video-quality.q-0{color:var(--danger);}
-.media-list .audio-info{color:var(--ink-soft); font-size:.85rem; margin-left:.3rem;}
+/* Pfad der Datei auf diesem Gerät, darunter, mit Kopieren und USB-Ordner ändern */
+.media-list .usb-path{display:flex; align-items:center; gap:.1rem; margin-top:.2rem; font-size:.82rem; color:var(--ink-soft);}
+.media-list .usb-path code{overflow-wrap:anywhere; user-select:all;}
+.media-list .usb-path .icon-btn{width:1.4rem; height:1.4rem; margin-left:.4rem; flex:none;}
 .link-btn{
   background:none; border:none; padding:0; margin-left:.8rem;
   color:var(--ink-soft); font:inherit; font-size:.85rem; text-decoration:underline; cursor:pointer;
@@ -617,7 +620,8 @@ label.btn{text-transform:none; letter-spacing:0; color:var(--ink); margin:0; cur
 }
 .form-field input[type=file]{color:var(--ink-soft);}
 .form-field textarea{min-height:4.2rem;}
-.form-field textarea.files-input{min-height:2.6rem;}
+/* Ein Pfad je Zeile ohne Umbruch und ohne waagrechte Leiste; der Cursor schiebt lange Pfade seitlich, die senkrechte Leiste (viele Folgen) bleibt */
+.form-field textarea.files-input{min-height:40px; white-space:pre; overflow-x:hidden;}
 /* Formular: Medien, je Zeile Eigentümer, Art und "×", bei USB darunter die Dateien */
 .media-rows{display:flex; flex-direction:column; gap:.5rem; margin-bottom:.6rem;}
 .media-rows:empty{display:none;}
@@ -633,6 +637,9 @@ label.btn{text-transform:none; letter-spacing:0; color:var(--ink); margin:0; cur
 .files-help summary::-webkit-details-marker{display:none;}
 .files-help[open] summary{display:block; margin-bottom:.2rem;}
 .btn.medium-remove{font-size:1.2rem; min-width:36px; padding:0 .5rem;}
+/* Dateien und Bildqualität eines USB-Mediums nebeneinander, die Auswahl nur so breit wie nötig */
+.medium-row .files-grid{display:grid; grid-template-columns:minmax(0, 1fr) auto; column-gap:.5rem; align-items:start;}
+.medium-row .files-grid select{width:auto;}
 .form-field textarea#castInput{min-height:8rem;}
 .form-field textarea#plotInput{min-height:9rem;}
 .form-field .hint{font-size:.72rem; color:var(--ink-soft); margin-top:.3rem;}
@@ -752,6 +759,7 @@ label.btn{text-transform:none; letter-spacing:0; color:var(--ink); margin:0; cur
   color:var(--accent);
   text-decoration:none;
   vertical-align:middle;
+  background:none; border:none; padding:0; font:inherit; cursor:pointer;
 }
 .episodes .ep-play:hover{background:var(--accent-soft);}
 
