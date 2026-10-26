@@ -42,7 +42,7 @@ Filme auf seine Wunschliste setzen und in vier Stufen von "nicht sehenswert" bis
 5. **HTTP Basic Auth einrichten** (schützt zusätzlich zum API-Token auch die statische `index.html` selbst – ohne 
    diese Auth wäre die leere Seiten-Hülle trotz Token-Schutz der API weiterhin für jeden abrufbar):
    ```
-   htpasswd -bcB .htpasswd <benutzername> <passwort>
+   C:\xampp\apache\bin\htpasswd -bcB .htpasswd <benutzername> <passwort>
    ```
    Die `.htpasswd`-Datei liegt im Projekt-Root (außerhalb des Document Root, neben `config.php`). Danach 
    `public/.htaccess.example` nach `public/.htaccess` kopieren und den `AuthUserFile`-Pfad auf den tatsächlichen 
@@ -52,8 +52,6 @@ Filme auf seine Wunschliste setzen und in vier Stufen von "nicht sehenswert" bis
    Jeder Benutzer der `.htpasswd` ist zugleich Benutzer der App (Eigentümer von Medien, "eingetragen von" bei
    Ausleihen). Weitere Benutzer legt `php bin/account.php --add` an, siehe "Benutzer verwalten".
    Für Änderungen braucht jeder User zusätzlich das API-Token.
-
-6. Seite aufrufen – die Filmliste lädt sich selbst über `GET /api/movies.php`.
 
 ## Lokalen Testserver unter XAMPP (Windows) einrichten
 
@@ -188,12 +186,9 @@ videothek/                            # Projektroot
  │              └── thumb.<ext>       # automatisch generierte Miniatur des Posters (Hochformat 2:3)
  ├── bin/                             # Skripte für die Kommandozeile (lokal, php bin/…)
  │    ├── account.php                 # Benutzer lokal anlegen, ändern, entfernen (.htpasswd, users.json)
- │    ├── build_convert_portable.cmd  # convert.php samt PHP und ffmpeg als Paket für einen zweiten Rechner (<Zielordner>)
- │    ├── build_usb_convert_portable.cmd # usb_convert.php samt PHP, ffmpeg und api/lib als Paket (<Zielordner>)
- │    ├── convert.php                 # erste Umstellung: Filme des USB-Speichers in MP4 umwandeln (ffmpeg)
- │    ├── fix_usb_mp4.php             # erste Umstellung: umgewandelte Dateien einsortieren, taggen, eintragen
- │    ├── remote.php                  # Abgleich mit dem Server: --download-data, --upload-data, --upload-account
- │    └── usb_convert.php             # neue Platte aufnehmen: je Film umwandeln, taggen, ablegen, eintragen
+ │    ├── build_convert_portable.cmd  # convert.php samt PHP, ffmpeg und api/lib als Paket (<Zielordner>)
+ │    ├── convert.php                 # Platte aufnehmen: je Film umwandeln, taggen, ablegen, auf dem Server eintragen
+ │    └── remote.php                  # Abgleich mit dem Server: --download-data, --upload-data, --upload-account
  ├── public/                          # Document Root
  │    ├── api/                        # API-Endpunkte
  │    │    └── lib/                   # Gemeinsam genutzte Hilfsfunktionen der API-Endpunkte
@@ -219,7 +214,7 @@ videothek/                            # Projektroot
  │    │    ├── image.php              # Liefert Poster, Thumbnail, Hintergrundbild, Darstellerfoto
  │    │    ├── import.php             # Film oder Serie (je Staffel ein Eintrag) aus TMDB importieren
  │    │    ├── locations.php          # Standorte der Scheiben lesen und setzen (Ausleihe)
- │    │    ├── media.php              # Pfade, Bild und Ton eines USB-Mediums setzen (für bin/usb_convert.php)
+ │    │    ├── media.php              # Pfade, Bild und Ton eines USB-Mediums setzen (für bin/convert.php)
  │    │    ├── movies.php             # Filme und Staffeln lesen, anlegen, bearbeiten, löschen
  │    │    ├── ratings.php            # Bewertungen lesen und setzen
  │    │    ├── search.php             # Suche nach Filmen und Serien in TMDB (Titel, IMDb-ID, Barcode)
@@ -280,7 +275,7 @@ selbst mit abdeckt. Ausnahme: `dev/sync.php` verlangt das Token auch zum Lesen.
 | GET          | `/api/users.php`                                     | Angemeldeter Benutzer (`me`), alle Benutzer mit Anzeigenamen, Vorgabe für den USB-Ordner                                                                                           |
 | GET          | `/api/locations.php`                                 | Standorte aller Scheiben, die nicht beim Eigentümer sind (`data/locations.json`)                                                                                                   |
 | PUT          | `/api/locations.php`                                 | Standort einer Scheibe setzen (Body: `{"slug", "owner", "type", "at"}`; `at` = Login oder freier Name, leer oder der Eigentümer = zurück)                                          |
-| PUT          | `/api/media.php`                                     | Nur Pfade, Bild und Ton eines USB-Mediums setzen, der Rest des Eintrags bleibt (Body: `{"slug", "owner", "type": "USB", "paths", "video", "audio"}`; für `bin/usb_convert.php`)   |
+| PUT          | `/api/media.php`                                     | Nur Pfade, Bild und Ton eines USB-Mediums setzen, der Rest des Eintrags bleibt (Body: `{"slug", "owner", "type": "USB", "paths", "video", "audio"}`; für `bin/convert.php`)        |
 | GET          | `/api/wishes.php`                                    | Wunschlisten aller Benutzer (`data/wishes.json`): je Slug Login und Zeitpunkt                                                                                                      |
 | PUT          | `/api/wishes.php`                                    | Eigenen Wunsch setzen bzw. entfernen (Body: `{"slug", "wish": true\|false}`; Anmeldung nötig)                                                                                      |
 | GET          | `/api/ratings.php`                                   | Bewertungen aller Benutzer (`data/ratings.json`): je Slug Login und -1, 0, 1 oder 2                                                                                                |
@@ -449,7 +444,7 @@ Titel, Jahr oder Reihe, bleiben die Pfade unverändert.
 
 In der Detailansicht steht bei einer Datei Auflösung und Urteil, z. B. "SD 640×272 (so lala)" (gut, so lala, schlecht
 wie im Medium-Filter). Der Tooltip nennt die Gründe, Codec, Bitrate und den Ton (Sprache, Kanäle, Codec, Bitrate). Die Angaben (`video` und `audio` am Medium) misst
-`bin/fix_usb_mp4.php` an der MP4-Datei selbst; die Umwandlung mit CRF 18 gibt ihr so viele Bits, wie die Vorlage braucht. Zwei Kriterien, das schlechtere zählt (`videoQuality()` in `app.js`):
+`bin/convert.php` an der MP4-Datei selbst; die Umwandlung mit CRF 18 gibt ihr so viele Bits, wie die Vorlage braucht. Zwei Kriterien, das schlechtere zählt (`videoQuality()` in `app.js`):
 
 | Kriterium                                                                                       | gut                             | mittel                         | schlecht                 |
 |-------------------------------------------------------------------------------------------------|---------------------------------|--------------------------------|--------------------------|
@@ -561,7 +556,7 @@ Handy. "Als PDF speichern" im Druckdialog ergibt eine PDF-Datei.
 
 ## Videos aufnehmen
 
-Neue Filme einer Platte kommen mit `bin/usb_convert.php` Film für Film in die Videothek. Das Skript arbeitet direkt
+Neue Filme einer Platte kommen mit `bin/convert.php` Film für Film in die Videothek. Das Skript arbeitet direkt
 mit dem Server (Vorgabe `https://videothek.frank-rohlfing.de`, Zugang wie `bin/remote.php`: `--password` bzw.
 Umgebungsvariable `VIDEOTHEK_PASSWORD`, dazu das API-Token per `--api-token` bzw. `VIDEOTHEK_API_TOKEN`, sonst
 `API_TOKEN` aus `config.php`); `data/movies` wird nicht gebraucht. Ein falsches Token oder ein fehlendes
@@ -569,44 +564,21 @@ Umgebungsvariable `VIDEOTHEK_PASSWORD`, dazu das API-Token per `--api-token` bzw
 
 1. Alle Filme bzw. Staffeln über die Import-Funktion der App importieren, Medium "USB" des Eigentümers der Platte.
    Beim USB-Medium unter "Dateien" den Dateinamen der Quelle relativ zum Quellordner eintragen (z. B.
-   `Filme/Kick Ass (2010)/kickass.avi`; bei Staffeln eine Zeile je Folge, bei Mehrteilern alle Teile). Fehlt er,
+   `Kick Ass (2010)/kickass.avi`; bei Staffeln eine Zeile je Folge, bei Mehrteilern alle Teile). Fehlt er,
    sucht das Skript über den Namen: Titel oder Originaltitel als ganze Wörter im Pfad, passendes Jahr; bei Staffeln
    Serie, Staffelnummer und Folgennummer wie `S01E05`.
-2. `php bin/usb_convert.php --owner=rohlfing --src=E:\Filme --password=… --dry-run` zeigt, welche Datei zu welchem
+2. `php bin/convert.php --owner=rohlfing --src=D:\Filme --password=… --dry-run` zeigt, welche Datei zu welchem
    Eintrag gehört. Was nicht eindeutig ist, steht am Ende unter "Ohne Quelle" bzw. "Videos ohne Eintrag"; dafür den
    Dateinamen in der App nachtragen.
 3. Ohne `--dry-run` wandelt das Skript je Eintrag um (Mehrteiler zusammengefügt, H.264 + AAC/MP3, eine Tonspur),
    schreibt Titel, Handlung und das Poster als Cover mit in die MP4, legt sie unter dem Pfad nach der Regel oben in
    den USB-Ordner (`--to`, Vorgabe `USB_ROOT`), misst Bild und Ton und trägt Pfade, Bild und Ton über
    `PUT /api/media.php` auf dem Server ein. Die Quelle bleibt unverändert. Abbruch mit Strg+C; ein erneuter Start
-   setzt fort (`usb_convert-log.jsonl` im USB-Ordner).
-4. `php bin/remote.php --download-data` holt den neuen Stand in die lokale Kopie.
+   setzt fort (`convert-log.jsonl` im USB-Ordner).
 
-`--owner` ist Pflicht: Nur USB-Medien dieses Eigentümers werden bearbeitet. Für viele Filme gibt es eine portable
-Version für einen zweiten Rechner: `bin\build_usb_convert_portable.cmd E:\usb_convert` (PHP mit openssl und ffmpeg,
-ohne `config.php`; dort beim Aufruf `--api-token=…` und `--to=…` angeben). Mit `--with-config` kommt eine
-`config.php` nur mit `API_TOKEN` und `USB_ROOT` dazu; das Paket enthält dann das Token und sollte nicht weitergegeben
-werden. Es arbeitet genauso direkt mit dem Server.
+`--owner` ist Pflicht: Nur USB-Medien dieses Eigentümers werden bearbeitet. 
 
-## Videos für den Browser umwandeln (erste Umstellung, abgeschlossen)
-
-`bin/convert.php` wandelt die Filme auf dem USB-Speicher in MP4 (H.264 + AAC/MP3) um, damit sie im Player-Fenster
-der App laufen (siehe "Abspielen (Medium USB)"), und legt sie mit gleicher Ordnerstruktur in einem zweiten Ordner ab.
-Details siehe Dokumentation in `bin/convert.php`.
-
-`bin\build_convert_portable.cmd D:\convert` stellt eine portable Version in `D:\convert` zusammen (ca. 260 MB).
-Nach Änderungen an `convert.php` muss das Paket neu erstellt werden.
-
-Zum Aufteilen auf meherer Rechner könnte z.B. Rechner 1 mit `--only=0-m` und Rechner 2 mit `--only=n-z` auf einer
-lokalen Kopie arbeiten. Danach die Ergebnisse ins Ziel von Rechner 1 kopieren und die Zeilen seines `convert-log.jsonl`
-an das dortige anhängen (Befehle in `LIESMICH.txt`).
-
-Ist alles umgewandelt, trägt `bin/fix_usb_mp4.php` die MP4-Dateien in die Medien USB ein und verschiebt sie aus dem
-Zielordner von `convert.php` (`--from`, Vorgabe `D:\videothek2`) an die vorgeschlagenen Pfade im USB-Ordner (`--to`,
-Vorgabe `USB_ROOT`, siehe "Abspielen (Medium USB)"). Außerdem schreibt es Titel, Handlung und das Poster als Cover in
-die MP4-Dateien und die Angaben zu Bild und Ton in `movie.json`. Mit `--only=bruchreif` lässt es sich an einzelnen
-Einträgen ausprobieren. Verschobene Dateien fehlen danach im Zielordner von `convert.php`; ein erneuter Lauf von
-`convert.php` würde sie noch einmal umwandeln.
+Eine portable Version kann mit `bin\build_convert_portable.cmd` erstellt werden.
 
 ## Stand / Roadmap
 

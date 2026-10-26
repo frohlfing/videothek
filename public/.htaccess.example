@@ -1,6 +1,6 @@
 # Vorlage für public/.htaccess (HTTP Basic Auth, schützt die gesamte public/-Domain inkl.
 # der statischen index.html vor unautorisiertem Zugriff — zusätzlich zum App-eigenen API-Token,
-# das nur die Daten selbst schützt, siehe api/lib/http.php: require_token()).
+# das nur die Daten selbst schützt.
 #
 # Setup:
 # 1. Nach public/.htaccess kopieren.

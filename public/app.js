@@ -29,7 +29,7 @@
  * @property {string} owner  Benutzer (data/users.json)
  * @property {string} type   "DVD", "Blu-ray", "USB", …
  * @property {string[]} [paths]  nur DIGITAL_MEDIA: Datei(en) relativ zum USB-Ordner, bei Staffeln die Folgen
- * @property {VideoInfo} [video]  nur DIGITAL_MEDIA: Bild der (ersten) Datei (bin/fix_usb_mp4.php), siehe videoQuality()
+ * @property {VideoInfo} [video]  nur DIGITAL_MEDIA: Bild der (ersten) Datei (bin/convert.php), siehe videoQuality()
  * @property {AudioInfo} [audio]  nur DIGITAL_MEDIA: Tonspur der (ersten) Datei, siehe audioText()
  * @property {'gut'|'mittel'|'schlecht'} [quality]  nur DIGITAL_MEDIA: eigene Einschätzung des Bilds, hat Vorrang vor
  *   videoQuality() (siehe mediumQuality())
@@ -354,7 +354,7 @@ function usbPath(md){
   return (root ? root + sep : '') + rel.split('/').join(sep);
 }
 
-/** Android: dort liegt der interne Speicher ("Interner Speicher" in der Dateien-App). */
+/** Android: Dort liegt der interne Speicher ("Interner Speicher" in der Dateien-App). */
 const IS_ANDROID = /Android/i.test(navigator.userAgent);
 const ANDROID_STORAGE = '/storage/emulated/0';
 const ANDROID_STORAGE_NAME = 'Interner Speicher';
@@ -393,7 +393,7 @@ async function askUsbRoot(){
     if(value && value !== fallback) localStorage.setItem(USB_ROOT_KEY, value);
     else localStorage.removeItem(USB_ROOT_KEY);
   } catch {
-    // Speichern nicht erlaubt (privates Fenster o. Ä.)
+    // Speichern nicht erlaubt (privates Fenster o.ä.)
   }
   return true;
 }
@@ -713,8 +713,8 @@ function pad2(n){
 }
 
 /**
- * Dateien einer Folge unter den Dateien (paths) eines Mediums der Staffel – wie season_episode_files() in
- * api/lib/crud.php: Zuordnung über die Folgennummer im Dateinamen ("serie-s01e03", "S01E03", "E03", "e3",
+ * Dateien einer Folge unter den Dateien (paths) eines Mediums der Staffel: Zuordnung über die Folgennummer im
+ * Dateinamen wie file_episode_number() in api/lib/crud.php ("serie-s01e03", "S01E03", "E03", "e3",
  * "episode-03", mehrteilig "serie-s01e03-cd1", "serie-s01e03-cd2"); trägt keine Datei eine solche Nummer, zählt die
  * Position (1. Datei = 1. Folge der Liste).
  * @param {string[]} files
@@ -1868,7 +1868,7 @@ function audioText(a){
  *     mittel, darunter schlecht (sichtbare Blöcke, verwaschene Flächen). Ohne Bitrate zählt nur die Auflösung.
  * @param {VideoInfo} v
  * @returns {{grade: number, verdict: string, facts: string, why: string}}  grade 2 = gut, 1 = mittel, 0 = schlecht;
- *   facts z. B. "SD 640×272", why die Gründe und Angaben der Datei (für den Tooltip)
+ *   `facts` z. B. "SD 640×272", `why` die Gründe und Angaben der Datei (für den Tooltip)
  */
 function videoQuality(v){
   const [sn, sd] = (v.sar || '1:1').split(':').map(Number);
@@ -2336,7 +2336,7 @@ function mediumRowHtml(md, slug){
       <div class="files-grid">
         <span class="label">Dateien auf dem USB-Speicher</span>
         <span class="label">Qualität</span>
-        <textarea class="files-input" rows="${filesRows(files.length)}" wrap="off" aria-label="Dateien" placeholder="z. B. bruchreif/bruchreif-2009.mp4">${escapeHtml(files.join('\n'))}</textarea>
+        <textarea class="files-input" rows="${filesRows(files.length)}" aria-label="Dateien" placeholder="z. B. bruchreif/bruchreif-2009.mp4">${escapeHtml(files.join('\n'))}</textarea>
         <select class="medium-quality" aria-label="Qualität">${option('', auto === null ? 'automatisch' : `automatisch (${QUALITY_WORDS[auto]})`, !md.quality)}${
           Object.entries(QUALITY_GRADES).reverse().map(([v, g]) => option(v, QUALITY_WORDS[g], v === md.quality)).join('')}</select>
       </div>
@@ -2563,7 +2563,7 @@ function formGroup(name, of, current){
   const own = current ? of(current) : null;
   if(same(own) && own.tmdb) return {name, tmdb: own.tmdb};
   const sibling = MOVIES.map(of).find(g => same(g) && g.tmdb);
-  // Umbenannt bzw. kein anderer Teil kennt die TMDB-ID: Die eigene bleibt, damit Import und "2 von 7" die Reihe
+  // Umbenannt bzw. kein anderer Teil kennt die TMDB-ID: Die eigene ID bleibt, damit Import und "2 von 7" die Reihe
   // weiter erkennen.
   return {name, tmdb: sibling ? sibling.tmdb : (own ? own.tmdb : null)};
 }

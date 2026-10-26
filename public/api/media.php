@@ -1,9 +1,10 @@
 <?php
 
 /**
- * Setzt bei einem Medium mit Dateien (DIGITAL_MEDIA, z. B. USB) nur die Angaben zu den Dateien: Pfade, Bild und Ton.
- * Alles andere am Eintrag (und am Medium, z. B. "quality") bleibt, anders als bei PUT /api/movies.php, das den ganzen
- * Eintrag ersetzt. Gedacht für bin/usb_convert.php, das neue Filme umwandelt und hier einträgt.
+ * Setzt bei einem Medium mit Dateien die Angaben zu den Dateien: Pfade, Bild und Ton.
+ *
+ * Alles andere am Eintrag (und am Medium, z. B. "quality") bleibt, anders als bei `PUT /api/movies.php`, das den
+ * ganzen Eintrag ersetzt. Gedacht für `bin/convert.php`, das neue Filme umwandelt und hier einträgt.
  *
  * PUT /api/media.php   Token nötig (Header X-API-Token)
  *   Body {"slug", "owner", "type": "USB", "paths": ["kick-ass/kick-ass-2010.mp4"], "video": {…}, "audio": {…}}

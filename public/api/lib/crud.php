@@ -74,7 +74,7 @@ function movie_dir(string $slug): string
  * Ältere Dateien kennen noch kein "type" (= Film) und statt "media" nur "medium" und "files" (Exemplare ohne
  * Eigentümer); beides wird hier ergänzt bzw. umgewandelt (legacy_media()), damit alle Aufrufer nur das aktuelle
  * Format sehen. Gespeichert wird es so beim nächsten Schreiben. Medien mit "files" (relativ zum Ordner des Eintrags,
- * bis Oktober 2026) bleiben, wie sie sind: Sie haben noch keine "paths", bis `bin/fix_usb_mp4.php` sie umstellt.
+ * bis Oktober 2026) bleiben, wie sie sind: Sie haben noch keine "paths".
  */
 function read_movie_json(string $slug): ?array
 {
@@ -450,7 +450,7 @@ function validate_episodes_input(mixed $episodes): array
 /**
  * Dateien eines Mediums USB relativ zum USB-Ordner, z. B. ["hangover/hangover-2009.mp4"]; bei mehrteiligen Filmen
  * mehrere in Abspielreihenfolge, bei Staffeln die Folgen. Die Struktur ist frei; der Vorschlag fürs Formular und für
- * `bin/fix_usb_mp4.php` macht `usb_base_path()`. Gespeichert immer mit "/" (app.js: usbPath() wandelt für Windows um).
+ * `bin/convert.php` macht `usb_base_path()`. Gespeichert immer mit "/" (app.js: usbPath() wandelt für Windows um).
  * @return string[]
  */
 function normalize_media_paths(array $paths): array
@@ -470,7 +470,7 @@ function normalize_media_paths(array $paths): array
  *
  * Die erste Ebene (Titel, Reihe, Serie) sortiert im Dateiexplorer Filme und Serien gemeinsam alphabetisch. Mehrere
  * Dateien eines Films bzw. einer Folge bekommen -cd1, -cd2, … angehängt. "S02E01" erkennen Player und Mediaserver
- * als Folge, season_episode_files() als Folgennummer.
+ * als Folge, file_episode_number() als Folgennummer.
  */
 function usb_base_path(array $movie, ?int $episode = null): string
 {
@@ -513,7 +513,7 @@ function normalize_media(array $media): array
 
 /**
  * Technische Angaben zum Bild der Datei auf dem USB-Speicher (bei mehreren Dateien die erste), eingetragen von
- * bin/fix_usb_mp4.php: {codec, width, height, sar, fps, kbps}, z. B. {"codec": "h264", "width": 672, "height": 272,
+ * bin/convert.php: {codec, width, height, sar, fps, kbps}, z. B. {"codec": "h264", "width": 672, "height": 272,
  * "sar": "1:1", "fps": 25, "kbps": 635}. codec ist der Name bei ffprobe (h264, hevc, mpeg4 = XviD/DivX, …), sar das
  * Seitenverhältnis eines Bildpunkts, kbps die Video-Bitrate. Die Beurteilung macht die App (app.js: videoQuality()).
  * Ungültig bzw. ohne Breite und Höhe: null.
@@ -536,7 +536,7 @@ function normalize_video(mixed $video): ?array
 }
 
 /**
- * Technische Angaben zur (ersten) Tonspur der Datei auf dem USB-Speicher, eingetragen von bin/fix_usb_mp4.php:
+ * Technische Angaben zur (ersten) Tonspur der Datei auf dem USB-Speicher, eingetragen von bin/convert.php:
  * {codec, channels, kbps, lang}, z. B. {"codec": "aac", "channels": 6, "kbps": 384, "lang": "ger"}. codec ist der Name
  * bei ffprobe (aac, mp3, …), lang der Sprachcode (ger, eng, und = unbekannt). Ungültig: null.
  * @return ?array{codec: string, channels: ?int, kbps: ?int, lang: string}
@@ -690,30 +690,9 @@ function episode_plot(mixed $plot): ?string
 }
 
 /**
- * Dateien einer Folge unter den Dateien $files (paths) eines Mediums einer Staffel (in Abspielreihenfolge, mehrteilig,
- * z. B. serie-s01e03-cd1, serie-s01e03-cd2). Zuordnung über die Folgennummer im Dateinamen ("serie-s01e03", "S01E03",
- * "E03", "e3", "episode-03"); trägt keine Datei eine solche Nummer, zählt die Position (1. Datei = 1. Folge der
- * Liste). Gegenstück in app.js: episodeFiles().
- * @param string[] $files
- * @return string[]
+ * Folgennummer im Dateinamen ("serie-s01e03", "S01E03", "E03", "e3", "episode-03") oder null. Gegenstück in app.js:
+ * episodeFiles().
  */
-function season_episode_files(array $files, array $season, int $episode): array
-{
-    $numbered = [];
-    foreach ($files as $f) {
-        if (($n = file_episode_number($f)) !== null) {
-            $numbered[] = [$n, $f];
-        }
-    }
-    if ($numbered) {
-        return array_values(array_map(fn($x) => $x[1], array_filter($numbered, fn($x) => $x[0] === $episode)));
-    }
-    $numbers = array_column($season['episodes'] ?? [], 'number');
-    $pos = array_search($episode, $numbers, true);
-    return $pos !== false && isset($files[$pos]) ? [$files[$pos]] : [];
-}
-
-/** Folgennummer im Dateinamen (siehe season_episode_files()) oder null. */
 function file_episode_number(string $file): ?int
 {
     return preg_match('/(?:^|[^a-z0-9])(?:s\d+)?e(?:pisode[\s._-]*)?0*(\d+)(?!\d)/i', basename($file), $m) ? (int) $m[1] : null;
