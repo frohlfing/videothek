@@ -1,5 +1,7 @@
 <?php
 
+use Random\RandomException;
+
 /**
  * Abgleich von `data/` zwischen Server und lokaler Kopie (dev/sync.php auf dem Server, `bin/remote.php --download-data`
  * bzw. `--upload-data lokal`). Verglichen wird je Datei der Inhalt (MD5); beim Download gewinnt immer der Server, beim
@@ -8,12 +10,19 @@
  * selbst).
  */
 
-/** Dateiendungen, die unter data/ vorkommen und übertragen werden dürfen. */
+/**
+ * Dateiendungen, die unter data/ vorkommen und übertragen werden dürfen.
+ *
+ * @var string[]
+ */
 const SYNC_EXTENSIONS = ['json', 'jpg', 'jpeg', 'png', 'webp'];
 
 /**
  * Prüft einen Pfad relativ zu DATA_DIR ("movies/matrix-1999/movie.json") und liefert ihn mit "/" oder null:
  * keine leeren, versteckten oder ".."-Teile, nicht unter cache/, nur SYNC_EXTENSIONS.
+ *
+ * @param string $path Pfad relativ zu DATA_DIR
+ * @return string|null Der normalisierte Pfad (mit "/"); null, wenn er nicht übertragen werden darf
  */
 function sync_path(string $path): ?string
 {
@@ -30,6 +39,7 @@ function sync_path(string $path): ?string
 /**
  * Alle übertragbaren Dateien unter DATA_DIR: Pfad => {size, mtime, md5}. Die MD5-Werte merken sich
  * `data/cache/sync_md5.json` je Größe und Änderungszeit, damit nicht jedes Mal alle Bilder gelesen werden.
+ *
  * @return array<string, array{size: int, mtime: int, md5: string}>
  */
 function data_manifest(): array
@@ -65,7 +75,15 @@ function data_manifest(): array
     return $result;
 }
 
-/** Schreibt eine Datei unter DATA_DIR (über eine Zwischendatei, Ordner werden angelegt) mit Änderungszeit $mtime. */
+/**
+ * Schreibt eine Datei unter DATA_DIR (über eine Zwischendatei, Ordner werden angelegt) mit Änderungszeit $mtime.
+ *
+ * @param string $path Pfad relativ zu DATA_DIR
+ * @param string $content Dateiinhalt
+ * @param int $mtime Änderungszeit (Unix-Zeitstempel), die die Datei bekommt
+ * @return void
+ * @throws RuntimeException|RandomException wenn der Ordner oder die Datei nicht geschrieben werden kann
+ */
 function write_data_file(string $path, string $content, int $mtime): void
 {
     $target = DATA_DIR . '/' . $path;

@@ -12,11 +12,19 @@
  * gelten hier als verfügbar.
  */
 
+/**
+ * Basis-URL des oEmbed-Endpunkts; die URL des Videos wird URL-kodiert angehängt.
+ *
+ * @var string
+ */
 const YOUTUBE_OEMBED_URL = 'https://www.youtube.com/oembed?format=json&url=';
 
 /**
  * `true` = abspielbar/einbettbar, false = sicher nicht verfügbar, null = unklar (Netzwerkfehler,
  * Drosselung o. Ä.) – im Zweifel nichts ändern.
+ *
+ * @param string $url URL des YouTube-Videos
+ * @return bool|null true = abspielbar; false = sicher nicht verfügbar; null = unklar
  */
 function youtube_video_available(string $url): ?bool
 {
@@ -34,6 +42,9 @@ function youtube_video_available(string $url): ?bool
  * Erster verfügbarer Trailer aus $urls (in der gegebenen Reihenfolge = Vorzug), sonst null.
  * Ist ein Kandidat "unklar", wird er genommen statt übersprungen – lieber ein evtl. toter Link als
  * ein guter, der nur wegen eines Netzwerkaussetzers verworfen wurde.
+ *
+ * @param array $urls Trailer-URLs in Vorzugsreihenfolge
+ * @return string|null Die erste verfügbare URL; null, wenn keine verfügbar ist
  */
 function youtube_first_available(array $urls): ?string
 {
@@ -50,6 +61,10 @@ function youtube_first_available(array $urls): ?string
  * HTTP-Statuscode einer GET-Anfrage (Body wird verworfen), 0 bei Netzwerkfehlern.
  * Eigene kleine Funktion statt http_get(), weil dort 4xx als Exception endet und hier gerade
  * der Code interessiert.
+ *
+ * @param string $url Abzufragende URL
+ * @param int $timeoutSeconds Timeout in Sekunden
+ * @return int Der HTTP-Statuscode; 0 bei Netzwerkfehlern
  */
 function http_status(string $url, int $timeoutSeconds = 10): int
 {

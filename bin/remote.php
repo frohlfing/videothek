@@ -15,8 +15,17 @@ require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../public/api/lib/sync.php';
 require_once __DIR__ . '/../public/api/lib/users.php';
 
-/** Adresse der Videothek auf dem Server (ohne "/" am Ende); mit --url=… abweichend. */
+/**
+ * Adresse der Videothek auf dem Server (ohne "/" am Ende); mit --url=… abweichend.
+ *
+ * @var string
+ */
 const REMOTE_URL = 'https://videothek.frank-rohlfing.de';
+/**
+ * Basic-Auth-Benutzer, wenn --user fehlt.
+ *
+ * @var string
+ */
 const REMOTE_DEFAULT_USER = 'frank';
 
 [$positional, $options] = cli_args();
@@ -68,7 +77,12 @@ try {
     exit(1);
 }
 
-/** --download-data, siehe oben: lokal danach genau wie auf dem Server, auch lokal neuere Dateien. Liefert den Exit-Code. */
+/**
+ * --download-data, siehe oben: lokal danach genau wie auf dem Server, auch lokal neuere Dateien. Liefert den Exit-Code.
+ *
+ * @param bool $yes true, wenn ohne Rückfrage ausgeführt werden soll
+ * @return int Der Exit-Code (0 = Erfolg)
+ */
 function run_download(bool $yes): int
 {
     echo 'Download von ' . $GLOBALS['remote']['url'] . ' nach ' . DATA_DIR . "\n";
@@ -131,7 +145,12 @@ function run_download(bool $yes): int
     return $errors ? 1 : 0;
 }
 
-/** --upload-data: Lädt Daten auf den Server. Liefert den Exit-Code. */
+/**
+ * --upload-data: Lädt Daten auf den Server. Liefert den Exit-Code.
+ *
+ * @param bool $yes true, wenn ohne Rückfrage ausgeführt werden soll
+ * @return int Der Exit-Code (0 = Erfolg)
+ */
 function run_upload(bool $yes): int
 {
     echo 'Upload von ' . DATA_DIR . ' nach ' . $GLOBALS['remote']['url'] . "\n";
@@ -192,7 +211,12 @@ function run_upload(bool $yes): int
     return $errors ? 1 : 0;
 }
 
-/** --upload-account lilie, siehe oben. Liefert den Exit-Code. @param string[] $positional */
+/**
+ * --upload-account lilie, siehe oben. Liefert den Exit-Code.
+ *
+ * @param string[] $positional
+ * @return int Der Exit-Code (0 = Erfolg)
+ */
 function run_upload_account(array $positional): int
 {
     if (count($positional) !== 1) {
@@ -216,7 +240,11 @@ function run_upload_account(array $positional): int
 /**
  * Ruft dev/sync.php auf dem Server auf (Basic Auth mit Benutzer und Passwort, Token = API_TOKEN aus config.php).
  * Wirft bei Netzwerkfehlern und HTTP-Status ab 400 (mit der Fehlermeldung des Servers).
+ *
+ * @param string $method HTTP-Methode
  * @param array<string, string|int> $query
+ * @param string|null $body Request-Body; null = ohne
+ * @param string $contentType Content-Type des Bodys
  * @return array{body: string, headers: array<string, string>}
  */
 function remote_request(string $method, array $query = [], ?string $body = null, string $contentType = 'application/octet-stream'): array
@@ -271,7 +299,15 @@ function remote_request(string $method, array $query = [], ?string $body = null,
     return ['body' => (string) $response, 'headers' => $responseHeaders];
 }
 
-/** Wie remote_request(), aber mit JSON-Body und JSON-Antwort. */
+/**
+ * Wie remote_request(), aber mit JSON-Body und JSON-Antwort.
+ *
+ * @param string $method HTTP-Methode
+ * @param array $query Query-Parameter
+ * @param array|null $data Daten, die als JSON gesendet werden; null = ohne Body
+ * @return array Die dekodierte JSON-Antwort
+ * @throws RuntimeException wenn die Antwort kein JSON ist
+ */
 function remote_json(string $method, array $query = [], ?array $data = null): array
 {
     $res = remote_request($method, $query, $data !== null ? json_encode($data, JSON_UNESCAPED_UNICODE) : null, 'application/json');
@@ -282,13 +318,22 @@ function remote_json(string $method, array $query = [], ?array $data = null): ar
     return $json;
 }
 
-/** Dateiliste des Servers wie data_manifest(). @return array<string, array{size: int, mtime: int, md5: string}> */
+/**
+ * Dateiliste des Servers wie data_manifest().
+ *
+ * @return array<string, array{size: int, mtime: int, md5: string}>
+ */
 function remote_manifest(): array
 {
     return remote_json('GET')['files'] ?? [];
 }
 
-/** Leere Ordner unterhalb von DATA_DIR entfernen, beginnend bei $dir (nach dem Löschen von Dateien). */
+/**
+ * Leere Ordner unterhalb von DATA_DIR entfernen, beginnend bei $dir (nach dem Löschen von Dateien).
+ *
+ * @param string $dir Absoluter Pfad des Ordners, bei dem begonnen wird
+ * @return void
+ */
 function remove_empty_dirs(string $dir): void
 {
     $root = rtrim(str_replace('\\', '/', DATA_DIR), '/');
@@ -301,6 +346,7 @@ function remove_empty_dirs(string $dir): void
 
 /**
  * Argumente ohne Skriptnamen: [Positionsargumente, Optionen]. "--name=wert" bzw. "--name" (true).
+ *
  * @return array{0: string[], 1: array<string, string|true>}
  */
 function cli_args(): array
@@ -318,7 +364,13 @@ function cli_args(): array
     return [$positional, $options];
 }
 
-/** Fragt "… [j/N]" auf der Kommandozeile; mit $yes (Option --yes) ohne Rückfrage. */
+/**
+ * Fragt "… [j/N]" auf der Kommandozeile; mit $yes (Option --yes) ohne Rückfrage.
+ *
+ * @param string $question Die Frage (ohne "[j/N]")
+ * @param bool $yes true, wenn ohne Rückfrage bestätigt werden soll
+ * @return bool true, wenn der Benutzer bestätigt hat
+ */
 function cli_confirm(string $question, bool $yes): bool
 {
     if ($yes) {
@@ -329,7 +381,13 @@ function cli_confirm(string $question, bool $yes): bool
     return in_array($answer, ['j', 'ja', 'y', 'yes'], true);
 }
 
-/** Liste für die Ausgabe, höchstens $max Zeilen. @param string[] $lines */
+/**
+ * Liste für die Ausgabe, höchstens $max Zeilen.
+ *
+ * @param string[] $lines
+ * @param int $max Höchstzahl der angezeigten Zeilen
+ * @return string Der eingerückte Text mit Zeilenumbrüchen
+ */
 function cli_list(array $lines, int $max = 20): string
 {
     $shown = array_map(fn($l) => "    $l", array_slice($lines, 0, $max));

@@ -70,6 +70,9 @@ function store_movie_image(string $slug, string $localPath, string $kind = 'post
 
 /**
  * Bildtyp (Endung) einer lokalen Datei nach ihrem Inhalt.
+ *
+ * @param string $path Pfad der lokalen Bilddatei
+ * @return string Die Endung (jpg, png oder webp)
  * @throws ImageValidationException wenn es kein erlaubtes Bild ist
  */
 function image_file_ext(string $path): string
@@ -109,6 +112,11 @@ function remove_movie_image(string $slug, string $kind): array
 /**
  * Setzt das Foto des Darstellers $name (actors/<Name>.<ext>, auf 300 × 450 zugeschnitten wie die TMDB-Porträts).
  * Das TMDB-Porträt (profile) wird dabei verworfen, damit api/actors.php das eigene Foto nicht überschreibt.
+ *
+ * @param string $slug Ordnername des Films unter MOVIES_DIR
+ * @param string $name Name des Darstellers (wie in cast[].name)
+ * @param string $localPath Pfad der bereits auf dem Server liegenden Bilddatei
+ * @return array Der aktualisierte Eintrag (movie.json) in kanonischer Feldreihenfolge
  * @throws ImageValidationException|NotFoundException|RuntimeException|RandomException
  */
 function store_actor_photo(string $slug, string $name, string $localPath): array

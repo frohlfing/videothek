@@ -1,5 +1,10 @@
 <?php
 
+/**
+ * User-Agent, den http_get() mitschickt (Browser-ähnlich, da manche Seiten Standard-Agents blocken).
+ *
+ * @var string
+ */
 const HTTP_FETCH_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36';
 
 /**
@@ -20,6 +25,11 @@ const HTTP_FETCH_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWe
  * Ziel-Webspace (Linux) ist curl mit hoher Wahrscheinlichkeit intakt; vor dem Verlassen auf den
  * Fallback dort prüfen, z. B. mit einer kurzen Testdatei <?php var_dump(extension_loaded('curl'));.
  *
+ * @param string $url Absolute http(s)-URL
+ * @param int $timeoutSeconds Timeout für Verbindungsaufbau und Gesamtdauer in Sekunden
+ * @param int $maxBytes Maximal gelesene Antwortgröße in Bytes
+ * @param array $headers Zusätzliche Request-Header ("Name: Wert")
+ * @return string Der Response-Body (bei gzip/deflate bereits dekomprimiert)
  * @throws RuntimeException bei ungültigem Schema, Netzwerkfehler oder HTTP-Fehlerstatus
  */
 function http_get(string $url, int $timeoutSeconds = 10, int $maxBytes = 8 * 1024 * 1024, array $headers = []): string
@@ -34,6 +44,16 @@ function http_get(string $url, int $timeoutSeconds = 10, int $maxBytes = 8 * 102
         : http_get_stream($url, $timeoutSeconds, $maxBytes, $headers);
 }
 
+/**
+ * Variante von http_get() auf Basis der curl-Extension.
+ *
+ * @param string $url Absolute http(s)-URL
+ * @param int $timeoutSeconds Timeout in Sekunden
+ * @param int $maxBytes Maximal gelesene Antwortgröße in Bytes
+ * @param array $headers Zusätzliche Request-Header ("Name: Wert")
+ * @return string Der Response-Body
+ * @throws RuntimeException bei Netzwerkfehler oder HTTP-Fehlerstatus (>= 400)
+ */
 function http_get_curl(string $url, int $timeoutSeconds, int $maxBytes, array $headers = []): string
 {
     $ch = curl_init($url);
@@ -69,6 +89,16 @@ function http_get_curl(string $url, int $timeoutSeconds, int $maxBytes, array $h
     return $body;
 }
 
+/**
+ * Variante von http_get() auf Basis von file_get_contents() (Fallback ohne curl-Extension).
+ *
+ * @param string $url Absolute http(s)-URL
+ * @param int $timeoutSeconds Timeout in Sekunden
+ * @param int $maxBytes Maximal gelesene Antwortgröße in Bytes
+ * @param array $headers Zusätzliche Request-Header ("Name: Wert")
+ * @return string Der Response-Body (bei gzip/deflate bereits dekomprimiert)
+ * @throws RuntimeException bei Netzwerkfehler oder HTTP-Fehlerstatus (>= 400)
+ */
 function http_get_stream(string $url, int $timeoutSeconds, int $maxBytes, array $headers = []): string
 {
     $context = stream_context_create([

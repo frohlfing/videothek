@@ -3,7 +3,7 @@
 /**
  * Was es von einer Reihe bzw. Serie laut TMDB alles gibt: data/collections.json (Filme einer Reihe) und
  * data/series.json (Staffeln einer Serie), je TMDB-ID ein Eintrag, nur einmal gespeichert statt in jedem Teil.
- * Gepflegt beim Import (api/import.php) und einmalig über bin/build_catalog.php; was davon im Bestand ist, rechnet
+ * Gepflegt beim Import (api/import.php) und einmalig über `bin/build_catalog.php`; was davon im Bestand ist, rechnet
  * das Frontend aus (Abgleich über uniqueids.tmdb bzw. series.tmdb + season), damit die Dateien nicht bei jeder
  * Änderung am Bestand mitgepflegt werden müssen.
  *
@@ -12,12 +12,29 @@
  *   series.json:      {"2602": {"name": "Die Tudors", "updated": "…",
  *                               "seasons": [{"season": 1, "title": "Staffel 1", "year": 2007, "date": "2007-04-01", "episodes": 10}, …]}}
  *
- * date leer oder in der Zukunft = angekündigt (zählt im Frontend nicht mit).
+ * `date` leer oder in der Zukunft = angekündigt (zählt im Frontend nicht mit).
  */
 
+/**
+ * Katalogart: Filmreihen (data/collections.json).
+ *
+ * @var string
+ */
 const CATALOG_COLLECTIONS = 'collections';
+/**
+ * Katalogart: Serien (data/series.json).
+ *
+ * @var string
+ */
 const CATALOG_SERIES = 'series';
 
+/**
+ * Pfad der Katalogdatei zur Katalogart.
+ *
+ * @param string $kind CATALOG_COLLECTIONS oder CATALOG_SERIES
+ * @return string Absoluter Pfad der Datei
+ * @throws InvalidArgumentException bei unbekannter Katalogart
+ */
 function catalog_file(string $kind): string
 {
     if (!in_array($kind, [CATALOG_COLLECTIONS, CATALOG_SERIES], true)) {
@@ -26,7 +43,12 @@ function catalog_file(string $kind): string
     return DATA_DIR . "/$kind.json";
 }
 
-/** Ganzer Katalog (TMDB-ID => Eintrag); leer, wenn die Datei fehlt oder kaputt ist. */
+/**
+ * Ganzer Katalog (TMDB-ID => Eintrag); leer, wenn die Datei fehlt oder kaputt ist.
+ *
+ * @param string $kind CATALOG_COLLECTIONS oder CATALOG_SERIES
+ * @return array
+ */
 function read_catalog(string $kind): array
 {
     $file = catalog_file($kind);
@@ -37,7 +59,12 @@ function read_catalog(string $kind): array
 /**
  * Speichert bzw. ersetzt einen Eintrag (mit aktuellem Datum in "updated"). Lesen und Schreiben unter einer Sperre,
  * damit sich zwei gleichzeitige Importe nicht gegenseitig überschreiben.
+ *
+ * @param string $kind CATALOG_COLLECTIONS oder CATALOG_SERIES
+ * @param string $tmdb TMDB-ID der Reihe bzw. Serie
  * @param array $entry {name, parts} bzw. {name, seasons}
+ * @return void
+ * @throws RuntimeException wenn die Katalogdatei nicht geöffnet werden kann
  */
 function save_catalog_entry(string $kind, string $tmdb, array $entry): void
 {

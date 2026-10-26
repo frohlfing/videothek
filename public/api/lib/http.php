@@ -1,6 +1,12 @@
 <?php
 
-/** Sendet $data als JSON mit dem angegebenen HTTP-Status und beendet die Ausführung. */
+/**
+ * Sendet $data als JSON mit dem angegebenen HTTP-Status und beendet die Ausführung.
+ *
+ * @param int $status HTTP-Statuscode
+ * @param array $data Response-Body, wird als JSON kodiert
+ * @return never
+ */
 function json_response(int $status, array $data): never
 {
     http_response_code($status);
@@ -9,13 +15,23 @@ function json_response(int $status, array $data): never
     exit;
 }
 
-/** Kurzform für json_response() mit einem einzelnen {"error": $message}-Body. */
+/**
+ * Kurzform für json_response() mit einem einzelnen {"error": $message}-Body.
+ *
+ * @param int $status HTTP-Statuscode
+ * @param string $message Fehlermeldung
+ * @return never
+ */
 function json_error(int $status, string $message): never
 {
     json_response($status, ['error' => $message]);
 }
 
-/** Liest den JSON-Body der Request. Bricht mit 400 ab, wenn kein gültiges JSON-Objekt vorliegt. */
+/**
+ * Liest den JSON-Body der Request. Bricht mit 400 ab, wenn kein gültiges JSON-Objekt vorliegt.
+ *
+ * @return array Der dekodierte Body
+ */
 function read_json_body(): array
 {
     $raw = file_get_contents('php://input');
@@ -26,7 +42,11 @@ function read_json_body(): array
     return $data;
 }
 
-/** Bricht mit 401 ab, wenn der X-API-Token Header fehlt oder falsch ist. */
+/**
+ * Bricht mit 401 ab, wenn der X-API-Token Header fehlt oder falsch ist.
+ *
+ * @return void
+ */
 function require_token(): void
 {
     $header = $_SERVER['HTTP_X_API_TOKEN'] ?? '';

@@ -15,18 +15,33 @@
 
 require_once __DIR__ . '/jsonfile.php';
 
+/**
+ * Pfad der Standortdatei.
+ *
+ * @return string Absoluter Pfad von data/locations.json
+ */
 function locations_file(): string
 {
     return DATA_DIR . '/locations.json';
 }
 
-/** "lilie/DVD": ein Medium innerhalb eines Eintrags (je Eigentümer jede Art höchstens einmal). */
+/**
+ * "lilie/DVD": ein Medium innerhalb eines Eintrags (je Eigentümer jede Art höchstens einmal).
+ *
+ * @param string $owner Eigentümer des Mediums (Login)
+ * @param string $type Art des Mediums (z. B. DVD)
+ * @return string Der Schlüssel, z. B. "lilie/DVD"
+ */
 function medium_key(string $owner, string $type): string
 {
     return "$owner/$type";
 }
 
-/** @return array<string, array<string, array{at: string, since: string, by: ?string}>> */
+/**
+ * Alle Standorte.
+ *
+ * @return array<string, array<string, array{at: string, since: string, by: ?string}>>
+ */
 function read_locations(): array
 {
     return read_json_file(locations_file());
@@ -34,7 +49,9 @@ function read_locations(): array
 
 /**
  * Ändert locations.json unter Sperre (update_json_file()). Liefert die neuen Daten.
+ *
  * @param callable(array): array $change
+ * @return array Die neuen Daten
  */
 function update_locations(callable $change): array
 {
@@ -45,6 +62,13 @@ function update_locations(callable $change): array
  * Setzt den Standort eines Mediums: $at ist der Haushalt, Benutzer (gespeichert wird sein Haushalt) bzw. Name, bei
  * dem es jetzt ist; null, der Eigentümer selbst oder ein Benutzer, der zu ihm gehört (Tinka bei Rohlfings DVD), =
  * zurück beim Eigentümer. Liefert die Standorte des Eintrags.
+ *
+ * @param string $slug Ordnername des Eintrags unter MOVIES_DIR
+ * @param string $owner Eigentümer des Mediums
+ * @param string $type Art des Mediums
+ * @param string|null $at Haushalt, Benutzer oder Name, bei dem es jetzt ist; null = zurück beim Eigentümer
+ * @param string|null $by Login des Benutzers, der die Änderung vornimmt
+ * @return array Die Standorte des Eintrags (Medienschlüssel => Standort)
  */
 function set_location(string $slug, string $owner, string $type, ?string $at, ?string $by): array
 {
@@ -66,7 +90,11 @@ function set_location(string $slug, string $owner, string $type, ?string $at, ?s
 /**
  * Nach dem Speichern bzw. Löschen eines Eintrags: Standorte auf den neuen Slug umziehen ($newSlug null = gelöscht)
  * und die von Medien entfernen, die es nicht mehr gibt (Eigentümer oder Art geändert, Medium entfernt).
+ *
+ * @param string $oldSlug Bisheriger Slug
+ * @param string|null $newSlug Neuer Slug; null, wenn der Eintrag gelöscht wurde
  * @param array<array{owner: string, type: string}> $media
+ * @return void
  */
 function move_locations(string $oldSlug, ?string $newSlug, array $media = []): void
 {

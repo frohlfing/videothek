@@ -38,15 +38,34 @@ require_once __DIR__ . '/lib/catalog.php';
 require_once __DIR__ . '/lib/image_store.php';
 require_once __DIR__ . '/lib/tmdb.php';
 
-// TMDB kennt das Format des eigenen Exemplars nicht; der Import-Dialog fragt es ab (wie MEDIUM_OPTIONS in app.js).
+/**
+ * Formate des eigenen Exemplars, aus denen der Import-Dialog wählt (TMDB kennt es nicht; wie MEDIUM_OPTIONS in
+ * app.js).
+ *
+ * @var string[]
+ */
 const IMPORT_MEDIA = ['DVD', 'Blu-ray', 'USB'];
+
+/**
+ * Medium, wenn die Anfrage keins nennt.
+ *
+ * @var string
+ */
 const IMPORT_DEFAULT_MEDIUM = 'DVD';
-// Statt eines Mediums: Eintrag nur auf die Wunschliste.
+
+/**
+ * Statt eines Mediums: Eintrag nur auf die Wunschliste.
+ *
+ * @var string
+ */
 const IMPORT_WISH = 'wish';
 
 /**
  * Das importierte Exemplar: $medium des Eigentümers (owner_of()) des angemeldeten Benutzers, ohne Anmeldung des
  * ersten aus users.json. Für die Wunschliste keins.
+ *
+ * @param string $medium Format des Exemplars (aus IMPORT_MEDIA) oder IMPORT_WISH
+ * @return array Die Medienliste für den neuen Eintrag; leer bei IMPORT_WISH oder ohne Benutzer
  */
 function import_media(string $medium): array
 {
@@ -56,7 +75,10 @@ function import_media(string $medium): array
 
 /**
  * Bei IMPORT_WISH: die neuen Einträge auf die Wunschliste des angemeldeten Benutzers.
+ *
+ * @param string $medium Format des Exemplars (aus IMPORT_MEDIA) oder IMPORT_WISH
  * @param string[] $slugs
+ * @return void
  */
 function import_wishes(string $medium, array $slugs): void
 {
@@ -188,6 +210,8 @@ json_response(201, $response);
 /**
  * Legt einen Eintrag aus den TMDB-Details an und lädt Poster und Hintergrundbild. Bilder werden je Request nur
  * einmal heruntergeladen (die Staffeln einer Serie teilen sich meist das Hintergrundbild).
+ *
+ * @param array $details Eintragsdaten aus tmdb_movie() bzw. einer Staffel aus tmdb_series()
  * @return array{0: array, 1: string[]} der Eintrag und Warnungen zu fehlgeschlagenen Bildern
  * @throws ValidationException
  */

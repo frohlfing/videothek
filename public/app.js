@@ -120,75 +120,150 @@
 
 /** @type {Movie[]} Filme und Staffeln */
 let MOVIES = [];
-/** Alte Serien-Einträge (alle Staffeln in einem); nicht angezeigt, sie werden neu importiert. */
+/** Alte Serien-Einträge (alle Staffeln in einem); nicht angezeigt, sie werden neu importiert. @type {number} */
 let legacySeriesCount = 0;
-// `true`, während openEditForm()/openImportForm() offen ist (ungespeicherte Eingaben sind möglich).
-// Verhindert, dass ein Klick neben das Formular oder Escape die Eingaben versehentlich verwirft
-// (siehe overlay-Klick-Handler und keydown-Handler weiter unten) — nur die expliziten Buttons
-// "Abbrechen"/"×"/"Speichern" schließen das Formular dann noch.
+/**
+ * `true`, während openEditForm()/openImportForm() offen ist (ungespeicherte Eingaben sind möglich).
+ * Verhindert, dass ein Klick neben das Formular oder Escape die Eingaben versehentlich verwirft
+ * (siehe overlay-Klick-Handler und keydown-Handler weiter unten) — nur die expliziten Buttons
+ * "Abbrechen"/"×"/"Speichern" schließen das Formular dann noch.
+ *
+ * @type {boolean}
+ */
 let formIsOpen = false;
 
+/** Container des Kartenrasters. @type {HTMLElement} */
 const grid = document.getElementById('grid');
+/**
+ * Abgedunkelter Hintergrund hinter Lese-Ansicht und Formularen; hat die Klasse `open`, wenn sichtbar.
+ *
+ * @type {HTMLElement}
+ */
 const overlay = document.getElementById('overlay');
+/** Inhaltsbereich im Overlay (Lese-Ansicht, Formular, Import-Dialog). @type {HTMLElement} */
 const sheet = document.getElementById('sheet');
+/** Suchfeld. @type {HTMLInputElement} */
 const searchInput = document.getElementById('search');
+/** Auswahl der Sortierung. @type {HTMLSelectElement} */
 const sortSel = document.getElementById('sortSel');
+/** Auswahl der Art (Film, Serie, Wunschlisten). @type {HTMLSelectElement} */
 const typeSel = document.getElementById('typeSel');
+/** Auswahl des Genres. @type {HTMLSelectElement} */
 const genreSel = document.getElementById('genreSel');
+/** Auswahl des Mediums. @type {HTMLSelectElement} */
 const mediumSel = document.getElementById('mediumSel');
+/** Auswahl der Person (Bestand, Ausleihen). @type {HTMLSelectElement} */
 const personSel = document.getElementById('personSel');
 /**
  * Wert der Medium-Auswahl "Blu-ray und DVD": Einträge mit einer Scheibe (DISC_MEDIA); können kein echtes Medium sein,
  * der Server entfernt Leerzeichen am Rand.
+ *
+ * @type {string}
  */
 const DISCS = ' discs';
+/** Arten von Medien, die Scheiben sind (Auswahl "Blu-ray und DVD"). @type {string[]} */
 const DISC_MEDIA = ['Blu-ray', 'DVD'];
 /**
  * Werte der Medium-Auswahl nach Bildqualität der USB-Dateien (usbQuality()), direkt unter "USB"; Leerzeichen am Anfang
  * wie bei DISCS.
+ *
+ * @type {Array<[string, string]>} [Wert, Beschriftung]
  */
 const USB_QUALITY = [[' usb-good', 'USB (Qualität gut)'], [' usb-fair', 'USB (Qualität so lala)'], [' usb-bad', 'USB (Qualität schlecht)']];
-/** Gesamturteil zum Bild (videoQuality().grade) in Detailansicht und Medium-Auswahl; der Tooltip sagt "mittel". */
+/**
+ * Gesamturteil zum Bild (videoQuality().grade) in Detailansicht und Medium-Auswahl; der Tooltip sagt "mittel".
+ *
+ * @type {string[]}
+ */
 const QUALITY_WORDS = ['schlecht', 'so lala', 'gut'];
 /**
  * Linie in einer Auswahlliste: eine nicht wählbare Option aus Strichen (Farbe: .separator in app.css). Ein <hr> in
  * <select> zeichnet Chrome in fester Farbe, auf dunklem Grund kaum zu sehen; die Farbe einer Option übernimmt er.
+ *
+ * @type {string}
  */
 const SEPARATOR_OPTION = '<option class="separator" value="" disabled>────────────</option>';
-/** Werte der Art-Auswahl für Wunschlisten: WISH_PREFIX + Login ("wish:lilli"), siehe refreshTypeFilter(). */
+/**
+ * Werte der Art-Auswahl für Wunschlisten: WISH_PREFIX + Login ("wish:lilli"), siehe refreshTypeFilter().
+ *
+ * @type {string}
+ */
 const WISH_PREFIX = 'wish:';
-/** Wert der Art-Auswahl für "Meine Favoriten": Alles, was der angemeldete Benutzer mit dem Herz (+2) bewertet hat. */
+/**
+ * Wert der Art-Auswahl für "Meine Favoriten": Alles, was der angemeldete Benutzer mit dem Herz (+2) bewertet hat.
+ *
+ * @type {string}
+ */
 const MY_FAVORITES = 'favorites';
+/** Anzeige "x von y" über dem Kartenraster. @type {HTMLElement} */
 const resultCount = document.getElementById('resultCount');
+/** Anzeige der Gesamtanzahl im Header. @type {HTMLElement} */
 const subCount = document.getElementById('subCount');
+/** Button "Importieren". @type {HTMLButtonElement} */
 const importMovieBtn = document.getElementById('importMovieBtn');
 
+/** Schlüssel in localStorage, unter dem das API-Token abgelegt wird. @type {string} */
 const TOKEN_KEY = 'videothek_api_token';
 
 // Vorschlagslisten im Formular; freie Eingaben bleiben trotzdem möglich.
 
+/** Vorschläge für die Art des Mediums im Formular; freie Eingaben bleiben möglich. @type {string[]} */
 const MEDIUM_OPTIONS = ['DVD', 'Blu-ray', 'USB'];
+/** Vorschläge für die Altersfreigabe im Formular; freie Eingaben bleiben möglich. @type {string[]} */
 const FSK_OPTIONS = ['0', '6', '12', '16', '18'];
-// Medien, die Dateien sind (wie DIGITAL_MEDIA in api/lib/crud.php): Mit Dateien statt Standort, werden nicht verliehen.
+/**
+ * Medien, die Dateien sind (wie DIGITAL_MEDIA in api/lib/crud.php): Mit Dateien statt Standort, werden nicht
+ * verliehen.
+ *
+ * @type {string[]}
+ */
 const DIGITAL_MEDIA = ['USB'];
-// localStorage: USB-Ordner dieses Geräts (jeder hat seinen eigenen USB-Speicher), Vorgabe USB_ROOT aus config.php.
+/**
+ * localStorage: USB-Ordner dieses Geräts (jeder hat seinen eigenen USB-Speicher), Vorgabe USB_ROOT aus config.php.
+ *
+ * @type {string}
+ */
 const USB_ROOT_KEY = 'videothek_usb_root';
-// localStorage: zuletzt gewähltes Medium im Import-Dialog (eines aus MEDIUM_OPTIONS oder IMPORT_WISH).
+/**
+ * localStorage: zuletzt gewähltes Medium im Import-Dialog (eines aus MEDIUM_OPTIONS oder IMPORT_WISH).
+ *
+ * @type {string}
+ */
 const IMPORT_MEDIUM_KEY = 'videothek_import_medium';
-// Import ohne Medium, nur auf die eigene Wunschliste (wie IMPORT_WISH in api/import.php); Vorgabe im Dialog.
+/**
+ * Import ohne Medium, nur auf die eigene Wunschliste (wie IMPORT_WISH in api/import.php); Vorgabe im Dialog.
+ *
+ * @type {string}
+ */
 const IMPORT_WISH = 'wish';
-// Undo-Pfeil für "zurückgegeben" und "doch nicht sehen".
+/**
+ * Undo-Pfeil für "zurückgegeben" und "doch nicht sehen" (SVG-Markup).
+ *
+ * @type {string}
+ */
 const UNDO_ICON = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" '
   + 'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>';
-// Pfad kopieren, kopiert (Häkchen) und USB-Ordner ändern (Stift), gleicher Stil.
+/**
+ * Öffnender SVG-Tag für "Pfad kopieren", "kopiert" (Häkchen) und "USB-Ordner ändern" (Stift), gleicher Stil; das Symbol
+ * selbst und </svg> hängt der Aufrufer an.
+ *
+ * @type {string}
+ */
 const ICON_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" '
   + 'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">';
+/** Symbol "Pfad kopieren". @type {string} SVG-Markup */
 const COPY_ICON = ICON_SVG + '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+/** Symbol "kopiert" (Häkchen). @type {string} SVG-Markup */
 const CHECK_ICON = ICON_SVG + '<path d="M20 6 9 17l-5-5"/></svg>';
+/** Symbol "USB-Ordner ändern" (Stift). @type {string} SVG-Markup */
 const EDIT_ICON = ICON_SVG + '<path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
 
-// Bewertungsstufen (wie RATING_VALUES in api/lib/ratings.php), in der Detailansicht in dieser Reihenfolge. Symbole aus
-// Googles Material Symbols (Rounded, gefüllt; Apache-Lizenz 2.0), Farbe über die Klasse (app.css).
+/**
+ * Bewertungsstufen (wie RATING_VALUES in api/lib/ratings.php), in der Detailansicht in dieser Reihenfolge. Symbole aus
+ * Googles Material Symbols (Rounded, gefüllt; Apache-Lizenz 2.0), Farbe über die Klasse (app.css).
+ *
+ * @type {Array<{value: number, label: string, cls: string, icon: string}>}
+ */
 const RATING_STEPS = [
   {value: -1, label: 'schlecht / nicht sehenswert', cls: 'rate-hand', icon: '<svg class="rate-icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="M120-320q-32 0-56-24t-24-56v-80q0-7 1.5-15t4.5-15l120-282q9-20 30-34t44-14h320q33 0 56.5 23.5T640-760v407q0 16-6.5 30.5T616-297L399-81q-15 14-35.5 17T324-71q-19-10-27.5-28t-3.5-37l45-184H120Zm680-520q33 0 56.5 23.5T880-760v360q0 33-23.5 56.5T800-320q-33 0-56.5-23.5T720-400v-360q0-33 23.5-56.5T800-840Z"/></svg>'},
   {value: 0, label: 'so lala', cls: 'rate-hand', icon: '<svg class="rate-icon" viewBox="0 -960 960 960" aria-hidden="true"><path d="M80-400q-33 0-56.5-23.5T0-480v-240q0-12 5-23t13-19l126-126q9-9 20-13.5t22-4.5q26 0 45 20t14 51l-13 75h208q17 0 28.5 11.5T480-720v50q0 6-1 11.5t-3 10.5l-90 212q-7 17-22.5 26.5T330-400H80Zm440 200q-17 0-28.5-11.5T480-240v-50q0-6 1-11.5t3-10.5l90-212q8-17 23-26.5t33-9.5h250q33 0 56.5 23.5T960-480v240q0 12-4.5 22.5T942-198L816-72q-9 9-20 13.5T774-54q-26 0-45-20t-14-51l13-75H520Z"/></svg>'},
@@ -198,7 +273,9 @@ const RATING_STEPS = [
 
 /**
  * Symbol einer Bewertungsstufe; ein Durchschnitt wird auf die nächste Stufe gerundet.
+ *
  * @param {number} value
+ * @returns {string} SVG-Markup des Symbols
  */
 function ratingIcon(value){
   const v = Math.max(-1, Math.min(2, Math.round(value)));
@@ -206,74 +283,151 @@ function ratingIcon(value){
   return step.icon.replace('class="rate-icon"', `class="rate-icon ${step.cls}"`);
 }
 
-// Artikel am Titelanfang, die beim Sortieren nach Titel übergangen werden ("The Big Lebowski" steht bei B, wie in
-// Kodi). Angezeigt wird der Titel unverändert. Leere Liste = aus.
+/**
+ * Artikel am Titelanfang, die beim Sortieren nach Titel übergangen werden ("The Big Lebowski" steht bei B, wie in
+ * Kodi). Angezeigt wird der Titel unverändert. Leere Liste = aus.
+ *
+ * @type {string[]}
+ */
 const SORT_IGNORE_ARTICLES = ['der', 'die', 'das', 'the', 'ein', 'eine', 'a', 'an'];
+/** Erkennt einen führenden Artikel; null, wenn SORT_IGNORE_ARTICLES leer ist. @type {?RegExp} */
 const SORT_ARTICLE_RE = SORT_IGNORE_ARTICLES.length ? new RegExp(`^(?:${SORT_IGNORE_ARTICLES.join('|')})\\s+`, 'i') : null;
+/** Vergleicht Texte nach deutscher Sortierung. @type {Intl.Collator} */
 const titleCollator = new Intl.Collator('de');
 
-/** Titel ohne führenden Artikel (SORT_IGNORE_ARTICLES), zum Sortieren. */
+/**
+ * Titel ohne führenden Artikel (SORT_IGNORE_ARTICLES), zum Sortieren.
+ *
+ * @param {?string} title Der Titel
+ * @returns {string} Der Titel ohne führenden Artikel
+ */
 function sortTitle(title){
   const t = (title || '').trim();
   const rest = SORT_ARTICLE_RE ? t.replace(SORT_ARTICLE_RE, '') : t;
   return rest || t; // Der Titel, der nur aus dem Artikel besteht ("Die"), bleibt, wie er ist
 }
 
-/** Vergleicht zwei Titel alphabetisch, führende Artikel übergangen. */
+/**
+ * Vergleicht zwei Titel alphabetisch, führende Artikel übergangen.
+ *
+ * @param {?string} a Erster Titel
+ * @param {?string} b Zweiter Titel
+ * @returns {number} Negativ, 0 oder positiv wie bei Array.sort()
+ */
 function compareTitles(a, b){
   return titleCollator.compare(sortTitle(a), sortTitle(b)) || titleCollator.compare(a || '', b || '');
 }
 
+/**
+ * Maskiert die HTML-Sonderzeichen & < > " ' (für Text und Attributwerte).
+ *
+ * @param {*} str Beliebiger Wert (null/undefined wird wie "" behandelt)
+ * @returns {string} Der maskierte Text
+ */
 function escapeHtml(str){
   return String(str ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
-/** @param {Movie} m */
+/**
+ * Ist der Eintrag eine Staffel?
+ *
+ * @param {Movie} m
+ * @returns {boolean} true bei einer Staffel
+ */
 function isSeason(m){
   return m.type === 'season';
 }
 
-/** "Film" / "Staffel" bzw. bei TMDB-Treffern "Serie" (für Überschriften und Meldungen). @param {string} type */
+/**
+ * "Film" / "Staffel" bzw. bei TMDB-Treffern "Serie" (für Überschriften und Meldungen).
+ *
+ * @param {string} type
+ * @returns {string} Die Bezeichnung
+ */
 function typeLabel(type){
   return {season: 'Staffel', series: 'Serie'}[type] || 'Film';
 }
 
-/** "1 Film" / "3 Filme", "1 Serie" / "2 Serien" usw. */
+/**
+ * "1 Film" / "3 Filme", "1 Serie" / "2 Serien" usw.
+ *
+ * @param {number} n Die Anzahl
+ * @param {string} singular Form für 1
+ * @param {string} plural Form für alle anderen Anzahlen
+ * @returns {string} Der Text, z. B. "3 Filme"
+ */
 function countLabel(n, singular, plural){
   return `${n} ${n === 1 ? singular : plural}`;
 }
 
-/** Arten der Medien eines Eintrags, ohne Doppelte (für Karte, Filter, Suche). @param {Movie} m @returns {string[]} */
+/**
+ * Arten der Medien eines Eintrags, ohne Doppelte (für Karte, Filter, Suche).
+ *
+ * @param {Movie} m
+ * @returns {string[]}
+ */
 function mediaOf(m){
   return [...new Set(m.media.map(md => md.type))];
 }
 
-/** Eigentümer (Kennungen) der Medien eines Eintrags. @param {Movie} m @returns {string[]} */
+/**
+ * Eigentümer (Kennungen) der Medien eines Eintrags.
+ *
+ * @param {Movie} m
+ * @returns {string[]}
+ */
 function ownersOf(m){
   return [...new Set(m.media.map(md => md.owner))];
 }
 
-/** @param {string} type */
+/**
+ * Ist das Medium eine Datei (DIGITAL_MEDIA)?
+ *
+ * @param {string} type
+ * @returns {boolean} true bei Dateien
+ */
 function isDigital(type){
   return DIGITAL_MEDIA.includes(type);
 }
 
-/** "lilie/DVD" wie medium_key() in api/lib/locations.php. @param {Medium} md */
+/**
+ * "lilie/DVD" wie medium_key() in api/lib/locations.php.
+ *
+ * @param {Medium} md
+ * @returns {string} Der Schlüssel, z. B. "lilie/DVD"
+ */
 function mediumKey(md){
   return `${md.owner}/${md.type}`;
 }
 
-/** Standort einer Scheibe, null = beim Eigentümer (Dateien haben keinen). @param {Movie} m @param {Medium} md @returns {?Location} */
+/**
+ * Standort einer Scheibe, null = beim Eigentümer (Dateien haben keinen).
+ *
+ * @param {Movie} m
+ * @param {Medium} md
+ * @returns {?Location}
+ */
 function locationOf(m, md){
-  return isDigital(md.type) ? null : (LOCATIONS[m.slug] || {})[mediumKey(md)] || null;
+  return isDigital(md.type) ? null : LOCATIONS[m.slug]?.[mediumKey(md)] || null;
 }
 
-/** Steht der Eintrag auf der Wunschliste von login (Vorgabe: angemeldeter Benutzer)? @param {Movie} m @param {?string} [login] */
+/**
+ * Steht der Eintrag auf der Wunschliste von login (Vorgabe: angemeldeter Benutzer)?
+ *
+ * @param {Movie} m
+ * @param {?string} [login]
+ * @returns {boolean}
+ */
 function isWished(m, login = ME){
   return !!(login && WISHES[m.slug]?.[login]);
 }
 
-/** Anzeigename eines Benutzers (users.json), sonst der Login bzw. frei eingegebener Name, wie er ist. @param {string} login */
+/**
+ * Anzeigename eines Benutzers (users.json), sonst der Login bzw. frei eingegebener Name, wie er ist.
+ *
+ * @param {string} login
+ * @returns {string} Der Name
+ */
 function userName(login){
   return USERS[login]?.name || login;
 }
@@ -281,13 +435,20 @@ function userName(login){
 /**
  * Eigentümer der Medien eines Benutzers: gemeinsamer ("rohlfing" für Frank und Tinka, siehe api/lib/users.php) bzw.
  * sein Login.
+ *
  * @param {?string} login
+ * @returns {string} Die Kennung des Eigentümers
  */
 function ownerOf(login){
   return login ? USERS[login]?.owner || login : null;
 }
 
-/** Anzeigename eines Eigentümers ("Rohlfing", "Lilli"). @param {string} owner */
+/**
+ * Anzeigename eines Eigentümers ("Rohlfing", "Lilli").
+ *
+ * @param {string} owner
+ * @returns {string} Der Name
+ */
 function ownerName(owner){
   return OWNERS[owner] || userName(owner);
 }
@@ -295,35 +456,61 @@ function ownerName(owner){
 /**
  * Bei wem ein verliehenes Medium ist (Location.at): verliehen wird an einen Haushalt (Eigentümer, "feldmann" für Barbara
  * und Arne) oder an einen frei eingegebenen Namen. Ältere Einträge mit einem Login ("arne") zählen für seinen Haushalt.
+ *
  * @param {string} at
+ * @returns {string} Die Kennung des Haushalts bzw. der Name
  */
 function holderOf(at){
   return USERS[at] ? ownerOf(at) : at;
 }
 
-/** Anzeigename zu holderOf(): "Feldmann", "Lilli", "Oma Erna". @param {string} at */
+/**
+ * Anzeigename zu holderOf(): "Feldmann", "Lilli", "Oma Erna".
+ *
+ * @param {string} at
+ * @returns {string} Der Name
+ */
 function holderName(at){
   return ownerName(holderOf(at));
 }
 
-/** Genitiv vor dem Medium: "Lilies", aber "Klaus’", "Max’". @param {string} name */
+/**
+ * Genitiv vor dem Medium: "Lilies", aber "Klaus’", "Max’".
+ *
+ * @param {string} name
+ * @returns {string} Der Name im Genitiv
+ */
 function possessive(name){
   return /[sßxz]$/i.test(name) ? `${name}’` : `${name}s`;
 }
 
-/** "Lilies DVD", bei Dateien "Franks Datei (USB)". @param {Medium} md */
+/**
+ * "Lilies DVD", bei Dateien "Franks Datei (USB)".
+ *
+ * @param {Medium} md
+ * @returns {string} Die Beschriftung
+ */
 function mediumLabel(md){
   const who = possessive(ownerName(md.owner));
   return isDigital(md.type) ? `${who} Datei (${md.type})` : `${who} ${md.type}`;
 }
 
-/** Dateien des angemeldeten Benutzers zu einem Eintrag (zum Abspielen), sonst leer. @param {Movie} m @returns {string[]} */
+/**
+ * Dateien des angemeldeten Benutzers zu einem Eintrag (zum Abspielen), sonst leer.
+ *
+ * @param {Movie} m
+ * @returns {string[]}
+ */
 function myFiles(m){
   const md = m.media.find(x => x.owner === ownerOf(ME) && isDigital(x.type) && x.paths.length);
   return md ? md.paths : [];
 }
 
-/** USB-Ordner dieses Geräts oder '' (dann gilt USB_ROOT aus config.php). */
+/**
+ * USB-Ordner dieses Geräts oder '' (dann gilt USB_ROOT aus config.php).
+ *
+ * @returns {string} Der Ordner; leer, wenn dieses Gerät keinen eigenen hat
+ */
 function usbRoot(){
   try {
     return localStorage.getItem(USB_ROOT_KEY) || '';
@@ -354,19 +541,27 @@ function usbPath(md){
   return (root ? root + sep : '') + rel.split('/').join(sep);
 }
 
-/** Android: Dort liegt der interne Speicher ("Interner Speicher" in der Dateien-App). */
+/** Android: Dort liegt der interne Speicher ("Interner Speicher" in der Dateien-App). @type {boolean} */
 const IS_ANDROID = /Android/i.test(navigator.userAgent);
+/** Pfad des internen Speichers unter Android. @type {string} */
 const ANDROID_STORAGE = '/storage/emulated/0';
+/** Name des internen Speichers in der Dateien-App von Android. @type {string} */
 const ANDROID_STORAGE_NAME = 'Interner Speicher';
 
-/** Vorgabe für den USB-Ordner dieses Geräts: unter Android "Interner Speicher/Videos", sonst USB_ROOT aus config.php. */
+/**
+ * Vorgabe für den USB-Ordner dieses Geräts: unter Android "Interner Speicher/Videos", sonst USB_ROOT aus config.php.
+ *
+ * @returns {string} Der Ordner
+ */
 function defaultUsbRoot(){
   return IS_ANDROID ? `${ANDROID_STORAGE}/Videos` : DEFAULT_USB_ROOT;
 }
 
 /**
  * Pfad zum Anzeigen: unter Android "Interner Speicher/…" statt "/storage/emulated/0/…" (kopiert wird der echte Pfad).
+ *
  * @param {string} path
+ * @returns {string} Der Pfad zum Anzeigen
  */
 function displayPath(path){
   return path.startsWith(ANDROID_STORAGE + '/') ? ANDROID_STORAGE_NAME + path.slice(ANDROID_STORAGE.length) : path;
@@ -401,7 +596,9 @@ async function askUsbRoot(){
 /**
  * Kopiert den Pfad (Knopf neben dem Medium USB) in die Zwischenablage, als Bestätigung kurz ein Häkchen. Ohne
  * Zwischenablage wird der Pfad markiert (dann Strg+C).
+ *
  * @param {HTMLElement} btn  .copy-path-btn mit data-path
+ * @returns {Promise<void>}
  */
 async function copyPath(btn){
   try {
@@ -417,19 +614,28 @@ async function copyPath(btn){
   setTimeout(() => { btn.innerHTML = COPY_ICON; }, 1500);
 }
 
-/** Dateien, die der Browser selbst abspielt (MP4 mit H.264/H.265 und AAC). */
+/** Dateien, die der Browser selbst abspielt (MP4 mit H.264/H.265 und AAC). @type {RegExp} */
 const BROWSER_PLAYABLE = /\.(mp4|m4v)$/i;
-// IndexedDB: Freigegebener Videothek-Ordner dieses Geräts (ein Ordner-Handle lässt sich nicht in localStorage ablegen).
+/**
+ * IndexedDB: Freigegebener Videothek-Ordner dieses Geräts (ein Ordner-Handle lässt sich nicht in localStorage
+ * ablegen).
+ *
+ * @type {string}
+ */
 const FOLDER_DB = 'videothek';
+/** Name des Object Stores in der IndexedDB FOLDER_DB. @type {string} */
 const FOLDER_STORE = 'handles';
+/** Schlüssel des gemerkten Ordners im Object Store FOLDER_STORE. @type {string} */
 const FOLDER_KEY = 'usbFolder';
 
 /**
  * Kann dieser Browser die eigenen Dateien des Eintrags (bzw. einer Folge) selbst abspielen? Nur mit Zugriff auf lokale
  * Ordner (Chrome, Edge am Rechner: File System Access API) und nur MP4. Sonst gibt es keinen Play-Button; der Pfad steht
  * bei den Medien zum Kopieren (usbPath()).
+ *
  * @param {Movie} m
  * @param {?number} [episode]  nur diese Folge einer Staffel
+ * @returns {boolean} true, wenn der Browser abspielen kann
  */
 function canPlayInBrowser(m, episode = null){
   const items = playItems(m, episode);
@@ -438,7 +644,9 @@ function canPlayInBrowser(m, episode = null){
 
 /**
  * Abspielen (Klick auf ▶) im Player-Fenster (playInBrowser()).
+ *
  * @param {HTMLElement} btn  .play-btn bzw. .ep-play mit data-slug (und data-episode)
+ * @returns {Promise<void>}
  */
 async function playMedia(btn){
   const m = MOVIES.find(x => x.slug === btn.dataset.slug);
@@ -470,9 +678,11 @@ function playItems(m, episode){
  * man einmal aus (askFolder()), das Gerät merkt ihn sich (IndexedDB); nach einem Neustart des Browsers fragt er
  * einmal nach. Ist der gemerkte Ordner nicht erreichbar (USB-Speicher nicht angeschlossen, Ordner umbenannt) oder
  * fehlt die Datei darin, kommt die Auswahl wieder.
+ *
  * @param {Movie} m
  * @param {{title: string, path: string}[]} items
  * @param {boolean} [pickNew]  Ordner neu wählen statt des gemerkten
+ * @returns {Promise<void>}
  */
 async function playInBrowser(m, items, pickNew = false){
   let folder = pickNew ? null : await storedFolder();
@@ -515,7 +725,13 @@ async function askFolder(m){
   return ok ? window.showDirectoryPicker({id: 'videothek', mode: 'read'}) : null;
 }
 
-/** Datei unter einem Ordner-Handle, parts = Unterordner und Dateiname. @returns {Promise<FileSystemFileHandle>} */
+/**
+ * Datei unter einem Ordner-Handle, parts = Unterordner und Dateiname.
+ *
+ * @param {FileSystemDirectoryHandle} folder Der freigegebene Ordner
+ * @param {string[]} parts Unterordner und Dateiname
+ * @returns {Promise<FileSystemFileHandle>}
+ */
 async function fileInFolder(folder, parts){
   let dir = folder;
   for(const name of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(name);
@@ -546,7 +762,12 @@ async function storedFolder(){
   }
 }
 
-/** Merkt sich den Videothek-Ordner. @param {FileSystemDirectoryHandle} folder */
+/**
+ * Merkt sich den Videothek-Ordner.
+ *
+ * @param {FileSystemDirectoryHandle} folder
+ * @returns {Promise<void>}
+ */
 async function storeFolder(folder){
   try {
     const db = await folderDb();
@@ -565,8 +786,10 @@ async function storeFolder(folder){
  * Player-Fenster: spielt die Dateien nacheinander (mehrteilige Filme, alle Folgen einer Staffel). Schließen (×,
  * Escape) beendet die Wiedergabe. Kann der Browser eine Datei nicht abspielen (etwa einen Codec, den er nicht kennt),
  * steht das darunter; dann den Pfad bei den Medien kopieren und die Datei im installierten Player öffnen.
+ *
  * @param {{title: string}[]} items
  * @param {string[]} urls  Blob-URLs zu items
+ * @returns {void}
  */
 function showPlayer(items, urls){
   const dialog = document.createElement('dialog');
@@ -707,7 +930,12 @@ function askBorrower(md){
   });
 }
 
-/** Zweistellig mit führender Null (Staffel-/Folgennummern in Dateinamen: S01E03). */
+/**
+ * Zweistellig mit führender Null (Staffel-/Folgennummern in Dateinamen: S01E03).
+ *
+ * @param {number} n Die Zahl
+ * @returns {string} Die Zahl mit mindestens zwei Stellen
+ */
 function pad2(n){
   return String(n).padStart(2, '0');
 }
@@ -782,10 +1010,18 @@ async function loadMovies(){
  * @property {CatalogItem[]} [seasons]
  */
 
-/** Was es laut TMDB von Reihen und Serien gibt, je TMDB-ID (api/catalog.php). */
+/**
+ * Was es laut TMDB von Reihen und Serien gibt, je TMDB-ID (api/catalog.php).
+ *
+ * @type {{collections: Object<string, CatalogEntry>, series: Object<string, CatalogEntry>}}
+ */
 let CATALOG = /** @type {{collections: Object<string, CatalogEntry>, series: Object<string, CatalogEntry>}} */ ({collections: {}, series: {}});
 
-/** Lädt CATALOG. Fehlt er oder schlägt das fehl, zeigt die Übersicht einfach keine "2 von 7"-Hinweise. */
+/**
+ * Lädt CATALOG. Fehlt er oder schlägt das fehl, zeigt die Übersicht einfach keine "2 von 7"-Hinweise.
+ *
+ * @returns {Promise<void>}
+ */
 async function loadCatalog(){
   try {
     const res = await fetch('api/catalog.php');
@@ -842,26 +1078,42 @@ function groupCatalog(members){
   };
 }
 
-/** Benutzer (Login => {name}) aus data/users.json, siehe api/users.php. */
+/**
+ * Benutzer (Login => {name}) aus data/users.json, siehe api/users.php.
+ *
+ * @type {Object<string, {name: string, owner: string}>}
+ */
 let USERS = /** @type {Object<string, {name: string, owner: string}>} */ ({});
-/** Eigentümer: Kennung => Anzeigename ("rohlfing" => "Rohlfing"), siehe api/users.php. */
+/**
+ * Eigentümer: Kennung => Anzeigename ("rohlfing" => "Rohlfing"), siehe api/users.php.
+ *
+ * @type {Object<string, string>}
+ */
 let OWNERS = /** @type {Object<string, string>} */ ({});
 /** @type {?string} angemeldeter Benutzer (Basic Auth), null ohne Anmeldung */
 let ME = null;
-/** USB_ROOT aus config.php: Vorgabe für den USB-Ordner, solange dieses Gerät keinen eigenen hat. */
+/** USB_ROOT aus config.php: Vorgabe für den USB-Ordner, solange dieses Gerät keinen eigenen hat. @type {string} */
 let DEFAULT_USB_ROOT = '';
-/** Standorte der Scheiben je Slug und Medium ("lilie/DVD"), siehe api/locations.php; ohne Eintrag beim Eigentümer. */
+/**
+ * Standorte der Scheiben je Slug und Medium ("lilie/DVD"), siehe api/locations.php; ohne Eintrag beim Eigentümer.
+ *
+ * @type {Object<string, Object<string, Location>>}
+ */
 let LOCATIONS = /** @type {Object<string, Object<string, Location>>} */ ({});
 
-/** Lädt USERS und ME. Schlägt das fehl, gibt es eben keine Namen (es erscheinen die Logins). */
+/**
+ * Lädt USERS und ME. Schlägt das fehl, gibt es eben keine Namen (es erscheinen die Logins).
+ *
+ * @returns {Promise<void>}
+ */
 async function loadUsers(){
   try {
     const res = await fetch('api/users.php');
     if(!res.ok) return;
     /** @type {{users?: Object<string, {name: string, owner: string}>, owners?: Object<string, string>, me?: ?string, usbRoot?: string}} */
     const data = await res.json();
-    USERS = data.users || {};
-    OWNERS = data.owners || {};
+    USERS = data.users || /** @type {Object<string, {name: string, owner: string}>} */ ({});
+    OWNERS = data.owners || /** @type {Object<string, string>} */ ({});
     ME = data.me || null;
     DEFAULT_USB_ROOT = data.usbRoot || '';
   } catch(err) {
@@ -869,10 +1121,14 @@ async function loadUsers(){
   }
 }
 
-/** Wunschlisten je Slug: Login => Zeitpunkt, siehe api/wishes.php. */
+/** Wunschlisten je Slug: Login => Zeitpunkt, siehe api/wishes.php. @type {Object<string, Object<string, string>>} */
 let WISHES = /** @type {Object<string, Object<string, string>>} */ ({});
 
-/** Lädt WISHES (nach dem Laden und nach dem Speichern: Umbenennen zieht die Wünsche mit). */
+/**
+ * Lädt WISHES (nach dem Laden und nach dem Speichern: Umbenennen zieht die Wünsche mit).
+ *
+ * @returns {Promise<void>}
+ */
 async function loadWishes(){
   try {
     const res = await fetch('api/wishes.php');
@@ -885,17 +1141,25 @@ async function loadWishes(){
   }
 }
 
-/** Bewertungen je Slug: Login => -1, 0, 1 oder 2 (RATING_STEPS), siehe api/ratings.php. */
+/**
+ * Bewertungen je Slug: Login => -1, 0, 1 oder 2 (RATING_STEPS), siehe api/ratings.php.
+ *
+ * @type {Object<string, Object<string, number>>}
+ */
 let RATINGS = /** @type {Object<string, Object<string, number>>} */ ({});
 
-/** Lädt RATINGS (nach dem Laden und nach dem Speichern: Umbenennen zieht die Bewertungen mit). */
+/**
+ * Lädt RATINGS (nach dem Laden und nach dem Speichern: Umbenennen zieht die Bewertungen mit).
+ *
+ * @returns {Promise<void>}
+ */
 async function loadRatings(){
   try {
     const res = await fetch('api/ratings.php');
     if(!res.ok) return;
     /** @type {{ratings?: Object<string, Object<string, number>>}} */
     const data = await res.json();
-    RATINGS = data.ratings || {};
+    RATINGS = data.ratings || /** @type {Object<string, Object<string, number>>} */ ({});
   } catch(err) {
     console.warn('Bewertungen nicht geladen', err);
   }
@@ -911,33 +1175,57 @@ function ratingAverage(movies){
   return values.length ? values.reduce((sum, v) => sum + v, 0) / values.length : null;
 }
 
-/** Lädt LOCATIONS (nach dem Laden und nach dem Speichern eines Eintrags: Umbenennen zieht seine Standorte mit). */
+/**
+ * Lädt LOCATIONS (nach dem Laden und nach dem Speichern eines Eintrags: Umbenennen zieht seine Standorte mit).
+ *
+ * @returns {Promise<void>}
+ */
 async function loadLocations(){
   try {
     const res = await fetch('api/locations.php');
     if(!res.ok) return;
     /** @type {{locations?: Object<string, Object<string, Location>>}} */
     const data = await res.json();
-    LOCATIONS = data.locations || {};
+    LOCATIONS = data.locations || /** @type {Object<string, Object<string, Location>>} */ ({});
   } catch(err) {
     console.warn('Standorte nicht geladen', err);
   }
 }
 
-/** "2 von 7" ohne Wertung; für die Kachel mit Einheit ("2 von 7 Filmen"). */
+/**
+ * "2 von 7" ohne Wertung; für die Kachel mit Einheit ("2 von 7 Filmen").
+ *
+ * @param {{owned: number, total: number}} info Ergebnis von groupCatalog()
+ * @param {string} unitPlural Einheit in der Mehrzahl, z. B. "Filmen"
+ * @returns {string} Der Text, z. B. "2 von 7"
+ */
 function catalogCountText(info, unitPlural = ''){
   return `${info.owned} von ${info.total}${unitPlural ? ` ${unitPlural}` : ''}`;
 }
 
+/**
+ * Liest das gespeicherte API-Token aus localStorage.
+ *
+ * @returns {string} Das Token, oder "" falls keins gespeichert ist
+ */
 function getStoredToken(){
   return localStorage.getItem(TOKEN_KEY) || '';
 }
 
+/**
+ * Löscht das gespeicherte API-Token aus localStorage.
+ *
+ * @returns {void}
+ */
 function forgetToken(){
   localStorage.removeItem(TOKEN_KEY);
 }
 
-/** Holt das gespeicherte API-Token oder fragt es einmalig per prompt() ab und merkt es sich in localStorage. */
+/**
+ * Holt das gespeicherte API-Token oder fragt es einmalig per prompt() ab und merkt es sich in localStorage.
+ *
+ * @returns {string} Das Token, oder "" falls der Nutzer keins eingegeben hat
+ */
 function requireToken(){
   let token = getStoredToken();
   if(!token){
@@ -951,6 +1239,12 @@ function requireToken(){
  * fetch()-Wrapper für schreibende API-Aufrufe: hängt das Token an, wirft bei
  * 401 (und vergisst dann das falsche Token) bzw. anderen Fehlerstatus mit der
  * Server-Fehlermeldung als Error.
+ *
+ * @param {string} url Ziel-URL des API-Aufrufs
+ * @param {RequestInit} [options] fetch()-Optionen (Methode, Body, Header); das Token wird ergänzt
+ * @returns {Promise<any>} Der dekodierte JSON-Body der Antwort
+ * @throws {Error} Ohne Token, bei 401 oder bei sonstigem Fehlerstatus
+ * @throws {Error} Ohne Token, bei 401 oder bei sonstigem Fehlerstatus
  */
 async function apiWrite(url, options){
   const token = requireToken();
@@ -977,12 +1271,16 @@ async function apiWrite(url, options){
 /**
  * @param {Movie} m
  * @param {'poster'|'thumb'|'fanart'} type
+ * @returns {?string} Die Bild-URL; null, wenn der Eintrag das Bild nicht hat
  */
 function movieImageSrc(m, type){
   return m[type] ? `api/image.php?slug=${encodeURIComponent(m.slug)}&type=${type}` : null;
 }
 
-/** @param {Movie} m */
+/**
+ * @param {Movie} m
+ * @returns {?string} Die Bild-URL; null ohne Poster
+ */
 function thumbSrc(m){
   return movieImageSrc(m, m.thumb ? 'thumb' : 'poster');
 }
@@ -990,12 +1288,18 @@ function thumbSrc(m){
 /**
  * @param {Movie} m
  * @param {CastMember} c
+ * @returns {?string} Die Bild-URL; null ohne Foto
  */
 function actorSrc(m, c){
   return c.thumb ? `api/image.php?slug=${encodeURIComponent(m.slug)}&actor=${encodeURIComponent(c.name)}&v=${encodeURIComponent(c.thumb)}` : null;
 }
 
-/** YouTube-Video-ID aus watch?v=…, youtu.be/… oder /embed/… — null, wenn es keine YouTube-URL ist. */
+/**
+ * YouTube-Video-ID aus watch?v=…, youtu.be/… oder /embed/… — null, wenn es keine YouTube-URL ist.
+ *
+ * @param {?string} url Die URL des Videos
+ * @returns {?string} Die Video-ID
+ */
 function youtubeId(url){
   const match = (url || '').match(/(?:youtube(?:-nocookie)?\.com\/(?:watch\?(?:.*&)?v=|embed\/)|youtu\.be\/)([\w-]{11})/);
   return match ? match[1] : null;
@@ -1003,7 +1307,9 @@ function youtubeId(url){
 
 /**
  * Film: "1985 · 114 Min. · FSK 12", Staffel: "2008 · 7 Folgen · 48 Min./Folge · FSK 16" — leere Angaben fallen weg.
+ *
  * @param {Movie} m
+ * @returns {string} Der Text
  */
 function metaLine(m){
   if(isSeason(m)){
@@ -1024,7 +1330,9 @@ function metaLine(m){
 /**
  * Im eigenen Bestand: Mindestens ein Medium angehakt. Einträge ohne Medium, etwa fehlende Teile einer Reihe oder
  * Staffeln einer Serie, erscheinen überall blass.
+ *
  * @param {Movie} m
+ * @returns {boolean}
  */
 function isOwned(m){
   return mediaOf(m).length > 0;
@@ -1035,6 +1343,7 @@ function isOwned(m){
  * @param {number} idx
  * @param {string} [extraClass]  z. B. "hit"/"other" im aufgefächerten Panel einer Reihe
  * @param {?number} [k]  Position beim Auffächern (Verzögerung der Animation); im Panel kurzer Titel ohne Etikett
+ * @returns {string} HTML der Karte
  */
 function cardHtml(m, idx, extraClass = '', k = null){
   const src = thumbSrc(m);
@@ -1056,7 +1365,9 @@ function cardHtml(m, idx, extraClass = '', k = null){
 /**
  * Bewertung auf der Karte: Symbol der gerundeten Stufe und Durchschnitt ("+1,3"), Stimmen im Tooltip; bei Reihen
  * und Serien über alle Einträge. Ohne Stimmen leer.
+ *
  * @param {Movie[]} movies
+ * @returns {string} HTML; leer ohne Stimmen
  */
 function ratingTagHtml(movies){
   const avg = ratingAverage(movies);
@@ -1066,7 +1377,7 @@ function ratingTagHtml(movies){
   return `<div class="rating-tag" title="${countLabel(votes, 'Stimme', 'Stimmen')}">${ratingIcon(avg)}${text}</div>`;
 }
 
-/** Häkchen auf der Karte: steht auf der eigenen Wunschliste. */
+/** Häkchen auf der Karte: steht auf der eigenen Wunschliste. @type {string} HTML */
 const WISH_BADGE = '<div class="wish-badge" title="Auf deiner Wunschliste">&#10003;</div>';
 
 /**
@@ -1082,7 +1393,9 @@ function shownMedia(m){
 /**
  * Karte normal statt blass: im Bestand; bei der Auswahl "Franks Bestand" außerdem nicht alles verliehen (blass wie
  * nicht im Bestand, damit sein Regal auf einen Blick zu sehen ist).
+ *
  * @param {Movie} m
+ * @returns {boolean}
  */
 function isAvailable(m){
   const p = personFilter();
@@ -1093,7 +1406,9 @@ function isAvailable(m){
 /**
  * Medien als Schlagwörter (ohne Doppelte), ohne Medium der Hinweis "nicht im Bestand". Bei den Auswahlen
  * "Franks Bestand" und "Lilli hat von Frank" stehen verliehene Scheiben als "DVD bei Lilli" da.
+ *
  * @param {Movie[]} movies  ein Eintrag bzw. alle einer Reihe
+ * @returns {string} HTML
  */
 function mediaTagsHtml(movies){
   const p = personFilter();
@@ -1109,7 +1424,12 @@ function mediaTagsHtml(movies){
   return [...tags].map(([text, lent]) => `<div class="cat-tag ${lent ? 'missing-tag' : 'medium-tag'}">${escapeHtml(text)}</div>`).join('');
 }
 
-/** Gruppe eines Eintrags: die Reihe eines Films bzw. die Serie einer Staffel, sonst null. @param {Movie} m */
+/**
+ * Gruppe eines Eintrags: die Reihe eines Films bzw. die Serie einer Staffel, sonst null.
+ *
+ * @param {Movie} m
+ * @returns {?Collection} Die Reihe bzw. Serie; null ohne Gruppe
+ */
 function groupOf(m){
   return (isSeason(m) ? m.series : m.collection) || null;
 }
@@ -1117,7 +1437,9 @@ function groupOf(m){
 /**
  * Schlüssel der Gruppe (Art und Name ohne Groß-/Kleinschreibung), null ohne Gruppe. Eine Reihe und eine Serie
  * gleichen Namens bleiben getrennt.
+ *
  * @param {Movie} m
+ * @returns {?string} Der Schlüssel
  */
 function groupKey(m){
   const g = groupOf(m);
@@ -1127,6 +1449,10 @@ function groupKey(m){
 /**
  * Teile einer Gruppe: Staffeln nach Nummer (Specials ans Ende); Filme einer Reihe nach "Teil", Filme ohne Teil
  * danach nach Jahr (ohne Jahr ans Ende); bei Gleichstand nach Titel.
+ *
+ * @param {{m: Movie}} a Erster Eintrag
+ * @param {{m: Movie}} b Zweiter Eintrag
+ * @returns {number} Negativ, 0 oder positiv wie bei Array.sort()
  */
 function groupOrder(a, b){
   const rank = ({m}) => isSeason(m)
@@ -1136,14 +1462,21 @@ function groupOrder(a, b){
   return ra[0] - rb[0] || ra[1] - rb[1] || compareTitles(a.m.title, b.m.title);
 }
 
-/** "Teil 2" bei Filmen mit Teilnummer, sonst null. @param {Movie} m */
+/**
+ * "Teil 2" bei Filmen mit Teilnummer, sonst null.
+ *
+ * @param {Movie} m
+ * @returns {?string} Die Bezeichnung
+ */
 function partLabel(m){
   return !isSeason(m) && m.collection?.part != null ? `Teil ${m.collection.part}` : null;
 }
 
 /**
  * Titel innerhalb der eigenen Serie: ohne den Seriennamen vorn ("Die Tudors – Staffel 2" -> "Staffel 2").
+ *
  * @param {Movie} m
+ * @returns {string} Der Titel
  */
 function shortTitle(m){
   const name = isSeason(m) && m.series ? m.series.name : null;
@@ -1153,7 +1486,9 @@ function shortTitle(m){
 
 /**
  * Cover als aufgefächerter Stapel (höchstens vier), von links oben (erstes, vorn) nach rechts unten (hinten).
+ *
  * @param {{src: ?string, label: string}[]} covers  ohne src erscheint label
+ * @returns {string} HTML
  */
 function collageHtml(covers){
   const shown = covers.slice(0, 4);
@@ -1169,7 +1504,9 @@ function collageHtml(covers){
  * Kachel einer Reihe bzw. Serie: die Cover der Teile als aufgefächerter Stapel (höchstens vier, der erste Teil liegt
  * oben). Gleiche Cover (z. B. Staffeln mit dem Poster der Serie) erscheinen nur einmal; bleibt nur eines, ist es das
  * Cover der Kachel.
+ *
  * @param {CollectionGroup} group
+ * @returns {string} HTML der Kachel
  */
 function groupCardHtml(group){
   const seen = new Set();
@@ -1204,7 +1541,9 @@ function groupCardHtml(group){
  * Aufgefächerte Teile einer Reihe bzw. Staffeln einer Serie unter der Zeile ihrer Kachel (über die volle Breite des
  * Rasters). Grenzen Suche oder Filter die Übersicht ein, sind die Treffer hervorgehoben und die übrigen abgeschwächt.
  * Fehlende Teile laut Katalog stehen wie in der Detailansicht als leere Platzhalter dazwischen (nicht anklickbar).
+ *
  * @param {CollectionGroup} group
+ * @returns {string} HTML des Panels
  */
 function groupPanelHtml(group){
   const filtered = group.hits.size < group.items.length;
@@ -1240,7 +1579,9 @@ function groupPanelHtml(group){
 
 /**
  * Alle bereits verwendeten Werte (aus dem aktuellen MOVIES-Stand), alphabetisch, ohne Duplikate.
+ *
  * @param {function(Movie): (string[]|string|null)} valuesOf  z. B. m => m.genres oder mediaOf
+ * @returns {string[]} Die Werte
  */
 function knownValues(valuesOf){
   return [...new Set(MOVIES.flatMap(valuesOf).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'de'));
@@ -1257,6 +1598,8 @@ function knownValues(valuesOf){
  * Die Vorschlagsliste (datalist) erscheint und funktioniert, aber alle Optionen werden als leer angezeigt.
  * Stand 13. Okt. 2025: keine offizielle Lösung
  * https://learn.microsoft.com/en-us/answers/questions/5583325/datalist-tag-not-properly-rendered-on-microsoft-ed
+ *
+ * @returns {void}
  */
 function refreshFilters(){
   const fill = (select, valuesOf, allLabel, extra = [], labelOf = v => v, first = [], after = {}) => {
@@ -1281,6 +1624,8 @@ function refreshFilters(){
 /**
  * Wunschlisten in der Art-Auswahl, nach "Nur Serien": "Meine Favoriten" und "Meine Wunschliste", nach einer Linie
  * die Wunschlisten der anderen User.
+ *
+ * @returns {void}
  */
 function refreshTypeFilter(){
   const current = typeSel.value;
@@ -1312,6 +1657,8 @@ function refreshTypeFilter(){
  * alles), nach einer Linie "(nicht im Bestand)", jeweils nur, was es gerade gibt. Werte sind JSON (personFilter()).
  * Ohne Ausleihen und Einträge ohne Medium erscheint sie erst bei mehreren Eigentümern. Die Wunschlisten stehen in der
  * Art-Auswahl (refreshTypeFilter()).
+ *
+ * @returns {void}
  */
 function refreshPersonFilter(){
   const option = (value, label) => `<option value="${escapeHtml(JSON.stringify(value))}">${escapeHtml(label)}</option>`;
@@ -1359,6 +1706,8 @@ function personFilter(){
 /**
  * Aktualisiert die Gesamtanzahl im Header (nötig nach jedem Anlegen/Löschen/Import): Filme und Serien (Staffeln ohne
  * Serie zählen einzeln), dazu ein Hinweis auf alte Serien-Einträge, die neu zu importieren sind.
+ *
+ * @returns {void}
  */
 function updateHeaderCount(){
   const seasons = MOVIES.filter(isSeason);
@@ -1373,14 +1722,23 @@ function updateHeaderCount(){
 
 /**
  * Zeitstempel von m.created als Zahl für Sortierung. Fehlt/ungültig -> 0 (sortiert als ältestes).
+ *
  * @param {Movie} m
+ * @returns {number} Millisekunden seit 1970, oder 0
  */
 function createdTime(m){
   const t = m.created ? new Date(m.created).getTime() : NaN;
   return isNaN(t) ? 0 : t;
 }
 
-/** Sortiert Einträge ohne Wert für `key` ans Ende, sonst nach `compare`, bei Gleichstand alphabetisch nach Titel. */
+/**
+ * Sortiert Einträge ohne Wert für `key` ans Ende, sonst nach `compare`, bei Gleichstand alphabetisch nach Titel.
+ *
+ * @param {Array<{m: Movie}>} items Die Einträge (werden an Ort und Stelle sortiert)
+ * @param {string} key Feld des Eintrags, nach dem sortiert wird
+ * @param {function(*, *): number} compare Vergleich zweier vorhandener Werte
+ * @returns {void}
+ */
 function sortWithMissingLast(items, key, compare){
   items.sort((a, b) => {
     const va = a.m[key], vb = b.m[key];
@@ -1392,6 +1750,11 @@ function sortWithMissingLast(items, key, compare){
   });
 }
 
+/**
+ * Filtert (Suche, Art, Genre, Medium, Person) und sortiert MOVIES gemäß den aktuellen Eingaben und rendert das Ergebnis ins Kartenraster (Reihen und Serien als gemeinsame Kachel) samt Trefferzähler.
+ *
+ * @returns {void}
+ */
 function renderGrid(){
   const q = searchInput.value.trim().toLowerCase();
   const type = typeSel.value;
@@ -1514,7 +1877,9 @@ function renderGrid(){
  * Erscheinen die Einträge einer Reihe bzw. Serie in der Übersicht als gemeinsame Kachel? Bei mehreren Einträgen immer,
  * bei einer einzelnen Staffel auch, wenn es laut Katalog weitere gibt (Breaking Bad mit nur Staffel 2 im Bestand):
  * Aufgeklappt zeigt sie dann die fehlenden Staffeln als Platzhalter. Ein einzelner Film einer Reihe bleibt einzeln.
+ *
  * @param {Movie[]} members
+ * @returns {boolean}
  */
 function showsAsGroup(members){
   if(members.length > 1) return true;
@@ -1539,6 +1904,8 @@ let currentGroups = new Map();
 /**
  * Setzt die aufgefächerten Teile der offenen Gruppe hinter die letzte Kachel derselben Rasterzeile (welche das ist,
  * hängt von der Fensterbreite ab, daher auch nach einer Größenänderung neu).
+ *
+ * @returns {void}
  */
 function placeGroupPanel(){
   document.getElementById('collectionPanel')?.remove();
@@ -1552,7 +1919,12 @@ function placeGroupPanel(){
   last.insertAdjacentHTML('afterend', groupPanelHtml(currentGroups.get(expandedGroup)));
 }
 
-/** Klappt eine Gruppe auf, bzw. zu bei einem Klick auf die schon offene oder mit null. @param {?string} key */
+/**
+ * Klappt eine Gruppe auf, bzw. zu bei einem Klick auf die schon offene oder mit null.
+ *
+ * @param {?string} key
+ * @returns {void}
+ */
 function toggleGroup(key){
   expandedGroup = key && key !== expandedGroup ? key : null;
   grid.querySelectorAll('.collection-card').forEach(c => c.classList.toggle('expanded', c.dataset.group === expandedGroup));
@@ -1563,7 +1935,14 @@ function toggleGroup(key){
   }
 }
 
-/** Textblock mit Überschrift; jede Zeile wird ein eigener Absatz. Leer -> ''. */
+/**
+ * Textblock mit Überschrift; jede Zeile wird ein eigener Absatz. Leer -> ''.
+ *
+ * @param {string} heading Die Überschrift
+ * @param {?string} text Der Text, jede Zeile ein Absatz
+ * @param {string} cssClass CSS-Klasse des Blocks
+ * @returns {string} HTML
+ */
 function paragraphsHtml(heading, text, cssClass){
   const lines = text ? text.split('\n').map(s => s.trim()).filter(Boolean) : [];
   return lines.length
@@ -1574,7 +1953,9 @@ function paragraphsHtml(heading, text, cssClass){
 /**
  * Darstellerliste mit Fotos, vollständig (nicht gekürzt): Sie scrollt in einem eigenen Bereich, die
  * Fotos lädt der Browser per loading="lazy" erst, wenn sie in den sichtbaren Bereich kommen.
+ *
  * @param {Movie} m
+ * @returns {string} HTML
  */
 function castHtml(m){
   if(!m.cast.length) return '';
@@ -1592,7 +1973,9 @@ function castHtml(m){
 /**
  * Trailer: am Bildschirm als eingebetteter Player (youtube-nocookie.com), im Ausdruck stattdessen als
  * QR-Code zum Abscannen mit dem Handy (`public/vendor/qrcode.js`). Keine YouTube-URL -> nur der QR-Code.
+ *
  * @param {Movie} m
+ * @returns {string} HTML
  */
 function trailerHtml(m){
   if(!m.trailer) return '';
@@ -1603,7 +1986,12 @@ function trailerHtml(m){
   return `<div class="trailer"><h4>Trailer</h4>${player}${trailerQrHtml(m.trailer)}</div>`;
 }
 
-/** QR-Code (SVG) mit der Trailer-URL daneben, sichtbar nur im Ausdruck. Leer, falls die Bibliothek fehlt. */
+/**
+ * QR-Code (SVG) mit der Trailer-URL daneben, sichtbar nur im Ausdruck. Leer, falls die Bibliothek fehlt.
+ *
+ * @param {string} url Die URL des Trailers
+ * @returns {string} HTML
+ */
 function trailerQrHtml(url){
   if(typeof qrcode !== 'function') return '';
   const qr = qrcode(0, 'M'); // 0 = Größe automatisch, M = mittlere Fehlerkorrektur
@@ -1615,7 +2003,9 @@ function trailerQrHtml(url){
 /**
  * Baut den Inhalt, der sowohl in der Lese-Ansicht als auch beim Drucken sichtbar ist
  * (Poster/Titel, Eckdaten, Handlung, Darsteller, Notizen — ohne Toolbar/Schließen-Button).
+ *
  * @param {Movie} m
+ * @returns {string} HTML
  */
 function printableSheetHtml(m){
   const src = movieImageSrc(m, 'poster');
@@ -1665,7 +2055,9 @@ function printableSheetHtml(m){
 /**
  * Detailansicht: "möchte ich sehen" (Link) bzw. grünes Häkchen mit Undo-Symbol, nur die eigene Wunschliste (die
  * der anderen zeigt die Personen-Auswahl). Nur mit Anmeldung (ME), nicht im Ausdruck.
+ *
  * @param {Movie} m
+ * @returns {string} HTML
  */
 function wishLineHtml(m){
   if(!ME) return '';
@@ -1678,7 +2070,9 @@ function wishLineHtml(m){
 /**
  * Klick auf "möchte ich sehen" bzw. das Undo-Symbol daneben: speichert (api/wishes.php), zeigt die Zeile neu und
  * aktualisiert Übersicht und Filter (Häkchen auf der Karte, "Meine Wunschliste").
+ *
  * @param {HTMLElement} btn
+ * @returns {Promise<void>}
  */
 async function toggleWish(btn){
   const line = /** @type {HTMLElement} */ (btn.closest('.wish-line'));
@@ -1707,7 +2101,9 @@ async function toggleWish(btn){
  * Detailansicht: die vier Stufen (RATING_STEPS) mit der Zahl der Stimmen, die Bedeutung als Tooltip. Mit
  * Anmeldung (ME) sind es Knöpfe, die eigene Wahl ist hervorgehoben, ein zweiter Klick nimmt sie zurück. Ohne
  * Anmeldung nur die Zahlen, falls es Bewertungen gibt. Nicht im Ausdruck.
+ *
  * @param {Movie} m
+ * @returns {string} HTML
  */
 function ratingLineHtml(m){
   const ratings = RATINGS[m.slug] || {};
@@ -1728,7 +2124,9 @@ function ratingLineHtml(m){
  * Klick auf eine Bewertungsstufe: setzt die eigene Bewertung bzw. nimmt sie beim zweiten Klick zurück (api/ratings.php).
  * Eine Bewertung nimmt den Eintrag von der eigenen Wunschliste (der Server liefert die Wünsche mit); zeigt Wunsch-
  * und Bewertungszeile neu und aktualisiert die Übersicht.
+ *
  * @param {HTMLElement} btn
+ * @returns {Promise<void>}
  */
 async function rateMovie(btn){
   const line = /** @type {HTMLElement} */ (btn.closest('.rating-line'));
@@ -1760,7 +2158,9 @@ async function rateMovie(btn){
 
 /**
  * Medien in der Detailansicht, je Zeile eins (mediumItemHtml()).
+ *
  * @param {Movie} m
+ * @returns {string} HTML
  */
 function mediaListHtml(m){
   return `<ul class="media-list" data-slug="${escapeHtml(m.slug)}">${m.media.map(md => mediumItemHtml(m, md)).join('')}</ul>`;
@@ -1776,7 +2176,12 @@ function borrowerNames(){
   return [...new Set(names)].filter(n => !USERS[n] && !OWNERS[n]).sort((a, b) => a.localeCompare(b, 'de'));
 }
 
-/** "seit heute", "seit gestern", "seit 48 Tagen" (nach Kalendertagen). @param {string} iso */
+/**
+ * "seit heute", "seit gestern", "seit 48 Tagen" (nach Kalendertagen).
+ *
+ * @param {string} iso
+ * @returns {string} Der Text
+ */
 function sinceText(iso){
   const day = d => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
   const days = Math.round((day(new Date()) - day(new Date(iso))) / 86400000);
@@ -1788,8 +2193,10 @@ function sinceText(iso){
  * siehe lendMedium()); verliehen: "Lilies DVD hat Thomas seit 48 Tagen" mit Undo-Symbol (zurückgegeben), Datum und wer
  * es eingetragen hat als Tooltip. Im Ausdruck fehlen die Links. Dateien ohne beides, dafür Bild, Ton und darunter der
  * Pfad auf diesem Gerät (usbPath()) mit Knöpfen zum Kopieren und zum Ändern des USB-Ordners.
+ *
  * @param {Movie} m
  * @param {Medium} md
+ * @returns {string} HTML
  */
 function mediumItemHtml(m, md){
   const label = escapeHtml(mediumLabel(md));
@@ -1819,40 +2226,53 @@ function mediumItemHtml(m, md){
     + `<button class="icon-btn return-btn screen-only" type="button" title="Zurückgegeben" aria-label="Zurückgegeben, wieder bei ${escapeHtml(ownerName(md.owner))}">${UNDO_ICON}</button></li>`;
 }
 
-/** Lesbare Codec-Namen (ffprobe-Name => Anzeige). */
+/** Lesbare Codec-Namen (ffprobe-Name => Anzeige). @type {Object<string, string>} */
 const CODEC_NAMES = {mpeg4: 'XviD/DivX', msmpeg4v3: 'DivX 3', mpeg2video: 'MPEG-2', mpeg1video: 'MPEG-1', h264: 'H.264', hevc: 'H.265', vp8: 'VP8', vp9: 'VP9', av1: 'AV1', wmv3: 'WMV 9', vc1: 'VC-1'};
 /**
  * Bits pro Bildpunkt, die ein Codec für dasselbe Bild etwa braucht, im Verhältnis zu H.264 (ältere Codecs brauchen
  * mehr, neuere weniger). Grobe Erfahrungswerte.
+ *
+ * @type {Object<string, number>}
  */
 const CODEC_EFFICIENCY = {mpeg1video: 3, mpeg2video: 2.5, msmpeg4v3: 1.8, mpeg4: 1.5, wmv3: 1.5, vc1: 1.2, vp8: 1.2, h264: 1, vp9: 0.7, hevc: 0.6, av1: 0.5};
 
-/** Sprachen der Tonspur (Code bei ffprobe => Anzeige). */
+/** Sprachen der Tonspur (Code bei ffprobe => Anzeige). @type {Object<string, string>} */
 const AUDIO_LANGS = {ger: 'Deutsch', deu: 'Deutsch', de: 'Deutsch', eng: 'Englisch', en: 'Englisch', fre: 'Französisch', fra: 'Französisch', spa: 'Spanisch', ita: 'Italienisch'};
+/** Lesbare Namen der Audio-Codecs (ffprobe-Name => Anzeige). @type {Object<string, string>} */
 const AUDIO_CODECS = {mp3: 'MP3', mp2: 'MP2', ac3: 'AC-3', eac3: 'E-AC-3', dts: 'DTS', aac: 'AAC', vorbis: 'Vorbis', opus: 'Opus', flac: 'FLAC', truehd: 'TrueHD', pcm_s16le: 'PCM'};
 
 /**
  * Qualitätsstufe eines USB-Mediums für die Medium-Auswahl (USB_QUALITY) nach videoQuality(): gut, mittel ("so lala"),
- * schlecht; null ohne Angaben zum Bild. @param {Medium} md @returns {?string}
+ * schlecht; null ohne Angaben zum Bild.
+ *
+ * @param {Medium} md
+ * @returns {?string}
  */
 function usbQuality(md){
   const grade = md.type === 'USB' ? mediumQuality(md) : null;
   return grade === null ? null : [' usb-bad', ' usb-fair', ' usb-good'][grade];
 }
 
-/** Werte von Medium.quality => grade wie bei videoQuality(). */
+/** Werte von Medium.quality => grade wie bei videoQuality(). @type {Object<string, number>} */
 const QUALITY_GRADES = {schlecht: 0, mittel: 1, gut: 2};
 
 /**
  * Urteil zum Bild eines Mediums: die eigene Einschätzung (Medium.quality), sonst videoQuality(); null ohne beides.
- * @param {Medium} md @returns {?number}  2 = gut, 1 = mittel, 0 = schlecht
+ *
+ * @param {Medium} md
+ * @returns {?number}  2 = gut, 1 = mittel, 0 = schlecht
  */
 function mediumQuality(md){
   if(md.quality && Object.hasOwn(QUALITY_GRADES, md.quality)) return QUALITY_GRADES[md.quality];
   return md.video ? videoQuality(md.video).grade : null;
 }
 
-/** Ton einer Datei als Text: "Deutsch, 5.1, AC-3 448 kbit/s" (ohne Beurteilung). @param {AudioInfo} a */
+/**
+ * Ton einer Datei als Text: "Deutsch, 5.1, AC-3 448 kbit/s" (ohne Beurteilung).
+ *
+ * @param {AudioInfo} a
+ * @returns {string} Der Text
+ */
 function audioText(a){
   const channels = {1: 'Mono', 2: 'Stereo', 6: '5.1', 8: '7.1'}[a.channels] || (a.channels ? `${a.channels} Kanäle` : null);
   const codec = [AUDIO_CODECS[a.codec] || a.codec, a.kbps ? `${a.kbps} kbit/s` : null].filter(Boolean).join(' ');
@@ -1897,7 +2317,9 @@ function videoQuality(v){
 /**
  * Klick auf "verleihen", "ausleihen" bzw. das Undo-Symbol in der Medienliste: fragt beim Verleihen der eigenen
  * Scheibe, an wen (askBorrower()), beim Ausleihen einer fremden nur nach Bestätigung (askBorrowSelf()), speichert den Standort (api/locations.php; zurückgeben = wieder beim Eigentümer) und zeigt die Zeile neu.
+ *
  * @param {HTMLElement} btn
+ * @returns {Promise<void>}
  */
 async function lendMedium(btn){
   const li = /** @type {HTMLElement} */ (btn.closest('li'));
@@ -1930,7 +2352,9 @@ async function lendMedium(btn){
 /**
  * Folgen einer Staffel; kann der Browser die eigene Datei abspielen (canPlayInBrowser()), je Folge ein Button dazu. Die Handlung
  * ist zugeklappt, ein Klick auf den Titel (mit Pfeil ▸/▾) zeigt sie (Handler am #sheet).
+ *
  * @param {Movie} m
+ * @returns {string} HTML
  */
 function episodesHtml(m){
   if(!m.episodes.length) return '';
@@ -1951,6 +2375,12 @@ function episodesHtml(m){
   return `<h4>Folgen (${m.episodes.length})</h4><ol class="episodes">${items}</ol>`;
 }
 
+/**
+ * Zeigt einen Eintrag in der Lese-Ansicht (Overlay) mit Hintergrundbild, Bewertung, Medien, Folgen, Darstellern und Trailer sowie den Buttons Drucken, Bearbeiten und Löschen.
+ *
+ * @param {number} idx Index des Eintrags in MOVIES
+ * @returns {void}
+ */
 function openMovie(idx){
   const m = MOVIES[idx];
   formIsOpen = false;
@@ -1999,7 +2429,14 @@ function withGaps(parts, movieOf, gaps, season){
   return [...parts.flatMap((part, k) => [...slots[k].map(gap => ({gap})), {part}]), ...tail.map(gap => ({gap}))];
 }
 
-/** Titel und Zusatz ("2013", "2027 · angekündigt") eines fehlenden Teils laut Katalog. @param {CatalogItem} item @param {boolean} season @param {CatalogItem[]} announced */
+/**
+ * Titel und Zusatz ("2013", "2027 · angekündigt") eines fehlenden Teils laut Katalog.
+ *
+ * @param {CatalogItem} item
+ * @param {boolean} season
+ * @param {CatalogItem[]} announced
+ * @returns {{title: string, meta: string}} Titel und Zusatz
+ */
 function gapLabels(item, season, announced){
   return {
     title: season ? (item.title || `Staffel ${item.season}`) : (item.title || ''),
@@ -2012,7 +2449,9 @@ function gapLabels(item, season, announced){
  * Teil. Teile, die nicht im Bestand sind, erscheinen blass. Weitere Teile laut Katalog (groupCatalog()) stehen als
  * leere Platzhalter an ihrer Stelle in der Reihenfolge (nach Staffelnummer bzw. Jahr). Leer ohne Gruppe oder wenn
  * es außer diesem Eintrag nichts zu zeigen gibt.
+ *
  * @param {Movie} m
+ * @returns {string} HTML
  */
 function groupPartsHtml(m){
   const key = groupKey(m);
@@ -2044,6 +2483,11 @@ function groupPartsHtml(m){
   return `<h4${stand}>${escapeHtml(heading)}</h4><ul class="collection-parts">${items}</ul>`;
 }
 
+/**
+ * Schließt das Overlay (Lese-Ansicht oder Formular), beendet einen laufenden Scan und leert den Inhalt.
+ *
+ * @returns {void}
+ */
 function closeMovie(){
   stopScan();
   formIsOpen = false;
@@ -2056,7 +2500,9 @@ function closeMovie(){
  * die Art lässt sich oben umschalten). Felder, die nur eine Art haben, stehen in .movie-only bzw. .season-only und
  * werden je nach gewählter Art ein- oder ausgeblendet; ihre Eingaben bleiben beim Umschalten erhalten, gespeichert
  * werden nur die der gewählten Art.
+ *
  * @param {?Movie} m
+ * @returns {void}
  */
 function openEditForm(m){
   formIsOpen = true;
@@ -2319,8 +2765,10 @@ function formType(){
  * Eine Zeile im Formular je Medium: Eigentümer, Art (feste plus alle schon verwendeten), "×"; bei Dateien (USB)
  * darunter die Dateien relativ zum USB-Ordner, aufklappbar die Konvention für Dateinamen und die Bildqualität
  * (automatisch = videoQuality(), sonst eigene Einschätzung, Medium.quality).
+ *
  * @param {Medium} md
  * @param {?string} slug  Slug des Eintrags für den Vorschlag (suggestFiles()); null bei einem neuen
+ * @returns {string} HTML
  */
 function mediumRowHtml(md, slug){
   const owners = [...new Set([md.owner, ...Object.keys(OWNERS), ownerOf(ME)])].filter(Boolean);
@@ -2350,20 +2798,34 @@ function mediumRowHtml(md, slug){
   </div>`;
 }
 
-/** Bild bzw. Platzhalter in einer Vorschau-Box (Darstellerfoto). */
+/**
+ * Bild bzw. Platzhalter in einer Vorschau-Box (Darstellerfoto).
+ *
+ * @param {HTMLElement} box Die Vorschau-Box
+ * @param {?string} src Bild-URL; null zeigt die Initialen
+ * @param {string} name Name, aus dem die Initialen gebildet werden
+ * @returns {void}
+ */
 function showPreview(box, src, name){
   const initials = (name || '').split(/\s+/).filter(Boolean).map(w => w[0]).join('').slice(0, 2);
   box.innerHTML = src ? `<img src="${escapeHtml(src)}" alt="">` : `<span>${escapeHtml(initials)}</span>`;
 }
 
+/**
+ * Zähler für eindeutige ids der Darsteller-Zeilen (label for=…; ein Klick aufs Foto öffnet die Dateiauswahl).
+ *
+ * @type {number}
+ */
 let castRowSeq = 0; // eindeutige ids für label for=… (Klick aufs Foto öffnet die Dateiauswahl)
 
 /**
  * Eine Darsteller-Zeile im Formular: Foto (Klick wählt ein neues, "×" in der Ecke entfernt es), ein Feld
  * "Name: Rolle" und "×" für den Darsteller. Dateiname des Fotos und TMDB-Porträtpfad stehen in
  * data-thumb/data-profile und gehen beim Speichern mit.
+ *
  * @param {CastMember} c
  * @param {?string} src  vorhandenes Foto
+ * @returns {string} HTML
  */
 function castRowHtml(c, src){
   const id = `castPhoto${++castRowSeq}`;
@@ -2379,7 +2841,12 @@ function castRowHtml(c, src){
   </div>`;
 }
 
-/** "Name: Rolle" bzw. nur "Name" ohne Rolle. @param {CastMember} c */
+/**
+ * "Name: Rolle" bzw. nur "Name" ohne Rolle.
+ *
+ * @param {CastMember} c
+ * @returns {string} Der Text
+ */
 function castEntryText(c){
   return c.role ? `${c.name}: ${c.role}` : c.name;
 }
@@ -2399,7 +2866,9 @@ function parseCastEntry(text){
 /**
  * Folgen als Text fürs Formular: je Folge eine Zeile "Nummer. Titel", darunter die Handlung, zwischen den Folgen eine
  * Leerzeile. Gegenstück: parseEpisodesText().
+ *
  * @param {Episode[]} episodes
+ * @returns {string} Der Text
  */
 function episodesText(episodes){
   return episodes.map(e => [`${e.number}.${e.title ? ' ' + e.title : ''}`, ...(e.plot ? [e.plot] : [])].join('\n')).join('\n\n');
@@ -2438,7 +2907,12 @@ function parseEpisodesText(text){
   return {episodes, error};
 }
 
-/** Datei-Feld einer Medienzeile nur bei Dateien (USB) zeigen (eingetragene Dateien bleiben erhalten). */
+/**
+ * Datei-Feld einer Medienzeile nur bei Dateien (USB) zeigen (eingetragene Dateien bleiben erhalten).
+ *
+ * @param {HTMLElement} row Die Medienzeile
+ * @returns {void}
+ */
 function toggleFilesField(row){
   row.querySelector('.files-field').hidden = !isDigital(row.querySelector('.medium-type').value);
 }
@@ -2449,6 +2923,9 @@ function toggleFilesField(row){
  * "<serie>/<slug>/<serie>-s02e01.mp4". Ein neuer Eintrag bekommt seinen Slug erst beim Speichern; vorgeschlagen wird
  * er aus Titel und Jahr. Abweichende Endungen trägt man von Hand ein; completeExtensions() ergänzt Zeilen, die auf
  * "." enden.
+ *
+ * @param {HTMLElement} row Die Medienzeile
+ * @returns {void}
  */
 function suggestFiles(row){
   const filesInput = row.querySelector('.files-input');
@@ -2468,19 +2945,34 @@ function suggestFiles(row){
   filesInput.rows = filesRows(filesInput.value.split('\n').length);
 }
 
-/** Höhe des Datei-Felds: eine Zeile je Datei, höchstens 8 (mehr per Scrollen). @param {number} count */
+/**
+ * Höhe des Datei-Felds: eine Zeile je Datei, höchstens 8 (mehr per Scrollen).
+ *
+ * @param {number} count
+ * @returns {number} Die Zeilenzahl
+ */
 function filesRows(count){
   return Math.min(Math.max(count, 1), 8);
 }
 
-/** Wie slugify() in api/lib/slug.php: Umlaute und Akzente umschreiben, klein, alles außer a-z0-9 wird "-". */
+/**
+ * Wie slugify() in api/lib/slug.php: Umlaute und Akzente umschreiben, klein, alles außer a-z0-9 wird "-".
+ *
+ * @param {string} text Beliebiger Text
+ * @returns {string} Der Slug
+ */
 function slugify(text){
   // noinspection NonAsciiCharacters
   const map = {ä: 'ae', ö: 'oe', ü: 'ue', Ä: 'Ae', Ö: 'Oe', Ü: 'Ue', ß: 'ss', é: 'e', è: 'e', ê: 'e', à: 'a', â: 'a', ô: 'o', î: 'i', ç: 'c', ñ: 'n'};
   return text.trim().replace(/[äöüÄÖÜßéèêàâôîçñ]/g, c => map[c]).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
-/** Überträgt die Dateiendung der ersten Zeile mit Endung auf alle Zeilen, die noch auf "." enden (Vorschlag). */
+/**
+ * Überträgt die Dateiendung der ersten Zeile mit Endung auf alle Zeilen, die noch auf "." enden (Vorschlag).
+ *
+ * @param {HTMLTextAreaElement} textarea Das Datei-Feld
+ * @returns {void}
+ */
 function completeExtensions(textarea){
   const lines = textarea.value.split('\n');
   const ext = lines.map(l => l.trim().match(/\.([a-z0-9]+)$/i)).find(Boolean);
@@ -2497,14 +2989,21 @@ function formMedia(){
   });
 }
 
-/** Nicht leere Zeilen eines Textfelds, getrimmt. @param {string} value @returns {string[]} */
+/**
+ * Nicht leere Zeilen eines Textfelds, getrimmt.
+ *
+ * @param {string} value
+ * @returns {string[]}
+ */
 function textLines(value){
   return value.split('\n').map(s => s.trim()).filter(Boolean);
 }
 
 /**
  * Liest die Formularfelder aus und baut daraus den API-Payload (je nach gewählter Art).
+ *
  * @param {?Movie} [current]  bearbeiteter Eintrag (null beim Anlegen)
+ * @returns {Object} Der Payload für POST/PUT api/movies.php
  */
 function collectFormData(current = null){
   const text = id => document.getElementById(id).value.trim();
@@ -2617,6 +3116,12 @@ function withPart(collection, part){
   return collection ? {name: collection.name, tmdb: collection.tmdb, part} : null;
 }
 
+/**
+ * Speichert das Formular (Anlegen oder Ändern), benennt ggf. die übrigen Teile einer umbenannten Reihe bzw. Serie mit und zeigt den gespeicherten Eintrag an. Fehler erscheinen im Formular.
+ *
+ * @param {?string} slug Slug des bearbeiteten Eintrags; null legt einen neuen an
+ * @returns {Promise<void>}
+ */
 async function saveMovie(slug){
   const before = slug ? MOVIES.find(x => x.slug === slug) || null : null;
   const payload = collectFormData(before);
@@ -2718,7 +3223,12 @@ async function saveMovie(slug){
   // Die Dateipfade (paths) hängen nicht am Slug: Ein neuer Titel bzw. ein neues Jahr ändert auf dem USB-Speicher nichts.
 }
 
-/** @param {Movie} m */
+/**
+ * Löscht einen Eintrag nach Rückfrage und aktualisiert die Oberfläche.
+ *
+ * @param {Movie} m
+ * @returns {Promise<void>}
+ */
 async function deleteMovieUI(m){
   if(!window.confirm(`"${m.title}" wirklich unwiderruflich löschen?`)) return;
   try {
@@ -2799,6 +3309,11 @@ sheet.addEventListener('click', e => {
   const part = e.target.closest('.collection-parts li[data-idx]');
   if(part && !part.classList.contains('current')) openMovie(parseInt(part.dataset.idx, 10));
 });
+/**
+ * Timer, der nach einer Größenänderung des Fensters die offene Gruppe neu platziert (placeGroupPanel()).
+ *
+ * @type {number}
+ */
 let resizeTimer = 0;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
@@ -2812,9 +3327,14 @@ document.addEventListener('keydown', e => {
   if(overlay.classList.contains('open')) closeMovie();
   else if(expandedGroup) toggleGroup(null);
 });
+/** Schlüssel in localStorage, unter dem Suche, Filter und Sortierung abgelegt werden. @type {string} */
 const VIEW_STATE_KEY = 'videothek_view_state';
 
-/** Speichert Suchbegriff, Filter und Sortierung, damit sie einen Reload überstehen. */
+/**
+ * Speichert Suchbegriff, Filter und Sortierung, damit sie einen Reload überstehen.
+ *
+ * @returns {void}
+ */
 function saveViewState(){
   localStorage.setItem(VIEW_STATE_KEY, JSON.stringify({
     search: searchInput.value,
@@ -2826,6 +3346,11 @@ function saveViewState(){
   }));
 }
 
+/**
+ * Liest den mit saveViewState() gespeicherten Zustand.
+ *
+ * @returns {{search?: string, type?: string, genre?: string, medium?: string, person?: string, sort?: string}} Der Zustand; leeres Objekt, falls nichts gespeichert oder nicht lesbar
+ */
 function loadViewState(){
   try {
     return JSON.parse(localStorage.getItem(VIEW_STATE_KEY) || '{}');
@@ -2834,6 +3359,11 @@ function loadViewState(){
   }
 }
 
+/**
+ * Handler für Änderungen an Suche, Filtern und Sortierung: Zustand speichern, Raster neu rendern.
+ *
+ * @returns {void}
+ */
 function onFilterChange(){
   saveViewState();
   renderGrid();
@@ -2850,6 +3380,8 @@ importMovieBtn.addEventListener('click', () => openImportForm());
 /**
  * Zeigt den Import-Dialog: Suche in TMDB nach Filmen und Serien per Titel (+ Jahr) oder IMDb-ID, ein Klick auf
  * einen Treffer importiert ihn.
+ *
+ * @returns {void}
  */
 function openImportForm(){
   formIsOpen = true;
@@ -2921,23 +3453,37 @@ function openImportForm(){
   queryInput.select();
 }
 
-/** Auswahl im Import-Dialog: [Wert, Beschriftung]; die Wunschliste nur mit Anmeldung. */
+/**
+ * Auswahl im Import-Dialog: [Wert, Beschriftung]; die Wunschliste nur mit Anmeldung.
+ *
+ * @returns {Array<[string, string]>} [Wert, Beschriftung]
+ */
 function importMediumChoices(){
   return [...MEDIUM_OPTIONS.map(t => [t, t]), ...(ME ? [[IMPORT_WISH, 'Wunschliste']] : [])];
 }
 
-/** Zuletzt gewähltes Medium im Import-Dialog (localStorage), sonst die Wunschliste bzw. ohne Anmeldung DVD. */
+/**
+ * Zuletzt gewähltes Medium im Import-Dialog (localStorage), sonst die Wunschliste bzw. ohne Anmeldung DVD.
+ *
+ * @returns {string} Der Wert
+ */
 function importMedium(){
   const values = importMediumChoices().map(([value]) => value);
+  /** @type {?string} */
   let saved = null;
   try {
     saved = localStorage.getItem(IMPORT_MEDIUM_KEY);
   } catch(err) {
     // privates Fenster o. Ä.: Vorgabe
   }
-  return values.includes(saved) ? saved : ME ? IMPORT_WISH : values[0];
+  return saved !== null && values.includes(saved) ? saved : ME ? IMPORT_WISH : values[0];
 }
 
+/**
+ * Sucht bei TMDB (api/search.php) nach Titel (+ Jahr), IMDb-ID oder Barcode und zeigt die Treffer im Import-Dialog; ein Klick auf einen Treffer startet den Import.
+ *
+ * @returns {Promise<void>}
+ */
 async function runSearch(){
   const query = document.getElementById('importQueryInput').value.trim();
   const year = document.getElementById('importYearInput').value.trim();
@@ -3015,7 +3561,9 @@ async function runSearch(){
 /**
  * Fragt bei einem Serien-Treffer, welche Staffeln importiert werden sollen (nur diese werden angelegt, mit dem
  * gewählten Medium), und startet dann den Import.
+ *
  * @param {HTMLElement} li
+ * @returns {void}
  */
 function askSeasons(li){
   if(li.querySelector('.import-seasons')) return;
@@ -3064,24 +3612,39 @@ function parseSeasonList(text){
 // Bibliotheken (ZXing-JS, ZXing-C++/WASM, Quagga2) erkannten dort in 134 Versuchen keinen Code.
 // Der erkannte Code landet im Suchfeld und läuft durch die normale Suche; search.php erkennt die EAN.
 
+/** Barcode-Formate, nach denen gescannt wird (EAN-13, EAN-8, UPC-A). @type {string[]} */
 const SCAN_FORMATS = ['ean_13', 'ean_8', 'upc_a'];
-// Ohne Größenangabe liefert Chrome nur 640 × 480; damit las der BarcodeDetector die feinen Striche oft nicht. Mit
-// 1920 × 1080 erkannte er im Vergleich zuverlässig (Android-Smartphone, Oktober 2026).
+/**
+ * Ohne Größenangabe liefert Chrome nur 640 × 480; damit las der BarcodeDetector die feinen Striche oft nicht. Mit
+ * 1920 × 1080 erkannte er im Vergleich zuverlässig (Android-Smartphone, Oktober 2026).
+ *
+ * @type {MediaStreamConstraints}
+ */
 const SCAN_CONSTRAINTS = {
   video: {facingMode: {ideal: 'environment'}, width: {ideal: 1920}, height: {ideal: 1080}},
   audio: false,
 };
 /** @type {?{stop: function(): void}} */
 let activeScan = null;
+/** Zähler, der erkennt, dass ein Scan abgebrochen wurde, während die Kamera noch startete. @type {number} */
 let scanSeq = 0;      // erkennt, dass ein Scan abgebrochen wurde, während die Kamera noch startete
 /** @type {?Promise<typeof ZXing>} Promise des einmaligen Nachladens */
 let zxingLoad = null;
 
+/**
+ * Kann dieser Browser auf die Kamera zugreifen (Voraussetzung für das Scannen von Barcodes)?
+ *
+ * @returns {boolean}
+ */
 function canScan(){
   return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
 }
 
-/** BarcodeDetector des Browsers für EAN/UPC oder null, wenn es keinen gibt (Safari, Firefox). */
+/**
+ * BarcodeDetector des Browsers für EAN/UPC oder null, wenn es keinen gibt (Safari, Firefox).
+ *
+ * @returns {Promise<?Object>} Der BarcodeDetector
+ */
 async function nativeBarcodeDetector(){
   const Detector = window.BarcodeDetector;
   if(!Detector) return null;
@@ -3116,7 +3679,9 @@ function loadZxing(){
 /**
  * Schaltet den Dauer-Autofokus ein, falls die Kamera ihn anbietet (sonst bleibt der Fokus oft auf dem ersten Bild
  * stehen). Fehler bleiben still, dann scannt es eben mit dem Standardfokus.
+ *
  * @param {MediaStream} stream
+ * @returns {Promise<void>}
  */
 async function useContinuousFocus(stream){
   const track = stream.getVideoTracks()[0];
@@ -3186,6 +3751,11 @@ async function startScan(video, onCode){
   return {stop};
 }
 
+/**
+ * Öffnet die Kamera im Import-Dialog; der erkannte Barcode landet im Suchfeld und startet die Suche.
+ *
+ * @returns {Promise<void>}
+ */
 async function openScan(){
   const box = document.getElementById('scanBox');
   const errorBox = document.getElementById('formError');
@@ -3211,7 +3781,11 @@ async function openScan(){
   }
 }
 
-/** Beendet einen laufenden Scan (Button, Schließen des Dialogs). */
+/**
+ * Beendet einen laufenden Scan (Button, Schließen des Dialogs).
+ *
+ * @returns {void}
+ */
 function stopScan(){
   scanSeq++;
   if(activeScan){
@@ -3224,10 +3798,12 @@ function stopScan(){
 
 /**
  * Importiert den Film bzw. die Serie (je Staffel ein Eintrag) und lädt danach alle Darstellerfotos.
+ *
  * @param {number} tmdb
  * @param {'movie'|'series'} type
  * @param {HTMLElement} li  angeklickter Treffer (zeigt den Fortschritt)
  * @param {number[]} [seasons]  Serien: die zu importierenden Staffeln
+ * @returns {Promise<void>}
  */
 async function runImport(tmdb, type, li, seasons = []){
   const errorBox = document.getElementById('formError');
@@ -3317,6 +3893,8 @@ async function loadActorPhotos(entry, progress, warnings){
  * (fehlt einer, fehlen nur Hinweise bzw. Namen). Die Thumbnails lädt der Browser über loading="lazy" erst, wenn
  * sie in die Nähe des sichtbaren Bereichs kommen, Poster und Hintergrundbild erst in der Detailansicht. Nach dem
  * Token wird erst bei der ersten Änderung gefragt (requireToken()).
+ *
+ * @returns {Promise<void>}
  */
 async function init(){
   try {

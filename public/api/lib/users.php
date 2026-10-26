@@ -20,9 +20,18 @@
 
 require_once __DIR__ . '/slug.php';
 
-/** Erlaubte Benutzernamen: klein, ohne Leerzeichen (stehen in movie.json als Eigentümer und in locations.json). */
+/**
+ * Erlaubte Benutzernamen: klein, ohne Leerzeichen (stehen in movie.json als Eigentümer und in locations.json).
+ *
+ * @var string
+ */
 const USER_LOGIN_PATTERN = '/^[a-z0-9][a-z0-9._-]{0,31}$/';
 
+/**
+ * Pfad der Benutzerdatei.
+ *
+ * @return string Absoluter Pfad von data/users.json
+ */
 function users_file(): string
 {
     return DATA_DIR . '/users.json';
@@ -31,6 +40,8 @@ function users_file(): string
 /**
  * Alle Benutzer (Login => {name}), in der Reihenfolge der Datei; leer, wenn sie fehlt oder kaputt ist.
  * Je Request nur einmal gelesen.
+ *
+ * @param bool $fresh true liest die Datei neu, statt den Stand dieses Requests zu verwenden
  * @return array<string, array{name: string, owner?: string}>
  */
 function read_users(bool $fresh = false): array
@@ -43,13 +54,23 @@ function read_users(bool $fresh = false): array
     return $users;
 }
 
-/** Kennung eines gemeinsamen Eigentümers aus seinem Namen: "Rohlfing" -> "rohlfing" (Form wie ein Login). */
+/**
+ * Kennung eines gemeinsamen Eigentümers aus seinem Namen: "Rohlfing" -> "rohlfing" (Form wie ein Login).
+ *
+ * @param string $name Anzeigename des Eigentümers
+ * @return string Die Kennung (höchstens 32 Zeichen)
+ */
 function owner_key(string $name): string
 {
     return substr(slugify($name), 0, 32);
 }
 
-/** Eigentümer der Medien eines Benutzers: Kennung seines "owner" aus users.json, sonst sein Login. */
+/**
+ * Eigentümer der Medien eines Benutzers: Kennung seines "owner" aus users.json, sonst sein Login.
+ *
+ * @param string $login Login des Benutzers
+ * @return string Die Kennung des Eigentümers
+ */
 function owner_of(string $login): string
 {
     $name = trim((string) (read_users()[$login]['owner'] ?? ''));
@@ -59,6 +80,7 @@ function owner_of(string $login): string
 /**
  * Alle Eigentümer: Kennung => Anzeigename ("rohlfing" => "Rohlfing", "lilie" => "Lilie"), in der Reihenfolge von
  * users.json.
+ *
  * @return array<string, string>
  */
 function owners(): array
@@ -74,7 +96,10 @@ function owners(): array
 /**
  * Speichert bzw. ergänzt einen Benutzer (unter Sperre, wie save_catalog_entry()). Ein Feld mit null wird entfernt
  * (z. B. 'owner' => null: wieder selbst Eigentümer).
+ *
+ * @param string $login Login des Benutzers
  * @param array{name?: string, owner?: ?string} $entry
+ * @return void
  */
 function save_user(string $login, array $entry): void
 {
@@ -85,7 +110,12 @@ function save_user(string $login, array $entry): void
     });
 }
 
-/** Entfernt einen Benutzer aus users.json. */
+/**
+ * Entfernt einen Benutzer aus users.json.
+ *
+ * @param string $login Login des Benutzers
+ * @return void
+ */
 function remove_user(string $login): void
 {
     update_users(function (array $data) use ($login) {
@@ -97,7 +127,10 @@ function remove_user(string $login): void
 /**
  * Liest users.json unter Sperre, lässt $change die Daten ändern und schreibt sie zurück. Anders als
  * update_json_file() bleibt die Reihenfolge erhalten (der erste Benutzer ist die Vorgabe, siehe first_user()).
+ *
  * @param callable(array): array $change
+ * @return void
+ * @throws RuntimeException wenn users.json nicht geöffnet werden kann
  */
 function update_users(callable $change): void
 {
@@ -123,6 +156,8 @@ function update_users(callable $change): void
 /**
  * Angemeldeter Benutzer (Basic Auth) oder null. Unter CGI/FastCGI (Hetzner) fehlt PHP_AUTH_USER, dort setzt Apache
  * REMOTE_USER bzw. nach einer internen Weiterleitung REDIRECT_REMOTE_USER.
+ *
+ * @return string|null Der Login; null, wenn niemand angemeldet ist
  */
 function current_user(): ?string
 {
@@ -135,7 +170,11 @@ function current_user(): ?string
     return null;
 }
 
-/** Der erste Benutzer aus users.json oder null. */
+/**
+ * Der erste Benutzer aus users.json oder null.
+ *
+ * @return string|null Der Login; null, wenn es keine Benutzer gibt
+ */
 function first_user(): ?string
 {
     return array_key_first(read_users());
@@ -144,6 +183,8 @@ function first_user(): ?string
 /**
  * Pfad der .htpasswd: HTPASSWD_FILE aus config.php, sonst AuthUserFile aus public/.htaccess, sonst die Datei im
  * Projekt-Root (neben config.php, wie im Setup beschrieben).
+ *
+ * @return string Absoluter Pfad der .htpasswd
  */
 function htpasswd_file(): string
 {
@@ -157,7 +198,12 @@ function htpasswd_file(): string
     return dirname(__DIR__, 3) . '/.htpasswd';
 }
 
-/** Passwort-Hash eines Benutzers aus der .htpasswd oder null. */
+/**
+ * Passwort-Hash eines Benutzers aus der .htpasswd oder null.
+ *
+ * @param string $login Login des Benutzers
+ * @return string|null Der Hash; null, wenn der Benutzer nicht eingetragen ist
+ */
 function htpasswd_hash(string $login): ?string
 {
     $file = htpasswd_file();
@@ -169,7 +215,14 @@ function htpasswd_hash(string $login): ?string
     return null;
 }
 
-/** Trägt den Benutzer mit dem Passwort-Hash in die .htpasswd ein bzw. ersetzt seine Zeile; null entfernt sie. */
+/**
+ * Trägt den Benutzer mit dem Passwort-Hash in die .htpasswd ein bzw. ersetzt seine Zeile; null entfernt sie.
+ *
+ * @param string $login Login des Benutzers
+ * @param string|null $hash Passwort-Hash; null entfernt den Eintrag
+ * @return void
+ * @throws RuntimeException wenn die .htpasswd nicht geschrieben werden kann
+ */
 function save_htpasswd_entry(string $login, ?string $hash): void
 {
     $file = htpasswd_file();

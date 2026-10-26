@@ -12,18 +12,34 @@
 
 require_once __DIR__ . '/jsonfile.php';
 
+/**
+ * Pfad der Wunschlistendatei.
+ *
+ * @return string Absoluter Pfad von data/wishes.json
+ */
 function wishes_file(): string
 {
     return DATA_DIR . '/wishes.json';
 }
 
-/** @return array<string, array<string, string>> */
+/**
+ * Alle Wünsche.
+ *
+ * @return array<string, array<string, string>>
+ */
 function read_wishes(): array
 {
     return read_json_file(wishes_file());
 }
 
-/** Setzt bzw. entfernt den Wunsch von $user für $slug. Liefert die Wünsche des Eintrags (Login => Zeitpunkt). */
+/**
+ * Setzt bzw. entfernt den Wunsch von $user für $slug. Liefert die Wünsche des Eintrags (Login => Zeitpunkt).
+ *
+ * @param string $slug Ordnername des Eintrags unter MOVIES_DIR
+ * @param string $user Login des Benutzers
+ * @param bool $wish true setzt den Wunsch, false entfernt ihn
+ * @return array Wünsche des Eintrags (Login => Zeitpunkt)
+ */
 function set_wish(string $slug, string $user, bool $wish): array
 {
     $data = update_json_file(wishes_file(), function (array $data) use ($slug, $user, $wish) {
@@ -37,7 +53,13 @@ function set_wish(string $slug, string $user, bool $wish): array
     return $data[$slug] ?? [];
 }
 
-/** Nach dem Speichern bzw. Löschen eines Eintrags: Wünsche auf den neuen Slug umziehen ($newSlug null = gelöscht). */
+/**
+ * Nach dem Speichern bzw. Löschen eines Eintrags: Wünsche auf den neuen Slug umziehen ($newSlug null = gelöscht).
+ *
+ * @param string $oldSlug Bisheriger Slug
+ * @param string|null $newSlug Neuer Slug; null, wenn der Eintrag gelöscht wurde
+ * @return void
+ */
 function move_wishes(string $oldSlug, ?string $newSlug): void
 {
     if ($oldSlug === $newSlug || !is_file(wishes_file())) {
@@ -53,7 +75,12 @@ function move_wishes(string $oldSlug, ?string $newSlug): void
     });
 }
 
-/** Entfernt alle Wünsche eines Benutzers (beim Entfernen seines Zugangs). */
+/**
+ * Entfernt alle Wünsche eines Benutzers (beim Entfernen seines Zugangs).
+ *
+ * @param string $login Login des entfernten Benutzers
+ * @return void
+ */
 function remove_user_wishes(string $login): void
 {
     if (is_file(wishes_file())) {

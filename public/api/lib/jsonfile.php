@@ -5,7 +5,12 @@
  * unter Sperre ändern.
  */
 
-/** Inhalt als Array; leer, wenn die Datei fehlt oder kaputt ist. */
+/**
+ * Inhalt als Array; leer, wenn die Datei fehlt oder kaputt ist.
+ *
+ * @param string $file Absoluter Pfad der JSON-Datei
+ * @return array Der Inhalt als Array
+ */
 function read_json_file(string $file): array
 {
     $data = is_file($file) ? json_decode((string) file_get_contents($file), true) : null;
@@ -16,7 +21,11 @@ function read_json_file(string $file): array
  * Liest die Datei unter Sperre, lässt $change die Daten ändern und schreibt sie zurück (nur, wenn sich etwas
  * geändert hat). Leere Einträge der obersten Ebene fallen weg, die Schlüssel werden sortiert. Liefert die neuen
  * Daten.
+ *
+ * @param string $file Absoluter Pfad der JSON-Datei (wird bei Bedarf angelegt)
  * @param callable(array): array $change
+ * @return array Die neuen Daten
+ * @throws RuntimeException wenn die Datei nicht geöffnet werden kann
  */
 function update_json_file(string $file, callable $change): array
 {

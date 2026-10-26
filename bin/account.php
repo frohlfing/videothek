@@ -21,6 +21,8 @@
  */
 
 // Nur Kommandozeile. Nicht über PHP_SAPI geprüft: Je nach Installation läuft "php" als CGI (z. B. php-cgi).
+use Random\RandomException as RandomExceptionAlias;
+
 if (isset($_SERVER['REQUEST_METHOD'])) {
     http_response_code(403);
     exit("Nur für die Kommandozeile.\n");
@@ -29,6 +31,11 @@ if (isset($_SERVER['REQUEST_METHOD'])) {
 require_once __DIR__ . '/../config.php';
 require_once __DIR__ . '/../public/api/lib/crud.php';
 
+/**
+ * Hilfetext, der bei falschem Aufruf angezeigt wird.
+ *
+ * @var string
+ */
 const USAGE = "Aufruf:\n"
     . "php bin/account.php --add <login> [--name=<Name>] [--password=<passwort>] [--owner=<Eigentümer>]\n"
     . "php bin/account.php --change <login> [--name=<Name>] [--password[=<passwort>]] [--owner=[<Eigentümer>]]\n"
@@ -40,7 +47,7 @@ const USAGE = "Aufruf:\n"
 [$positional, $options] = cli_args();
 $actions = array_values(array_intersect(['add', 'change', 'remove'], array_keys($options)));
 $login = (string) ($positional[0] ?? '');
-// Vertipptes konkret melden statt nur den Aufruf zu zeigen ("name=Paul" ohne "--", "--nmae=Paul").
+// Vertippes melden, statt nur den Aufruf zu zeigen ("name=Paul" ohne "--", "--nmae=Paul").
 $unknown = array_merge(
     array_map(fn($a) => preg_match('/^-*([a-z]+)=/', $a, $m) ? "'$a' (gemeint: --$m[1]=…?)" : "'$a'", array_slice($positional, 1)),
     array_map(fn($o) => "'--$o'", array_diff(array_keys($options), ['add', 'change', 'remove', 'name', 'password', 'owner', 'yes'])));
@@ -139,13 +146,23 @@ if ($ownerBefore !== owner_of($login)) {
 }
 echo "\nAuf den Server übertragen: php bin/remote.php --upload-account $login --password=…\n";
 
-/** Anzeigename aus users.json, sonst der Login. */
+/**
+ * Anzeigename aus users.json, sonst der Login.
+ *
+ * @param string $login Login des Benutzers
+ * @return string Der Anzeigename
+ */
 function userName(string $login): string
 {
     return (string) (read_users()[$login]['name'] ?? $login);
 }
 
-/** Meldet, wie viele Medien $owner gehören. */
+/**
+ * Meldet, wie viele Medien $owner gehören.
+ *
+ * @param string $owner Kennung des Eigentümers
+ * @return void
+ */
 function warn_orphaned_media(string $owner): void
 {
     if (isset(owners()[$owner])) {
@@ -159,7 +176,12 @@ function warn_orphaned_media(string $owner): void
     }
 }
 
-/** 14 Zeichen ohne leicht verwechselbare (0/O, 1/l/I), zum Weitergeben per Nachricht. */
+/**
+ * 14 Zeichen ohne leicht verwechselbare (0/O, 1/l/I), zum Weitergeben per Nachricht.
+ *
+ * @return string Das Passwort
+ * @throws RandomExceptionAlias
+ */
 function generate_password(): string
 {
     $alphabet = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -170,7 +192,12 @@ function generate_password(): string
     return $password;
 }
 
-/** Meldung auf STDERR, Exit-Code 1. */
+/**
+ * Meldung auf STDERR, Exit-Code 1.
+ *
+ * @param string $message Die Meldung (mit Zeilenumbruch am Ende)
+ * @return never
+ */
 function fail(string $message): never
 {
     fwrite(STDERR, $message);
@@ -196,7 +223,13 @@ function cli_args(): array
     return [$positional, $options];
 }
 
-/** Fragt "… [j/N]" auf der Kommandozeile; mit $yes (Option --yes) ohne Rückfrage. */
+/**
+ * Fragt "… [j/N]" auf der Kommandozeile; mit $yes (Option --yes) ohne Rückfrage.
+ *
+ * @param string $question Die Frage (ohne "[j/N]")
+ * @param bool $yes true, wenn ohne Rückfrage bestätigt werden soll
+ * @return bool true, wenn der Benutzer bestätigt hat
+ */
 function cli_confirm(string $question, bool $yes): bool
 {
     if ($yes) {
@@ -207,7 +240,13 @@ function cli_confirm(string $question, bool $yes): bool
     return in_array($answer, ['j', 'ja', 'y', 'yes'], true);
 }
 
-/** Liste für die Ausgabe, höchstens $max Zeilen. @param string[] $lines */
+/**
+ * Liste für die Ausgabe, höchstens $max Zeilen.
+ *
+ * @param string[] $lines
+ * @param int $max Höchstzahl der angezeigten Zeilen
+ * @return string Der eingerückte Text mit Zeilenumbrüchen
+ */
 function cli_list(array $lines, int $max = 20): string
 {
     $shown = array_map(fn($l) => "    $l", array_slice($lines, 0, $max));

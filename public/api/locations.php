@@ -15,7 +15,11 @@ require_once __DIR__ . '/../../config.php';
 require_once __DIR__ . '/lib/http.php';
 require_once __DIR__ . '/lib/crud.php';
 
-/** Höchstlänge eines frei eingegebenen Namens bei der Ausleihe. */
+/**
+ * Höchstlänge eines frei eingegebenen Namens bei der Ausleihe.
+ *
+ * @var int
+ */
 const LOCATION_NAME_MAX = 60;
 
 $method = $_SERVER['REQUEST_METHOD'];

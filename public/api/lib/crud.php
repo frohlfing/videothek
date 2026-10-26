@@ -8,6 +8,9 @@ require_once __DIR__ . '/locations.php';
 require_once __DIR__ . '/wishes.php';
 require_once __DIR__ . '/ratings.php';
 
+/**
+ * Die Eingabedaten sind ungültig; $errors enthält alle gefundenen Fehlermeldungen.
+ */
 class ValidationException extends RuntimeException
 {
     /** @param string[] $errors */
@@ -17,36 +20,55 @@ class ValidationException extends RuntimeException
     }
 }
 
-/** Art eines Eintrags (Feld "type" in movie.json). Fehlt das Feld (ältere Dateien), ist es ein Film. */
+/**
+ * Art eines Eintrags (Feld "type" in movie.json). Fehlt das Feld (ältere Dateien), ist es ein Film.
+ *
+ * @var string
+ */
 const TYPE_MOVIE = 'movie';
 /**
  * Staffel einer Serie: ein Eintrag wie ein Film (eigenes Cover, Medien, Handlung, Darsteller), dazu die
  * Serie (series, gruppiert wie die Reihe eines Films), die Staffelnummer (season), "Idee" (creator) und die Folgen.
  * Bei Staffeln ist year das Jahr der Staffel, runtime die Länge einer Folge, und uniqueids sind die IDs der Serie.
+ *
+ * @var string
  */
 const TYPE_SEASON = 'season';
+/**
+ * Die Arten, die ein Eintrag haben darf (TYPE_SERIES kommt nur bei TMDB und in alten Dateien vor).
+ *
+ * @var string[]
+ */
 const ENTRY_TYPES = [TYPE_MOVIE, TYPE_SEASON];
 /**
  * Serie bei TMDB (Suche, Import). Außerdem die Art der alten Serien-Einträge mit allen Staffeln in seasons[]; die
  * Übersicht zeigt sie nicht mehr an (neu importieren und den alten Ordner löschen).
+ *
+ * @var string
  */
 const TYPE_SERIES = 'series';
 
 /**
  * Medien, die Dateien sind (auf dem eigenen USB-Speicher): Sie haben "paths" (Dateien) statt eines Standorts und
  * werden nicht verliehen. Alle anderen (DVD, Blu-ray, …) sind Scheiben mit Standort (lib/locations.php).
+ *
+ * @var string[]
  */
 const DIGITAL_MEDIA = ['USB'];
 
 /**
  * Eigene Einschätzung des Bilds bei DIGITAL_MEDIA ("quality" am Medium); hat in der App Vorrang vor der Beurteilung aus
  * "video" (app.js: mediumQuality()). Fehlt sie, beurteilt die App automatisch.
+ *
+ * @var string[]
  */
 const MEDIA_QUALITY = ['gut', 'mittel', 'schlecht'];
 
 /**
  * Felder, die nur eine der beiden Arten hat. Wechselt ein Eintrag die Art, fallen die Felder der anderen Art beim
  * Speichern weg.
+ *
+ * @var array<string, string[]> Art => Felder, die nur sie hat
  */
 const TYPE_ONLY_FIELDS = [
     TYPE_MOVIE => ['collection', 'director'],
@@ -63,7 +85,12 @@ class ConflictException extends RuntimeException
 {
 }
 
-/** Absoluter Pfad zum Ordner eines Films (existiert nicht zwingend). */
+/**
+ * Absoluter Pfad zum Ordner eines Films (existiert nicht zwingend).
+ *
+ * @param string $slug Ordnername des Eintrags unter MOVIES_DIR
+ * @return string Pfad ohne abschließenden Slash
+ */
 function movie_dir(string $slug): string
 {
     return MOVIES_DIR . '/' . $slug;
@@ -75,6 +102,9 @@ function movie_dir(string $slug): string
  * Eigentümer); beides wird hier ergänzt bzw. umgewandelt (legacy_media()), damit alle Aufrufer nur das aktuelle
  * Format sehen. Gespeichert wird es so beim nächsten Schreiben. Medien mit "files" (relativ zum Ordner des Eintrags,
  * bis Oktober 2026) bleiben, wie sie sind: Sie haben noch keine "paths".
+ *
+ * @param string $slug Ordnername des Eintrags unter MOVIES_DIR
+ * @return array|null Der Eintrag im aktuellen Format; null, wenn Ordner/Datei fehlt oder das JSON ungültig ist
  */
 function read_movie_json(string $slug): ?array
 {
@@ -99,6 +129,8 @@ function read_movie_json(string $slug): ?array
 /**
  * Feldreihenfolge in movie.json: wie im Bearbeiten-Formular, danach die Verwaltungsfelder.
  * Bilder stehen dort, wo im Formular die Bildfelder sind.
+ *
+ * @var string[]
  */
 const MOVIE_FIELD_ORDER = [
     'type', 'title', 'originalTitle', 'year', 'runtime', 'fsk', 'genres', 'collection', 'series', 'season', 'director',
@@ -109,6 +141,9 @@ const MOVIE_FIELD_ORDER = [
 /**
  * Bringt die Felder in MOVIE_FIELD_ORDER. Felder, die nicht (mehr) zum Schema gehören (z. B. das
  * entfernte "location"), fallen dabei weg.
+ *
+ * @param array $movie Ein Eintrag
+ * @return array Der Eintrag mit Feldern in der Reihenfolge von MOVIE_FIELD_ORDER; unbekannte Felder fallen weg
  */
 function order_movie_fields(array $movie): array
 {
@@ -121,7 +156,13 @@ function order_movie_fields(array $movie): array
     return $ordered;
 }
 
-/** Schreibt $movie als movie.json (überschreibt eine vorhandene Datei vollständig, Felder in MOVIE_FIELD_ORDER). */
+/**
+ * Schreibt $movie als movie.json (überschreibt eine vorhandene Datei vollständig, Felder in MOVIE_FIELD_ORDER).
+ *
+ * @param string $slug Ordnername des Eintrags unter MOVIES_DIR (der Ordner muss existieren)
+ * @param array $movie Der vollständige Eintrag
+ * @return void
+ */
 function write_movie_json(string $slug, array $movie): void
 {
     file_put_contents(
@@ -149,7 +190,12 @@ function list_movie_slugs(): array
     return $slugs;
 }
 
-/** Liest einen einzelnen Film und stellt dabei sicher, dass sein Thumbnail existiert (Lazy-Fallback). Null, wenn nicht gefunden. */
+/**
+ * Liest einen einzelnen Film und stellt dabei sicher, dass sein Thumbnail existiert (Lazy-Fallback). Null, wenn nicht gefunden.
+ *
+ * @param string $slug Ordnername des Eintrags unter MOVIES_DIR
+ * @return array|null Der Eintrag; null, wenn nicht gefunden
+ */
 function get_movie(string $slug): ?array
 {
     $movie = read_movie_json($slug);
@@ -160,6 +206,8 @@ function get_movie(string $slug): ?array
 }
 
 /**
+ * Liest alle Einträge.
+ *
  * @return array[] Alphabetisch nach Titel sortiert (das Frontend sortiert clientseitig ggf. um, siehe app.js).
  * Zusätzlich "thumbHash" (Prüfsumme des Thumbnails, nicht in movie.json): Damit zeigt die Kachel einer Serie ein
  * Cover, das mehrere Staffeln gemeinsam haben, nur einmal.
@@ -183,6 +231,12 @@ function list_movies(): array
  * Prüft, ob es schon einen Eintrag derselben Art mit gleichem Titel (case-insensitiv) UND gleichem Jahr gibt.
  * Anders als beim Titel allein dürfen so Remakes ("Ben Hur" 1959 und 2016) nebeneinander existieren, ebenso ein
  * Film und eine gleichnamige Staffel. $excludeSlug schließt den eigenen Eintrag beim Update aus.
+ *
+ * @param string $title Zu prüfender Titel
+ * @param int|null $year Erscheinungsjahr; null = ohne Jahr
+ * @param string $type Art des Eintrags (TYPE_MOVIE oder TYPE_SEASON)
+ * @param string|null $excludeSlug Slug, der übersprungen wird (der eigene Eintrag beim Update)
+ * @return bool true, wenn es einen solchen Eintrag schon gibt
  */
 function title_exists(string $title, ?int $year, string $type = TYPE_MOVIE, ?string $excludeSlug = null): bool
 {
@@ -203,6 +257,8 @@ function title_exists(string $title, ?int $year, string $type = TYPE_MOVIE, ?str
 /**
  * Reihe (collection), die schon einen Eintrag mit dieser TMDB-Collection-ID hat, oder null. Damit ein weiterer Teil
  * beim Import bzw. Nachtrag denselben (ggf. von Hand geänderten) Namen bekommt wie die vorhandenen.
+ *
+ * @param string $tmdbId TMDB-ID der Reihe
  * @return ?array{name: string, tmdb: ?string}
  */
 function find_collection_by_tmdb_id(string $tmdbId): ?array
@@ -216,7 +272,12 @@ function find_collection_by_tmdb_id(string $tmdbId): ?array
     return null;
 }
 
-/** Serie, die schon eine Staffel mit dieser TMDB-ID der Serie hat (Name ggf. von Hand geändert), oder null. */
+/**
+ * Serie, die schon eine Staffel mit dieser TMDB-ID der Serie hat (Name ggf. von Hand geändert), oder null.
+ *
+ * @param string $tmdbId TMDB-ID der Serie
+ * @return array|null Die Serie ({name, tmdb}); null, wenn es noch keine Staffel gibt
+ */
 function find_series_by_tmdb_id(string $tmdbId): ?array
 {
     foreach (list_movie_slugs() as $slug) {
@@ -230,6 +291,8 @@ function find_series_by_tmdb_id(string $tmdbId): ?array
 
 /**
  * Vorhandene Staffeln der Serie mit dieser TMDB-ID: [Staffelnummer => Slug].
+ *
+ * @param string $tmdbId TMDB-ID der Serie
  * @return array<int, string>
  */
 function seasons_by_series_tmdb_id(string $tmdbId): array
@@ -249,6 +312,10 @@ function seasons_by_series_tmdb_id(string $tmdbId): array
  * Dopplung. Haben beide eine TMDB-ID der Serie, entscheidet sie: So dürfen DVDs, die TMDB als eigene Serien mit je
  * einer "Staffel 1" führt, unter einem gemeinsamen Seriennamen stehen (z. B. "Shaun das Schaf"). Sonst entscheidet
  * der Name (ohne Groß-/Kleinschreibung).
+ *
+ * @param array $fields Normalisierte Felder der Staffel (series und season)
+ * @param string|null $excludeSlug Slug, der übersprungen wird (der eigene Eintrag beim Update)
+ * @return string|null Der Slug der anderen Staffel; null, wenn es keine gibt
  */
 function find_season_slug(array $fields, ?string $excludeSlug = null): ?string
 {
@@ -279,6 +346,11 @@ function find_season_slug(array $fields, ?string $excludeSlug = null): ?string
 /**
  * Slug des Eintrags mit dieser TMDB-ID oder null. TMDB zählt Filme und Serien getrennt (Film 1396 ist nicht
  * Serie 1396), deshalb gehört die Art dazu. Für Staffeln siehe find_season_slug(). $excludeSlug schließt den eigenen Eintrag beim Update aus.
+ *
+ * @param string $tmdbId TMDB-ID des Films bzw. der Serie
+ * @param string $type Art des Eintrags
+ * @param string|null $excludeSlug Slug, der übersprungen wird (der eigene Eintrag beim Update)
+ * @return string|null Der Slug; null, wenn es keinen gibt
  */
 function find_slug_by_tmdb_id(string $tmdbId, string $type = TYPE_MOVIE, ?string $excludeSlug = null): ?string
 {
@@ -294,7 +366,12 @@ function find_slug_by_tmdb_id(string $tmdbId, string $type = TYPE_MOVIE, ?string
     return null;
 }
 
-/** "Film", "Staffel" bzw. "Serie" für Meldungen. */
+/**
+ * "Film", "Staffel" bzw. "Serie" für Meldungen.
+ *
+ * @param string $type Art des Eintrags
+ * @return string Die Bezeichnung für Meldungen
+ */
 function type_label(string $type): string
 {
     return match ($type) {
@@ -304,7 +381,12 @@ function type_label(string $type): string
     };
 }
 
-/** @return string[] Fehlermeldungen, leer wenn valide. */
+/**
+ * Prüft rohe Request-Daten eines Eintrags (Pflichtfelder, Typen, Wertebereiche).
+ *
+ * @param array $data Rohe Request-Daten
+ * @return string[] Fehlermeldungen, leer wenn valide.
+ */
 function validate_movie_input(array $data): array
 {
     $errors = [];
@@ -357,7 +439,14 @@ function validate_movie_input(array $data): array
     return $errors;
 }
 
-/** Leer/null oder eine ganze Zahl im Bereich $min..$max? */
+/**
+ * Leer/null oder eine ganze Zahl im Bereich $min..$max?
+ *
+ * @param mixed $value Zu prüfender Wert
+ * @param int $min Kleinster erlaubter Wert
+ * @param int $max Größter erlaubter Wert
+ * @return bool true, wenn der Wert leer oder eine ganze Zahl im Bereich ist
+ */
 function valid_optional_int(mixed $value, int $min, int $max): bool
 {
     return $value === null || $value === ''
@@ -368,6 +457,8 @@ function valid_optional_int(mixed $value, int $min, int $max): bool
  * Prüft die Medien: Liste von {owner, type, paths?}, je Eigentümer und pro Art höchstens einmal. Dass bei USB
  * Dateien eingetragen sind, prüft das Formular (app.js: saveMovie()), nicht die API: Ein Import bzw. ein Freund kann
  * das Medium auch erst eintragen und die Dateien später.
+ *
+ * @param mixed $media Rohe Medienliste (media)
  * @return string[]
  */
 function validate_media_input(mixed $media): array
@@ -401,6 +492,9 @@ function validate_media_input(mixed $media): array
 
 /**
  * Prüft eine Dateiliste (paths eines Mediums): Array relativer Pfade ohne Laufwerk und "..".
+ *
+ * @param mixed $paths Rohe Dateiliste (paths)
+ * @param string $label Feldbezeichnung für die Fehlermeldungen
  * @return string[]
  */
 function validate_paths_input(mixed $paths, string $label): array
@@ -422,6 +516,8 @@ function validate_paths_input(mixed $paths, string $label): array
 
 /**
  * Prüft die Folgen einer Staffel: Liste von {number?, title?, plot?}, jede Nummer höchstens einmal.
+ *
+ * @param mixed $episodes Rohe Folgenliste (episodes)
  * @return string[]
  */
 function validate_episodes_input(mixed $episodes): array
@@ -451,6 +547,8 @@ function validate_episodes_input(mixed $episodes): array
  * Dateien eines Mediums USB relativ zum USB-Ordner, z. B. ["hangover/hangover-2009.mp4"]; bei mehrteiligen Filmen
  * mehrere in Abspielreihenfolge, bei Staffeln die Folgen. Die Struktur ist frei; der Vorschlag fürs Formular und für
  * `bin/convert.php` macht `usb_base_path()`. Gespeichert immer mit "/" (app.js: usbPath() wandelt für Windows um).
+ *
+ * @param array $paths Rohe Dateiliste
  * @return string[]
  */
 function normalize_media_paths(array $paths): array
@@ -471,6 +569,10 @@ function normalize_media_paths(array $paths): array
  * Die erste Ebene (Titel, Reihe, Serie) sortiert im Dateiexplorer Filme und Serien gemeinsam alphabetisch. Mehrere
  * Dateien eines Films bzw. einer Folge bekommen -cd1, -cd2, … angehängt. "S02E01" erkennen Player und Mediaserver
  * als Folge, file_episode_number() als Folgennummer.
+ *
+ * @param array $movie Der Eintrag (slug, type, title, collection bzw. series und season)
+ * @param int|null $episode Folgennummer bei Staffeln; ohne Angabe 1
+ * @return string Der Pfad relativ zum USB-Ordner, ohne Dateiendung
  */
 function usb_base_path(array $movie, ?int $episode = null): string
 {
@@ -490,6 +592,8 @@ function usb_base_path(array $movie, ?int $episode = null): string
  * "type": "USB", "paths": ["bruchreif/bruchreif-2009.mp4"], "video": {…}, "audio": {…}}]. Leer = nicht im Bestand.
  * Dateien (und video, audio, siehe normalize_video(), normalize_audio()) gibt es nur bei DIGITAL_MEDIA; doppelte Medien
  * (gleicher Eigentümer und gleiche Art) fallen weg.
+ *
+ * @param array $media Rohe Medienliste
  * @return array<array{owner: string, type: string, paths?: string[], video?: array, audio?: array}>
  */
 function normalize_media(array $media): array
@@ -517,6 +621,8 @@ function normalize_media(array $media): array
  * "sar": "1:1", "fps": 25, "kbps": 635}. codec ist der Name bei ffprobe (h264, hevc, mpeg4 = XviD/DivX, …), sar das
  * Seitenverhältnis eines Bildpunkts, kbps die Video-Bitrate. Die Beurteilung macht die App (app.js: videoQuality()).
  * Ungültig bzw. ohne Breite und Höhe: null.
+ *
+ * @param mixed $video Rohe Angaben zum Bild
  * @return ?array{codec: string, width: int, height: int, sar: string, fps: ?float, kbps: ?int}
  */
 function normalize_video(mixed $video): ?array
@@ -539,6 +645,8 @@ function normalize_video(mixed $video): ?array
  * Technische Angaben zur (ersten) Tonspur der Datei auf dem USB-Speicher, eingetragen von bin/convert.php:
  * {codec, channels, kbps, lang}, z. B. {"codec": "aac", "channels": 6, "kbps": 384, "lang": "ger"}. codec ist der Name
  * bei ffprobe (aac, mp3, …), lang der Sprachcode (ger, eng, und = unbekannt). Ungültig: null.
+ *
+ * @param mixed $audio Rohe Angaben zur Tonspur
  * @return ?array{codec: string, channels: ?int, kbps: ?int, lang: string}
  */
 function normalize_audio(mixed $audio): ?array
@@ -557,6 +665,10 @@ function normalize_audio(mixed $audio): ?array
 /**
  * Das Formular kennt "video" und "audio" nicht: Beim Speichern bleiben sie von einem Medium mit gleichem Eigentümer,
  * gleicher Art und gleichen Dateien erhalten.
+ *
+ * @param array $media Die neuen Medien (aus dem Formular)
+ * @param array $before Die bisherigen Medien des Eintrags
+ * @return array Die neuen Medien - ergänzt um die bisherigen video- und audio-Angaben
  */
 function keep_media_facts(array $media, array $before): array
 {
@@ -578,6 +690,10 @@ function keep_media_facts(array $media, array $before): array
 /**
  * Medien aus dem alten Format: "medium" (Liste oder Text, auch kommagetrennt "DVD, USB") und "files" relativ zum
  * USB-Ordner ("<slug>/movie.avi"), alles von $owner.
+ *
+ * @param array $movie Der Eintrag im alten Format (mit medium und files)
+ * @param string $owner Eigentümer, dem die Medien zugeordnet werden
+ * @return array Die Medien im aktuellen Format
  */
 function legacy_media(array $movie, string $owner): array
 {
@@ -593,6 +709,9 @@ function legacy_media(array $movie, string $owner): array
  * Import aus TMDB, sonst null) und der Nummer des Films in der Reihe (part, von Hand, sonst null: dann zählt das
  * Erscheinungsjahr). Ebenso die Serie einer Staffel ($withPart = false: {name, tmdb} mit der TMDB-ID der Serie, die
  * Nummer steht dort in "season"). Akzeptiert auch nur den Namen als String. Ohne Namen: null.
+ *
+ * @param mixed $collection Rohe Angabe (Objekt oder nur der Name als String)
+ * @param bool $withPart true: mit Teilnummer (Reihe eines Films), false: ohne (Serie einer Staffel)
  * @return ?array{name: string, tmdb: ?string, part?: ?int}
  */
 function normalize_collection(mixed $collection, bool $withPart = true): ?array
@@ -607,14 +726,24 @@ function normalize_collection(mixed $collection, bool $withPart = true): ?array
     return $withPart ? $result + ['part' => nullable_int($collection['part'] ?? null)] : $result;
 }
 
-/** Leerer/fehlender Wert -> null, sonst getrimmter String. */
+/**
+ * Leerer/fehlender Wert -> null, sonst getrimmter String.
+ *
+ * @param mixed $value Beliebiger Wert
+ * @return string|null Der getrimmte Text; null, wenn leer oder fehlend
+ */
 function nullable_string(mixed $value): ?string
 {
     $s = trim((string) ($value ?? ''));
     return $s !== '' ? $s : null;
 }
 
-/** Leerer/fehlender Wert -> null, sonst int (Wertebereich prüft validate_movie_input()). */
+/**
+ * Leerer/fehlender Wert -> null, sonst int (Wertebereich prüft validate_movie_input()).
+ *
+ * @param mixed $value Beliebiger Wert
+ * @return int|null Die Zahl; null, wenn leer oder fehlend
+ */
 function nullable_int(mixed $value): ?int
 {
     return ($value === null || $value === '') ? null : (int) $value;
@@ -625,6 +754,9 @@ function nullable_int(mixed $value): ?int
  * (type) kommen die Film- bzw. die Staffelfelder dazu (TYPE_ONLY_FIELDS).
  * Nicht enthalten (und damit beim Update unverändert aus movie.json übernommen): slug, created,
  * uniqueids und die Bilddateien poster/thumb/fanart.
+ *
+ * @param array $data Rohe Request-Daten (bereits mit validate_movie_input() geprüft)
+ * @return array Die normalisierten Felder
  */
 function normalize_movie_fields(array $data): array
 {
@@ -665,6 +797,8 @@ function normalize_movie_fields(array $data): array
 /**
  * Folgen einer Staffel, nach Nummer sortiert. Fehlt die Nummer, zählt die Position (1, 2, …). Die Handlung enthält
  * keine Leerzeilen (episode_plot()): Im Formular trennt eine Leerzeile die Folgen.
+ *
+ * @param array $episodes Rohe Folgenliste
  * @return array<array{number: int, title: ?string, plot: ?string}>
  */
 function normalize_episodes(array $episodes): array
@@ -682,7 +816,12 @@ function normalize_episodes(array $episodes): array
     return array_values($result);
 }
 
-/** Handlung einer Folge ohne Leerzeilen (auch für den Import aus TMDB), leer -> null. */
+/**
+ * Handlung einer Folge ohne Leerzeilen (auch für den Import aus TMDB), leer -> null.
+ *
+ * @param mixed $plot Rohe Handlung
+ * @return string|null Die Handlung ohne Leerzeilen; null, wenn leer
+ */
 function episode_plot(mixed $plot): ?string
 {
     $plot = nullable_string($plot);
@@ -692,20 +831,34 @@ function episode_plot(mixed $plot): ?string
 /**
  * Folgennummer im Dateinamen ("serie-s01e03", "S01E03", "E03", "e3", "episode-03") oder null. Gegenstück in app.js:
  * episodeFiles().
+ *
+ * @param string $file Dateiname oder Pfad
+ * @return int|null Die Folgennummer; null, wenn der Name keine enthält
  */
 function file_episode_number(string $file): ?int
 {
     return preg_match('/(?:^|[^a-z0-9])(?:s\d+)?e(?:pisode[\s._-]*)?0*(\d+)(?!\d)/i', basename($file), $m) ? (int) $m[1] : null;
 }
 
-/** Dateiname eines Darstellerfotos unter actors/ (ohne Pfad, Bildendung) oder null; alles andere wird verworfen. */
+/**
+ * Dateiname eines Darstellerfotos unter actors/ (ohne Pfad, Bildendung) oder null; alles andere wird verworfen.
+ *
+ * @param mixed $name Rohe Angabe
+ * @return string|null Der Dateiname; null, wenn er ungültig ist
+ */
 function actor_photo_name(mixed $name): ?string
 {
     return is_string($name) && $name === basename($name) && !str_starts_with($name, '.')
         && preg_match('/\.(jpe?g|png|webp)$/i', $name) ? $name : null;
 }
 
-/** Löscht Darstellerfotos unter actors/, auf die kein Darsteller in $movie mehr verweist. */
+/**
+ * Löscht Darstellerfotos unter actors/, auf die kein Darsteller in $movie mehr verweist.
+ *
+ * @param string $slug Ordnername des Eintrags unter MOVIES_DIR
+ * @param array $movie Der Eintrag mit cast
+ * @return void
+ */
 function remove_unused_actor_photos(string $slug, array $movie): void
 {
     $used = array_filter(array_column($movie['cast'] ?? [], 'thumb'));
@@ -719,6 +872,9 @@ function remove_unused_actor_photos(string $slug, array $movie): void
 /**
  * Dateiname eines Darstellerfotos wie bei Kodi (.actors/Mark_Strong.jpg): Leerzeichen -> "_",
  * in Dateinamen unzulässige Zeichen entfernt. Liegt unter data/movies/<slug>/actors/.
+ *
+ * @param string $name Name des Darstellers
+ * @return string Der Dateiname (mit .jpg)
  */
 function actor_file_name(string $name): string
 {
@@ -730,6 +886,12 @@ function actor_file_name(string $name): string
  * Titel einer Staffel als eigener Eintrag: "Die Tudors – Staffel 1" bzw. mit dem Namen der Staffel
  * ("Die Tudors – Mätresse des Königs"); Specials (Nummer 0) heißen "Specials". Hat die Serie nur eine reguläre
  * Staffel ($only, z. B. eine DVD, die TMDB als eigene Serie führt), heißt die Staffel wie die Serie.
+ *
+ * @param string $series Name der Serie
+ * @param string|null $name Name der Staffel laut TMDB (leer oder "Staffel n" = Standardname)
+ * @param int $number Staffelnummer (0 = Specials)
+ * @param bool $only true, wenn die Serie nur diese eine reguläre Staffel hat
+ * @return string Der Titel des Eintrags
  */
 function season_entry_title(string $series, ?string $name, int $number, bool $only = false): string
 {
@@ -743,6 +905,9 @@ function season_entry_title(string $series, ?string $name, int $number, bool $on
 /**
  * Slug aus Titel + Jahr, damit Remakes mit gleichem Titel sprechende, unterschiedliche Ordnernamen
  * bekommen ("ben-hur-1959", "ben-hur-2016") statt "ben-hur" und "ben-hur-2".
+ *
+ * @param array $fields Normalisierte Felder (title und year)
+ * @return string Der Slug ohne Zähler für Doppelte
  */
 function movie_base_slug(array $fields): string
 {
@@ -752,7 +917,12 @@ function movie_base_slug(array $fields): string
 /**
  * Legt einen neuen Film bzw. eine neue Staffel an: validiert, vergibt Slug/created, erstellt den Ordner und schreibt movie.json.
  * $uniqueids (z. B. ["tmdb" => "9340", "imdb" => "tt0089218"]) setzt nur der Import.
+ *
+ * @param array $data Rohe Request-Daten
+ * @param array $uniqueids Externe IDs, z. B. ["tmdb" => "9340"] (setzt nur der Import)
+ * @return array Der angelegte Eintrag
  * @throws ValidationException
+ * @throws RuntimeException wenn der Ordner nicht angelegt werden konnte
  */
 function create_movie(array $data, array $uniqueids = []): array
 {
@@ -801,7 +971,11 @@ function create_movie(array $data, array $uniqueids = []): array
  * Aktualisiert einen Film bzw. eine Staffel (auch einen Wechsel der Art). Ändert sich Titel oder Jahr so, dass der Slug wechselt, wird der
  * Ordner atomar umbenannt – bei Fehlschlag bleibt der alte Zustand vollständig erhalten.
  *
+ * @param string $slug Bisheriger Ordnername des Eintrags
+ * @param array $data Rohe Request-Daten
+ * @return array Der aktualisierte Eintrag (mit evtl. neuem slug)
  * @throws NotFoundException|ValidationException|ConflictException
+ * @throws RuntimeException wenn das Umbenennen des Ordners fehlschlägt
  */
 function update_movie(string $slug, array $data): array
 {
@@ -864,7 +1038,14 @@ function update_movie(string $slug, array $data): array
     return $movie;
 }
 
-/** Entfernt den kompletten Filmordner (movie.json + Bilder verschwinden automatisch mit). @throws NotFoundException|RuntimeException */
+/**
+ * Entfernt den kompletten Filmordner (movie.json + Bilder verschwinden automatisch mit).
+ *
+ * @param string $slug Ordnername des Eintrags unter MOVIES_DIR
+ * @return void
+ * @throws NotFoundException wenn der Eintrag nicht existiert
+ * @throws RuntimeException wenn das Löschen fehlschlägt
+ */
 function delete_movie(string $slug): void
 {
     $dir = movie_dir($slug);
@@ -884,6 +1065,8 @@ function delete_movie(string $slug): void
  * thumb.jpg) real bestehen, während die API trotzdem Erfolg meldete – Einträge "verschwanden" aus
  * der Liste beim nächsten Request nicht wirklich, sondern tauchten wieder auf.
  *
+ * @param string $dir Absoluter Pfad des Ordners
+ * @return void
  * @throws RuntimeException wenn eine Datei oder der Ordner selbst nicht gelöscht werden konnte
  */
 function remove_directory_recursive(string $dir): void

@@ -31,6 +31,9 @@ if (function_exists('sapi_windows_cp_set')) {
     sapi_windows_cp_set(65001);
 }
 
+/**
+ * Projektordner.
+ */
 $root = dirname(__DIR__);
 // config.php (API_TOKEN, USB_ROOT) nur, wenn vorhanden; im portablen Paket fehlt sie
 if (is_file("$root/config.php")) {
@@ -38,18 +41,75 @@ if (is_file("$root/config.php")) {
 }
 require_once "$root/public/api/lib/crud.php"; // nur die Regeln (usb_base_path(), slugify(), normalize_video(), …)
 
-/** Adresse der Videothek auf dem Server (ohne "/" am Ende), wie in `bin/remote.php`; mit --remote=… abweichend. */
+/**
+ * Adresse der Videothek auf dem Server (ohne "/" am Ende), wie in `bin/remote.php`; mit --remote=… abweichend.
+ *
+ * @var string
+ */
 const REMOTE_URL = 'https://videothek.frank-rohlfing.de';
+
+/**
+ * Basic-Auth-Benutzer, wenn --user fehlt.
+ *
+ * @var string
+ */
 const REMOTE_DEFAULT_USER = 'frank';
+
+/**
+ * Dateiendungen, die als Videos gelten.
+ *
+ * @var string[]
+ */
 const VIDEO_EXT = ['avi', 'mkv', 'mp4', 'm4v', 'flv', 'mov', 'wmv', 'mpg', 'mpeg', 'ts', 'm2ts', 'vob', 'webm', 'ogm', 'divx', '3gp'];
+
+/**
+ * Erkennt Teile eines Mehrteilers im Dateinamen (cd1, part2, teil 3, …): Treffer 1 = Name ohne Teilnummer, Treffer 2 = Teilnummer.
+ *
+ * @var string Regulärer Ausdruck
+ */
 const PART_RE = '/^(.*?)[\s._-]*(?:cd|dvd|disc|disk|part|pt|teil)[\s._-]*(\d{1,2})$/i';
+
+/**
+ * Codecs von Text-Untertiteln (ffprobe), die sich nach WebVTT umwandeln lassen.
+ *
+ * @var string[]
+ */
 const TEXT_SUBS = ['subrip', 'srt', 'ass', 'ssa', 'mov_text', 'webvtt', 'text'];
+
+/**
+ * Sprachcodes für Deutsch.
+ *
+ * @var string[]
+ */
 const LANG_DE = ['ger', 'deu', 'de'];
+
+/**
+ * Sprachcodes für Englisch.
+ *
+ * @var string[]
+ */
 const LANG_EN = ['eng', 'en'];
+
+/**
+ * Dateiname des Logs im USB-Ordner (eine JSON-Zeile je Ereignis).
+ *
+ * @var string
+ */
 const LOG_NAME = 'convert-log.jsonl';
+
+/**
+ * Die Art des Mediums, das bearbeitet wird.
+ *
+ * @var string
+ */
 const USB_MEDIUM = 'USB';
 
-/** @noinspection */
+/**
+ * Hilfetext für --help und bei unbekannten Optionen.
+ *
+ * @noinspection
+ * @var string
+ */
 const HELP = <<<'TXT'
 Videos einer USB-Platte in die Videothek aufnehmen
 
@@ -92,10 +152,20 @@ TXT;
 
 // ---------------------------------------------------------------- Optionen
 
+/**
+ * Optionen der Kommandozeile (Vorgaben siehe HELP).
+ *
+ * @var array<string, string|bool> $opt
+ */
 $opt = ['src' => '', 'to' => defined('USB_ROOT') ? USB_ROOT : '', 'only' => '', 'owner' => '', 'crf' => '18',
     'preset' => 'slow', 'qsv' => false, 'dry-run' => false, 'yes' => false, 'remote' => REMOTE_URL,
     'user' => REMOTE_DEFAULT_USER, 'password' => (string) getenv('VIDEOTHEK_PASSWORD'),
     'api-token' => (string) getenv('VIDEOTHEK_API_TOKEN') ?: (defined('API_TOKEN') ? API_TOKEN : '')];
+/**
+ * Argumente der Kommandozeile ohne Skriptnamen.
+ *
+ * @var string[] $args
+ */
 $args = array_slice($_SERVER['argv'] ?? [], 1);
 if (!$args || array_intersect($args, ['-h', '--help', '/?'])) {
     echo HELP;
@@ -109,10 +179,27 @@ foreach ($args as $arg) {
     fwrite(STDERR, "Unbekannte Option: $arg\n\n" . HELP);
     exit(1);
 }
+/**
+ * Quellordner (--src) ohne abschließenden Backslash.
+ */
 $SRC = rtrim($opt['src'], '\\/');
+/**
+ * USB-Ordner (--to) ohne abschließenden Backslash.
+ */
 $TO = rtrim($opt['to'], '\\/');
+/**
+ * Slug-Anfänge aus --only; leer = alle Einträge.
+ *
+ * @var string[] $ONLY
+ */
 $ONLY = array_values(array_filter(array_map(fn($s) => strtolower(trim($s)), explode(',', $opt['only'])), 'strlen'));
+/**
+ * Adresse der Videothek auf dem Server ohne abschließenden Slash.
+ */
 $REMOTE = rtrim($opt['remote'], '/');
+/**
+ * Pfad der Log-Datei im USB-Ordner.
+ */
 $LOG = $TO . '\\' . LOG_NAME;
 foreach ([
     'Quelle fehlt: ' . ($SRC ?: '(--src angeben)') => $SRC === '' || !is_dir($SRC),
@@ -135,6 +222,10 @@ foreach (['ffmpeg', 'ffprobe'] as $tool) {
 
 // ---------------------------------------------------------------- Ausgabe
 
+/**
+ * @param float $sec Dauer in Sekunden
+ * @return string Die Dauer, z. B. "1h05m" oder "12m30s"
+ */
 function fmt_time(float $sec): string
 {
     $sec = max(0, (int) round($sec));
@@ -143,12 +234,20 @@ function fmt_time(float $sec): string
     return $h > 0 ? sprintf('%dh%02dm', $h, $m) : sprintf('%dm%02ds', $m, $sec % 60);
 }
 
+/**
+ * @param float $b Größe in Bytes
+ * @return string Die Größe, z. B. "1.4 GB" oder "700 MB"
+ */
 function fmt_bytes(float $b): string
 {
     return $b >= 1 << 30 ? sprintf('%.1f GB', $b / (1 << 30)) : sprintf('%.0f MB', $b / (1 << 20));
 }
 
-/** Konsolenbreite minus 1 (damit die Zeile nicht umbricht). */
+/**
+ * Konsolenbreite minus 1 (damit die Zeile nicht umbricht).
+ *
+ * @return int Die Anzahl der Zeichen je Zeile
+ */
 function term_width(): int
 {
     static $w = null;
@@ -162,7 +261,12 @@ function term_width(): int
     return $w;
 }
 
-/** Zeile ausgeben; steht gerade eine Fortschrittszeile da, wird sie vorher gelöscht. */
+/**
+ * Zeile ausgeben; steht gerade eine Fortschrittszeile da, wird sie vorher gelöscht.
+ *
+ * @param string $msg Die auszugebende Zeile (ohne Zeilenumbruch)
+ * @return void
+ */
 function println(string $msg = ''): void
 {
     if (!empty($GLOBALS['progressShown'])) {
@@ -172,6 +276,12 @@ function println(string $msg = ''): void
     echo $msg . "\n";
 }
 
+/**
+ * Fragt "… [j/N]" und liest die Antwort.
+ *
+ * @param string $question Die Frage (ohne "[j/N]")
+ * @return bool true bei "j", "ja", "y" oder "yes"
+ */
 function ask_yes(string $question): bool
 {
     echo $question . ' [j/N] ';
@@ -183,6 +293,11 @@ function ask_yes(string $question): bool
 /**
  * Anfrage an die API der Videothek auf dem Server (Basic Auth und X-API-Token wie `bin/remote.php`).
  * Ohne curl, nur mit PHP-Streams (das portable Paket hat nur openssl).
+ *
+ * @param string $method HTTP-Methode
+ * @param string $endpoint Datei unter api/, z. B. "movies.php"
+ * @param array $query Query-Parameter
+ * @param array|null $json Daten, die als JSON gesendet werden; null = ohne Body
  * @return array{status: int, body: string, type: string}
  * @throws RuntimeException wenn der Server nicht erreichbar ist oder die Anmeldung scheitert
  */
@@ -221,7 +336,16 @@ function api(string $method, string $endpoint, array $query = [], ?array $json =
     return ['status' => $status, 'body' => $body, 'type' => $type];
 }
 
-/** JSON-Antwort der API; Fehler (4xx/5xx) als Exception mit der Meldung des Servers. @throws RuntimeException */
+/**
+ * JSON-Antwort der API; Fehler (4xx/5xx) als Exception mit der Meldung des Servers.
+ *
+ * @param string $method HTTP-Methode
+ * @param string $endpoint Datei unter api/, z. B. "movies.php"
+ * @param array $query Query-Parameter
+ * @param array|null $json Daten, die als JSON gesendet werden; null = ohne Body
+ * @return array Die dekodierte JSON-Antwort
+ * @throws RuntimeException
+ */
 function api_json(string $method, string $endpoint, array $query = [], ?array $json = null): array
 {
     $res = api($method, $endpoint, $query, $json);
@@ -234,7 +358,12 @@ function api_json(string $method, string $endpoint, array $query = [], ?array $j
     return $data;
 }
 
-/** Poster des Eintrags vom Server als Datei im Temp-Ordner (für das Cover) oder null. */
+/**
+ * Poster des Eintrags vom Server als Datei im Temp-Ordner (für das Cover) oder null.
+ *
+ * @param array $movie Der Eintrag vom Server
+ * @return string|null Pfad der Bilddatei; null, wenn es kein Poster gibt oder der Abruf scheitert
+ */
 function poster_file(array $movie): ?string
 {
     if (empty($movie['poster'])) {
@@ -257,7 +386,9 @@ function poster_file(array $movie): ?string
 
 // ---------------------------------------------------------------- Log
 
-/** @return array[] alle Zeilen des Logs */
+/**
+ * @return array[] alle Zeilen des Logs
+ */
 function read_log(): array
 {
     global $LOG;
@@ -271,6 +402,12 @@ function read_log(): array
     return $entries;
 }
 
+/**
+ * Hängt eine Zeile (mit Zeitstempel "time") an das Log an.
+ *
+ * @param array $e Die Daten des Ereignisses
+ * @return void
+ */
 function log_entry(array $e): void
 {
     global $LOG;
@@ -278,7 +415,13 @@ function log_entry(array $e): void
         FILE_APPEND | LOCK_EX);
 }
 
-/** Pfad (relativ zum USB-Ordner, mit "/") unter einem Ordner. */
+/**
+ * Pfad (relativ zum USB-Ordner, mit "/") unter einem Ordner.
+ *
+ * @param string $path Pfad relativ zum Ordner, mit "/"
+ * @param string $root Ordner, unter dem die Datei liegt
+ * @return string Der Windows-Pfad (mit "\")
+ */
 function on_disk(string $path, string $root): string
 {
     return $root . '\\' . str_replace('/', '\\', $path);
@@ -287,6 +430,11 @@ function on_disk(string $path, string $root): string
 // ---------------------------------------------------------------- Einträge vom Server
 
 try {
+    /**
+     * Alle Einträge vom Server, nach Slug.
+     *
+     * @var array<string, array> $MOVIES
+     */
     $MOVIES = array_column(api_json('GET', 'movies.php')['movies'] ?? [], null, 'slug');
     // Token und Endpunkt gleich prüfen, nicht erst nach dem ersten umgewandelten Film: ein leerer PUT ergibt mit
     // gültigem Token 400 (Angaben fehlen), mit falschem 401 (api() meldet es); fehlt media.php, 404 ohne JSON
@@ -298,6 +446,11 @@ try {
     fwrite(STDERR, $e->getMessage() . "\n");
     exit(1);
 }
+/**
+ * Eigentümer, die bei mindestens einem Medium vorkommen (Kennung => true).
+ *
+ * @var array<string, true> $owners
+ */
 // Eigentümer: Pflicht und muss als Eigentümer eines Mediums vorkommen (Tippfehler sonst = "nichts zu tun")
 $owners = [];
 foreach ($MOVIES as $movie) {
@@ -313,6 +466,12 @@ if ($opt['owner'] === '' || !isset($owners[$opt['owner']])) {
 
 // ---------------------------------------------------------------- ffprobe-Auswertung
 
+/**
+ * Liest die Streams und das Format einer Datei mit ffprobe.
+ *
+ * @param string $file Pfad der Datei
+ * @return array|null Die ffprobe-Ausgabe; null, wenn die Datei nicht lesbar ist
+ */
 function probe(string $file): ?array
 {
     $proc = proc_open(['ffprobe', '-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', $file],
@@ -326,6 +485,12 @@ function probe(string $file): ?array
     return is_array($data) && isset($data['streams']) ? $data : null;
 }
 
+/**
+ * Dauer einer Datei laut ffprobe.
+ *
+ * @param array $p Ausgabe von `probe()`
+ * @return float Die Dauer in Sekunden; 0, wenn unbekannt
+ */
 function duration(array $p): float
 {
     $d = (float) ($p['format']['duration'] ?? 0);
@@ -337,7 +502,12 @@ function duration(array $p): float
     return $d;
 }
 
-/** Erste echte Videospur (keine eingebetteten Cover). */
+/**
+ * Erste echte Videospur (keine eingebetteten Cover).
+ *
+ * @param array $p Ausgabe von `probe()`
+ * @return array|null Die Videospur; null, wenn es keine gibt
+ */
 function video_stream(array $p): ?array
 {
     foreach ($p['streams'] as $s) {
@@ -348,12 +518,23 @@ function video_stream(array $p): ?array
     return null;
 }
 
+/**
+ * Alle Tonspuren einer Datei.
+ *
+ * @param array $p Ausgabe von `probe()`
+ * @return array Die Tonspuren
+ */
 function audio_streams(array $p): array
 {
     return array_values(array_filter($p['streams'], fn($s) => $s['codec_type'] === 'audio'));
 }
 
-/** Sprache der Spur; fehlt die Angabe, notfalls aus dem Titel (z. B. "AC3_192_DE", "German DTS"). */
+/**
+ * Sprache der Spur; fehlt die Angabe, notfalls aus dem Titel (z. B. "AC3_192_DE", "German DTS").
+ *
+ * @param array $s Eine Spur aus `probe()`
+ * @return string Der Sprachcode (z. B. "ger", "eng"); "und", wenn unbekannt
+ */
 function lang(array $s): string
 {
     $l = strtolower($s['tags']['language'] ?? 'und');
@@ -370,7 +551,13 @@ function lang(array $s): string
     return 'und';
 }
 
-/** Erste Spur der Liste in einer der Sprachen, Kommentarspuren nur notfalls. */
+/**
+ * Erste Spur der Liste in einer der Sprachen, Kommentarspuren nur notfalls.
+ *
+ * @param array $streams Spuren aus probe()
+ * @param array $langs Gesuchte Sprachcodes
+ * @return int|null Der Index der Spur in $streams; null, wenn keine passt
+ */
 function first_in_lang(array $streams, array $langs): ?int
 {
     $found = null;
@@ -389,6 +576,8 @@ function first_in_lang(array $streams, array $langs): ?int
  * Die eine Tonspur, die ins Ziel kommt (Index innerhalb 0:a), und ob Untertitel dazu gehören: die deutsche; ohne
  * Sprachangaben die Standard- bzw. erste Spur; gibt es nur andere Sprachen, die englische (sonst die erste) – dann
  * mit Untertiteln. Null, wenn es keine Tonspur gibt.
+ *
+ * @param array $p Ausgabe von `probe()`
  * @return array{0: int, 1: bool}|null
  */
 function pick_audio(array $p): ?array
@@ -411,27 +600,56 @@ function pick_audio(array $p): ?array
     return [first_in_lang($audios, LANG_EN) ?? 0, true];
 }
 
+/**
+ * Kann das Bild ohne Neukodieren übernommen werden (H.264, 4:2:0)?
+ *
+ * @param array|null $v Die Videospur; null = keine
+ * @return bool true, wenn es übernommen werden kann
+ */
 function video_ok(?array $v): bool
 {
     return $v !== null && $v['codec_name'] === 'h264' && in_array($v['pix_fmt'] ?? '', ['yuv420p', 'yuvj420p'], true);
 }
 
+/**
+ * Kann der Ton ohne Umwandlung übernommen werden (AAC oder MP3)?
+ *
+ * @param array $a Die Tonspur
+ * @return bool true, wenn er übernommen werden kann
+ */
 function audio_ok(array $a): bool
 {
     return in_array($a['codec_name'], ['aac', 'mp3'], true);
 }
 
+/**
+ * Bitrate für Ton, der nach AAC umgewandelt wird.
+ *
+ * @param int $channels Anzahl der Kanäle
+ * @return string Die Bitrate für ffmpeg, z. B. "192k"
+ */
 function audio_bitrate(int $channels): string
 {
     return max(192, 64 * min($channels, 6)) . 'k';
 }
 
+/**
+ * Hat die Videospur Zeilensprung?
+ *
+ * @param array|null $v Die Videospur; null = keine
+ * @return bool true bei Zeilensprung
+ */
 function interlaced(?array $v): bool
 {
     return $v !== null && in_array($v['field_order'] ?? '', ['tt', 'bb', 'tb', 'bt'], true);
 }
 
-/** Bild einer Datei (normalize_video()), ohne Cover: Video-Bitrate aus dem Stream, sonst aus der Gesamtbitrate geschätzt. */
+/**
+ * Bild einer Datei (normalize_video()), ohne Cover: Video-Bitrate aus dem Stream, sonst aus der Gesamtbitrate geschätzt.
+ *
+ * @param array $probe Ausgabe von `probe()`
+ * @return array|null Die Angaben wie normalize_video(); null, wenn es kein Bild gibt
+ */
 function video_facts(array $probe): ?array
 {
     $video = video_stream($probe);
@@ -454,7 +672,12 @@ function video_facts(array $probe): ?array
     ]);
 }
 
-/** Ton einer Datei (normalize_audio()): die erste Tonspur. */
+/**
+ * Ton einer Datei (normalize_audio()): die erste Tonspur.
+ *
+ * @param array $probe Ausgabe von `probe()?
+ * @return array|null Die Angaben wie normalize_audio(); null, wenn es keinen Ton gibt
+ */
 function audio_facts(array $probe): ?array
 {
     $a = audio_streams($probe)[0] ?? null;
@@ -474,6 +697,8 @@ function audio_facts(array $probe): ?array
 
 /**
  * Videos unter --src, gruppiert (Teile eines Mehrteilers zusammen), natürlich sortiert.
+ *
+ * @param string $src Quellordner (--src)
  * @return array<string, array{key: string, files: string[], rel: string[], hay: string, episode: ?int, season: ?int}>
  *   key: relativer Pfad ohne Teilnummer und Endung (mit "/"); hay: key als Slug (für die Namenssuche)
  */
@@ -502,6 +727,14 @@ function source_groups(string $src): array
     return $result;
 }
 
+/**
+ * Baut die Gruppe einer Quelle.
+ *
+ * @param string $key Pfad ohne Teilnummer und Endung (mit "/")
+ * @param array $rels Dateien der Gruppe, relativ zu $src (mit "/")
+ * @param string $src Quellordner (--src)
+ * @return array Die Gruppe (key, rel, files, hay, episode, season)
+ */
 function source_group(string $key, array $rels, string $src): array
 {
     return [
@@ -514,7 +747,12 @@ function source_group(string $key, array $rels, string $src): array
     ];
 }
 
-/** Staffelnummer aus einem Pfad: "s02e05", "Staffel 2", "2. Staffel", "Season 2", "S02" (als Ordner). */
+/**
+ * Staffelnummer aus einem Pfad: "s02e05", "Staffel 2", "2. Staffel", "Season 2", "S02" (als Ordner).
+ *
+ * @param string $path Pfad der Quelle
+ * @return int|null Die Staffelnummer; null, wenn keine zu erkennen ist
+ */
 function path_season(string $path): ?int
 {
     if (preg_match('/(?:^|[^a-z0-9])s0*(\d{1,2})[\s._-]*e\d/i', basename($path), $m)) {
@@ -527,7 +765,12 @@ function path_season(string $path): ?int
     return null;
 }
 
-/** Namen, unter denen ein Eintrag im Dateinamen stehen kann: Titel, Originaltitel, jeweils auch ohne Untertitel. */
+/**
+ * Namen, unter denen ein Eintrag im Dateinamen stehen kann: Titel, Originaltitel, jeweils auch ohne Untertitel.
+ *
+ * @param array $movie Der Eintrag
+ * @return array Die Namen als Slug
+ */
 function name_variants(array $movie): array
 {
     $names = $movie['type'] === TYPE_SEASON ? [$movie['series']['name'] ?? '', $movie['originalTitle'] ?? '']
@@ -545,6 +788,10 @@ function name_variants(array $movie): array
  * Wie gut passt eine Quelle zu einem Eintrag: Länge des längsten Namens, der als ganze Wörter im Pfad steht, plus 5
  * bei passendem Jahr. 0, wenn kein Name passt, eine andere Jahreszahl im Pfad steht oder ein kurzer Name (unter 4
  * Zeichen, etwa "21") ohne Jahr passt.
+ *
+ * @param array $movie Der Eintrag
+ * @param array $group Eine Quelle aus source_groups()
+ * @return int Die Güte der Übereinstimmung; 0 = passt nicht
  */
 function match_score(array $movie, array $group): int
 {
@@ -574,6 +821,7 @@ function match_score(array $movie, array $group): int
 
 /**
  * Ordnet den offenen Einträgen Quellen zu.
+ *
  * @param array[] $entries [slug => [movie, medium-Index]]
  * @param array[] $groups source_groups()
  * @return array{0: array, 1: array, 2: array} [slug => [Gruppen, Art ("Pfad" | "erkannt")]], [slug => Grund],
@@ -677,6 +925,9 @@ function assign_sources(array $entries, array $groups): array
 
 /**
  * Metadaten einer MP4-Datei des Eintrags (ffmpeg-Schlüssel für MP4/iTunes). $episode: Folgennummer bei Staffeln.
+ *
+ * @param array $movie Der Eintrag
+ * @param int|null $episode Folgennummer bei Staffeln; null bei Filmen
  * @return array<string, string>
  */
 function file_metadata(array $movie, ?int $episode): array
@@ -711,7 +962,11 @@ function file_metadata(array $movie, ?int $episode): array
 
 // ---------------------------------------------------------------- ffmpeg-Argumente
 
-/** Video-Encoder für die erste Videospur (Spur 1 ist das Cover). */
+/**
+ * Video-Encoder für die erste Videospur (Spur 1 ist das Cover).
+ *
+ * @return array Die ffmpeg-Argumente
+ */
 function encoder_args(): array
 {
     global $opt;
@@ -723,7 +978,13 @@ function encoder_args(): array
         '-pix_fmt:v:0', 'yuv420p'];
 }
 
-/** Erste Videospur kopieren bzw. neu kodieren (mit yadif bei Zeilensprung). */
+/**
+ * Erste Videospur kopieren bzw. neu kodieren (mit yadif bei Zeilensprung).
+ *
+ * @param array $job Der Auftrag
+ * @param array|null $v Die Videospur der Quelle; null = keine
+ * @return array Die ffmpeg-Argumente
+ */
 function video_codec_args(array $job, ?array $v): array
 {
     if ($job['mode'] !== 'encode') {
@@ -732,7 +993,12 @@ function video_codec_args(array $job, ?array $v): array
     return array_merge(encoder_args(), interlaced($v) ? ['-filter:v:0', 'yadif=mode=send_frame:deint=interlaced'] : []);
 }
 
-/** Ton: übernehmen, wenn AAC/MP3, sonst AAC; Sprache und Standard-Spur setzen. */
+/**
+ * Ton: übernehmen, wenn AAC/MP3, sonst AAC; Sprache und Standard-Spur setzen.
+ *
+ * @param array $audios Die Tonspuren, die ins Ziel kommen
+ * @return array Die ffmpeg-Argumente
+ */
 function audio_args(array $audios): array
 {
     $args = [];
@@ -752,7 +1018,14 @@ function audio_args(array $audios): array
     return $args;
 }
 
-/** Cover als zweite Videospur (Eingabe Nummer $input), Metadaten des Eintrags statt derer der Quelle, MP4-Optionen. */
+/**
+ * Cover als zweite Videospur (Eingabe Nummer $input), Metadaten des Eintrags statt derer der Quelle, MP4-Optionen.
+ *
+ * @param array $job Der Auftrag
+ * @param int $input Nummer der Eingabe, die das Cover liefert
+ * @param string $out Zieldatei
+ * @return array Die ffmpeg-Argumente
+ */
 function finish_args(array $job, int $input, string $out): array
 {
     $args = [];
@@ -767,6 +1040,12 @@ function finish_args(array $job, int $input, string $out): array
         '-f', 'mp4', $out]);
 }
 
+/**
+ * Eingabe für das Cover.
+ *
+ * @param array $job Der Auftrag
+ * @return array Die ffmpeg-Argumente; leer ohne Poster
+ */
 function poster_input(array $job): array
 {
     return $job['poster'] !== null ? ['-i', $job['poster']] : [];
@@ -775,6 +1054,10 @@ function poster_input(array $job): array
 /**
  * Nur wenn der Film keine deutsche Tonspur hat: die deutschen Text-Untertitel (ersatzweise die englischen) als
  * zusätzliche WebVTT-Ausgaben; liefert [Argumente, [tmp => final]].
+ *
+ * @param array $probe Ausgabe von probe() der Quelle
+ * @param string $outBase Zielpfad ohne Endung
+ * @return array [ffmpeg-Argumente, [temporäre Datei => endgültige Datei]]
  */
 function subtitle_outputs(array $probe, string $outBase): array
 {
@@ -797,12 +1080,26 @@ function subtitle_outputs(array $probe, string $outBase): array
     return [$args, $files];
 }
 
+/**
+ * Bei AVI neue Zeitstempel erzeugen lassen.
+ *
+ * @param string $file Quelldatei
+ * @return array Die ffmpeg-Argumente
+ */
 function genpts(string $file): array
 {
     return strtolower(pathinfo($file, PATHINFO_EXTENSION)) === 'avi' ? ['-fflags', '+genpts'] : [];
 }
 
-/** Eine Datei: Video + gewählte Tonspur, Cover, Metadaten; Untertitel als eigene Ausgaben. */
+/**
+ * Eine Datei: Video + gewählte Tonspur, Cover, Metadaten; Untertitel als eigene Ausgaben.
+ *
+ * @param array $job Der Auftrag
+ * @param string $out Zieldatei (zunächst als .part)
+ * @param string $outBase Zielpfad ohne Endung
+ * @param bool $withSubs false lässt die Untertitel weg
+ * @return array [ffmpeg-Argumente, [temporäre Datei => endgültige Datei der Untertitel]]
+ */
 function build_single(array $job, string $out, string $outBase, bool $withSubs = true): array
 {
     $p = $job['probes'][0];
@@ -819,7 +1116,12 @@ function build_single(array $job, string $out, string $outBase, bool $withSubs =
     return [array_merge($args, $subArgs), $subFiles];
 }
 
-/** Prüft, ob die Teile für den concat-Demuxer gleich genug aufgebaut sind. */
+/**
+ * Prüft, ob die Teile für den concat-Demuxer gleich genug aufgebaut sind.
+ *
+ * @param array $probes Ausgaben von probe() der Teile
+ * @return bool true, wenn alle Teile gleich aufgebaut sind
+ */
 function parts_match(array $probes): bool
 {
     $shape = function (array $p) {
@@ -834,6 +1136,14 @@ function parts_match(array $probes): bool
     return array_all($probes, fn($p) => $shape($p) === $first);
 }
 
+/**
+ * Mehrteiler ohne Neukodieren zusammenfügen (concat-Demuxer).
+ *
+ * @param array $job Der Auftrag
+ * @param string $out Zieldatei (zunächst als .part)
+ * @param string $listFile Pfad der Listendatei für ffmpeg (wird geschrieben)
+ * @return array Die ffmpeg-Argumente
+ */
 function build_concat_demuxer(array $job, string $out, string $listFile): array
 {
     $p = $job['probes'][0];
@@ -851,7 +1161,13 @@ function build_concat_demuxer(array $job, string $out, string $listFile): array
         finish_args($job, 1, $out));
 }
 
-/** Fallback für unterschiedliche Teile: concat-Filter, alles neu kodiert, gewählte Tonspur je Teil. */
+/**
+ * Fallback für unterschiedliche Teile: concat-Filter, alles neu kodiert, gewählte Tonspur je Teil.
+ *
+ * @param array $job Der Auftrag
+ * @param string $out Zieldatei (zunächst als .part)
+ * @return array Die ffmpeg-Argumente
+ */
 function build_concat_filter(array $job, string $out): array
 {
     $v0 = video_stream($job['probes'][0]);
@@ -887,13 +1203,31 @@ function build_concat_filter(array $job, string $out): array
         finish_args($job, count($job['files']), $out));
 }
 
+/**
+ * Ergebniscode von verify(): in Ordnung.
+ *
+ * @var string
+ */
 const VERIFY_OK = 'ok';
+/**
+ * Ergebniscode von verify(): die Datei ist nicht lesbar.
+ *
+ * @var string
+ */
 const VERIFY_UNREADABLE = 'unreadable';
+/**
+ * Ergebniscode von verify(): die Dauer weicht von der Quelle ab.
+ *
+ * @var string
+ */
 const VERIFY_DURATION = 'duration';
 
 /**
  * Ergebnis prüfen: lesbar, und passt die Dauer zur Quelle?
- * @returns array{string, string} [Code (VERIFY_*), Meldung]
+ *
+ * @param string $file Pfad der Ergebnisdatei
+ * @param float $dur Dauer der Quelle in Sekunden
+ * @return array{string, string} [Code (VERIFY_*), Meldung]
  */
 function verify(string $file, float $dur): array
 {
@@ -910,10 +1244,21 @@ function verify(string $file, float $dur): array
 
 // ---------------------------------------------------------------- Fortschritt und Hochrechnung
 
-// Erfahrungswerte, bis eigene Messwerte vorliegen: Neu verpacken 80 MB/s, Ton umwandeln 60 MB/s, Neukodieren ≈ 1080p
-// in 1,5-facher Echtzeit
+/**
+ * Erfahrungswerte, bis eigene Messwerte vorliegen: Neu verpacken 80 MB/s, Ton umwandeln 60 MB/s, Neukodieren ≈ 1080p
+ * in 1,5-facher Echtzeit.
+ *
+ * @var array<string, float|int> Modus (copy, remux, encode) => Aufwand je Sekunde
+ */
 const DEFAULT_RATE = ['copy' => 80 * 1048576, 'remux' => 60 * 1048576, 'encode' => 1920 * 1080 * 1.5];
 
+/**
+ * Geschätzte Verarbeitungsgeschwindigkeit eines Modus (Aufwand je Sekunde), aus den bisherigen Messwerten.
+ *
+ * @param string $mode copy, remux oder encode
+ * @param array $live [Aufwand, Sekunden] der laufenden Datei
+ * @return float Der Aufwand je Sekunde
+ */
 function rate(string $mode, array $live = [0, 0]): float
 {
     global $stats;
@@ -923,7 +1268,14 @@ function rate(string $mode, array $live = [0, 0]): float
     return $w > 30 ? $c / $w : DEFAULT_RATE[$mode];
 }
 
-/** Fortschrittszeile über alle Dateien (nach geschätzter Zeit gewichtet) mit Rest und Uhrzeit, wann es fertig ist. */
+/**
+ * Fortschrittszeile über alle Dateien (nach geschätzter Zeit gewichtet) mit Rest und Uhrzeit, wann es fertig ist.
+ *
+ * @param int $idx Index des laufenden Auftrags in $jobs
+ * @param float $frac Anteil der laufenden Datei (0 bis 1)
+ * @param string $extra Zusatz am Zeilenende, z. B. die ffmpeg-Geschwindigkeit
+ * @return void
+ */
 function show_progress(int $idx, float $frac, string $extra = ''): void
 {
     global $jobs, $current;
@@ -967,6 +1319,11 @@ function show_progress(int $idx, float $frac, string $extra = ''): void
 /**
  * Startet ffmpeg, wertet -progress aus und ruft show_progress() auf. Fehlerausgabe landet in einer Temp-Datei
  * (stream_select() funktioniert unter Windows nicht mit Pipes, darum nicht beide Pipes gleichzeitig lesen).
+ *
+ * @param array $args ffmpeg-Argumente
+ * @param int $idx Index des Auftrags in $jobs
+ * @param float $dur Dauer der Quelle in Sekunden
+ * @return array [true bei Erfolg, Fehlerausgabe von ffmpeg]
  */
 function run_ffmpeg(array $args, int $idx, float $dur): array
 {
@@ -992,7 +1349,14 @@ function run_ffmpeg(array $args, int $idx, float $dur): array
     return [$rc === 0, $err];
 }
 
-/** Eine Datei umwandeln (Ergebnis zuerst als .part). @return array{0: ?string, 1: ?string, 2: string} [Fehler, Warnung, Weg] */
+/**
+ * Eine Datei umwandeln (Ergebnis zuerst als .part).
+ *
+ * @param array $job Der Auftrag
+ * @param int $idx Index des Auftrags in $jobs
+ * @param string $out Zieldatei
+ * @return array{0: ?string, 1: ?string, 2: string} [Fehler, Warnung, Weg]
+ */
 function convert_job(array $job, int $idx, string $out): array
 {
     $outBase = substr($out, 0, -4);
@@ -1059,8 +1423,21 @@ function convert_job(array $job, int $idx, string $out): array
 
 // ---------------------------------------------------------------- Einträge und Quellen
 
+/**
+ * Alle Zeilen des Logs.
+ */
 $logEntries = read_log();
+/**
+ * Zielpfad => Log-Zeile der fertigen Datei.
+ *
+ * @var array<string, array> $doneFiles
+ */
 $doneFiles = [];   // Zielpfad => Log-Zeile der fertigen Datei
+/**
+ * Je Modus (copy, remux, encode): [Aufwand, Sekunden] bisheriger Läufe.
+ *
+ * @var array<string, array{0: float|int, 1: float|int}> $stats
+ */
 $stats = ['copy' => [0, 0], 'remux' => [0, 0], 'encode' => [0, 0]];   // [Aufwand, Sekunden]
 foreach ($logEntries as $e) {
     if (($e['status'] ?? '') === 'done') {
@@ -1072,6 +1449,11 @@ foreach ($logEntries as $e) {
     }
 }
 
+/**
+ * Offene Einträge: Slug => [Eintrag, Index des USB-Mediums].
+ *
+ * @var array<string, array> $entries
+ */
 // Offen: Medium USB des Eigentümers ohne Angaben zum Bild
 $entries = [];
 foreach ($MOVIES as $slug => $movie) {
@@ -1090,6 +1472,11 @@ foreach ($MOVIES as $slug => $movie) {
 }
 ksort($entries, SORT_NATURAL);
 echo "Einträge auf $REMOTE: " . count($MOVIES) . ", davon offen mit Medium USB von {$opt['owner']}: " . count($entries) . ". Durchsuche $SRC …\n";
+/**
+ * Alle Videos unter --src, gruppiert (siehe source_groups()).
+ *
+ * @var array<string, array> $groups
+ */
 $groups = source_groups($SRC);
 [$assigned, $open, $free] = assign_sources($entries, $groups);
 // Quellen, die frühere Läufe schon verarbeitet haben, sind keine "Videos ohne Eintrag"
@@ -1111,15 +1498,35 @@ $free = array_filter($free, fn($g) => !array_filter($g['rel'], fn($r) => isset($
 
 // ---------------------------------------------------------------- Planen
 
-/** Signatur der Quelle (Pfad relativ zu --src, Größe, Änderungszeit): erkennt eine schon umgewandelte Datei wieder. */
+/**
+ * Signatur der Quelle (Pfad relativ zu --src, Größe, Änderungszeit): erkennt eine schon umgewandelte Datei wieder.
+ *
+ * @param array $group Eine Quelle aus source_groups()
+ * @return string Die Signatur
+ */
 function sig(array $group): string
 {
     return implode('|', array_map(fn($r, $f) => "$r:" . filesize($f) . ':' . filemtime($f), $group['rel'], $group['files']));
 }
 
 echo "Analysiere " . array_sum(array_map(fn($a) => count($a[0]), $assigned)) . " Videos …\n";
+/**
+ * Slug => [Eintrag, Medium-Index, [Index der Aufträge in $jobs], Art der Zuordnung].
+ *
+ * @var array<string, array> $films
+ */
 $films = [];   // slug => [movie, medium-Index, [Job-Indizes], Art]
+/**
+ * Alle Umwandlungsaufträge (eine Datei bzw. ein Mehrteiler je Auftrag).
+ *
+ * @var array[] $jobs
+ */
 $jobs = [];
+/**
+ * Meldungen zu Quellen, die sich nicht lesen ließen.
+ *
+ * @var string[] $problems
+ */
 $problems = [];
 foreach ($assigned as $slug => [$own, $how]) {
     [$movie, $i] = $entries[$slug];
@@ -1163,7 +1570,12 @@ foreach ($assigned as $slug => [$own, $how]) {
 }
 ksort($films, SORT_NATURAL);
 
-/** Ist die Datei laut Log schon aus genau dieser Quelle entstanden (und noch da)? */
+/**
+ * Ist die Datei laut Log schon aus genau dieser Quelle entstanden (und noch da)?
+ *
+ * @param array $job Der Auftrag
+ * @return bool true, wenn die Zieldatei schon fertig ist
+ */
 function is_done(array $job): bool
 {
     global $doneFiles, $TO;
@@ -1232,6 +1644,11 @@ foreach ($films as $slug => [$movie, , $mine]) {
         if (!is_dir(dirname($out))) {
             mkdir(dirname($out), 0777, true);
         }
+        /**
+         * Laufender Auftrag; "start" = Startzeit (microtime).
+         *
+         * @var array{start: float } $current
+         */
         $current = ['start' => microtime(true)];
         show_progress($j, 0);
         [$error, $warning, $how] = convert_job($job, $j, $out);

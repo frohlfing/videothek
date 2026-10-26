@@ -14,19 +14,32 @@ require_once __DIR__ . '/fetch.php';
  * google.com selbst liefert Programmen ohne JavaScript keine Treffer, nur eine "Bitte JavaScript aktivieren"-Seite.
  */
 
-// Wörter, die in Angebotstiteln vorkommen, aber nie zum Filmtitel gehören. Eine Wortfolge mit einem davon
-// zählt nicht. Bewusst knapp: Wörter, die auch in echten Titeln stehen ("und" in "Krieg und Frieden", "New" in
-// "New York", "Movie" in "Scary Movie", "Edition"), fehlen; solche Reste kürzt ean_tmdb_search() notfalls weg.
+/**
+ * Wörter, die in Angebotstiteln vorkommen, aber nie zum Filmtitel gehören. Eine Wortfolge mit einem davon
+ * zählt nicht. Bewusst knapp: Wörter, die auch in echten Titeln stehen ("und" in "Krieg und Frieden", "New" in
+ * "New York", "Movie" in "Scary Movie", "Edition"), fehlen; solche Reste kürzt ean_tmdb_search() notfalls weg.
+ *
+ * @var string[]
+ */
 const EAN_STOPWORDS = [
     'dvd', 'dvds', 'blu', 'ray', 'bluray', 'uhd', '4k', 'disc', 'discs', 'fsk', 'region', 'rgn', 'pal', 'bbfc',
     'import', 'kaufen', 'gebraucht', 'ovp', 'portofrei', 'versandkostenfrei', 'ebay', 'amazon', 'isbn', 'ean',
     'gtin', 'barcode',
 ];
 
-// Gefundene Ergebnistitel je EAN, damit ein erneuter Scan derselben DVD die Suchmaschine nicht erneut abfragt.
+/**
+ * Gefundene Ergebnistitel je EAN, damit ein erneuter Scan derselben DVD die Suchmaschine nicht erneut abfragt.
+ *
+ * @var string
+ */
 const EAN_CACHE_DIR = DATA_DIR . '/cache/ean';
 
-/** EAN-8, UPC-A (12 Stellen) oder EAN-13 mit gültiger Prüfziffer? */
+/**
+ * EAN-8, UPC-A (12 Stellen) oder EAN-13 mit gültiger Prüfziffer?
+ *
+ * @param string $code Der zu prüfende Barcode (nur Ziffern)
+ * @return bool true, wenn Länge und Prüfziffer stimmen
+ */
 function is_valid_ean(string $code): bool
 {
     if (!preg_match('/^(\d{8}|\d{12}|\d{13})$/', $code)) {
@@ -41,13 +54,21 @@ function is_valid_ean(string $code): bool
     return (10 - $sum % 10) % 10 === (int) substr($code, -1);
 }
 
-/** 'duckduckgo' (Voreinstellung, auch wenn config.php die Konstante nicht kennt), 'serpapi' oder 'brave'. */
+/**
+ * 'duckduckgo' (Voreinstellung, auch wenn config.php die Konstante nicht kennt), 'serpapi' oder 'brave'.
+ *
+ * @return string "duckduckgo", "serpapi" oder "brave"
+ */
 function ean_search_provider(): string
 {
     return defined('EAN_SEARCH_PROVIDER') && EAN_SEARCH_PROVIDER !== '' ? EAN_SEARCH_PROVIDER : 'duckduckgo';
 }
 
-/** Ist die Websuche für Barcodes eingerichtet? Sonst meldet search.php das statt eines Fehlers der Such-API. */
+/**
+ * Ist die Websuche für Barcodes eingerichtet? Sonst meldet search.php das statt eines Fehlers der Such-API.
+ *
+ * @return bool true, wenn die Websuche nutzbar ist (DuckDuckGo oder Such-API mit Schlüssel)
+ */
 function ean_search_configured(): bool
 {
     $provider = ean_search_provider();
@@ -58,6 +79,7 @@ function ean_search_configured(): bool
 /**
  * Titel der Websuche-Ergebnisse zur EAN (aus dem Cache oder von der Such-API).
  *
+ * @param string $ean Der Barcode
  * @return string[]
  * @throws RuntimeException wenn die Such-API nicht erreichbar ist oder den Schlüssel ablehnt
  */
@@ -91,7 +113,9 @@ function ean_web_titles(string $ean): array
  * Die Titel stehen dort in <a class="result__a">, Suchbegriffe darin ggf. in <b>.
  * Bei zu vielen Abfragen antwortet DuckDuckGo mit einer Prüfseite ("anomaly") statt Treffern.
  *
+ * @param string $ean Der Barcode
  * @return string[]
+ * @throws RuntimeException wenn die Suche fehlschlägt oder DuckDuckGo die Abfrage blockiert
  */
 function ean_titles_duckduckgo(string $ean): array
 {
@@ -116,7 +140,9 @@ function ean_titles_duckduckgo(string $ean): array
 /**
  * Google-Ergebnisse über SerpApi (https://serpapi.com).
  *
+ * @param string $ean Der Barcode
  * @return string[]
+ * @throws RuntimeException wenn die Such-API nicht erreichbar ist oder den Schlüssel ablehnt
  */
 function ean_titles_serpapi(string $ean): array
 {
@@ -130,7 +156,9 @@ function ean_titles_serpapi(string $ean): array
 /**
  * Ergebnisse der Brave Search API (https://brave.com/search/api/).
  *
+ * @param string $ean Der Barcode
  * @return string[]
+ * @throws RuntimeException wenn die Such-API nicht erreichbar ist oder den Schlüssel ablehnt
  */
 function ean_titles_brave(string $ean): array
 {
@@ -145,7 +173,15 @@ function ean_titles_brave(string $ean): array
     )));
 }
 
-/** @throws RuntimeException mit einer Meldung, die search.php direkt anzeigen kann */
+/**
+ * JSON-GET-Aufruf einer Such-API mit verständlichen Fehlermeldungen.
+ *
+ * @param string $url Abzufragende URL
+ * @param string $name Anzeigename der API (für Fehlermeldungen)
+ * @param array $headers Zusätzliche Request-Header ("Name: Wert")
+ * @return array Die dekodierte JSON-Antwort
+ * @throws RuntimeException mit einer Meldung, die search.php direkt anzeigen kann
+ */
 function ean_api_get(string $url, string $name, array $headers = []): array
 {
     try {
@@ -174,6 +210,7 @@ function ean_api_get(string $url, string $name, array $headers = []): array
  * eines einzelnen eBay-Angebots), bei Gleichstand die zuerst gefundene.
  *
  * @param string[] $titles
+ * @return string|null Der Titel; null, wenn sich nichts wiederholt
  */
 function ean_title_from_results(array $titles): ?string
 {
@@ -226,6 +263,7 @@ function ean_title_from_results(array $titles): ?string
  * auf ein einzelnes kurzes Wort ("The"), das fände irgendetwas. War der Titel von vornherein ein Wort ("Dark"),
  * wird er natürlich gesucht.
  *
+ * @param array $titles Titel der Websuche-Ergebnisse
  * @param callable(string): array $search z. B. fn($q) => tmdb_search($q)
  * @return array{query: ?string, results: array} query = Suchbegriff, mit dem TMDB fündig wurde (bzw. der
  *         ungekürzte, wenn nie), null, wenn sich aus den Titeln nichts ableiten ließ

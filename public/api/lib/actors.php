@@ -12,6 +12,8 @@ require_once __DIR__ . '/tmdb.php';
  * als "failed" und wird beim nächsten Aufruf nicht erneut versucht. Bei einer Staffel wird ein Foto, das eine andere
  * Staffel derselben Serie schon hat, nur kopiert (nach dem Import einer Serie also nur einmal heruntergeladen).
  *
+ * @param string $slug Ordnername des Films unter MOVIES_DIR
+ * @param float $timeBudget Maximale Laufzeit in Sekunden
  * @return array{movie: array, loaded: int, failed: int, remaining: int}
  * @throws NotFoundException
  */
@@ -74,7 +76,15 @@ function download_actor_photos(string $slug, float $timeBudget = 10.0): array
     ];
 }
 
-/** Kopiert actors/$fileName aus dem ersten der Einträge $slugs, der es hat, nach $dir. */
+/**
+ * Kopiert actors/$fileName aus dem ersten der Einträge $slugs, der es hat, nach $dir.
+ *
+ * @param array $slugs Slugs der Einträge, in deren actors/-Ordner gesucht wird
+ * @param string $fileName Dateiname des Fotos
+ * @param string $dir Zielordner (actors/ des aktuellen Films)
+ * @return bool true, wenn ein Foto kopiert wurde
+ * @throws RuntimeException wenn der Zielordner nicht angelegt werden kann
+ */
 function copy_actor_photo_from(array $slugs, string $fileName, string $dir): bool
 {
     foreach ($slugs as $other) {
@@ -89,7 +99,12 @@ function copy_actor_photo_from(array $slugs, string $fileName, string $dir): boo
     return false;
 }
 
-/** Hat der Darsteller ein TMDB-Porträt, das noch nicht heruntergeladen wurde? */
+/**
+ * Hat der Darsteller ein TMDB-Porträt, das noch nicht heruntergeladen wurde?
+ *
+ * @param array $c Eintrag aus cast[]
+ * @return bool
+ */
 function actor_photo_missing(array $c): bool
 {
     return !empty($c['profile']) && empty($c['thumb']);

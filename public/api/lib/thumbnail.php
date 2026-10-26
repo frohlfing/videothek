@@ -1,7 +1,13 @@
 <?php
 
-/** Lädt eine Bilddatei als GD-Image passend zur Endung $ext (jpg/jpeg/png/webp). False bei nicht unterstütztem Format. */
-function gd_load(string $path, string $ext)
+/**
+ * Lädt eine Bilddatei als GD-Image passend zur Endung $ext (jpg/jpeg/png/webp). False bei nicht unterstütztem Format.
+ *
+ * @param string $path Pfad der Bilddatei
+ * @param string $ext Dateiendung in Kleinbuchstaben
+ * @return GdImage|false Das GD-Image; false bei nicht unterstütztem Format oder nicht lesbarer Datei
+ */
+function gd_load(string $path, string $ext): GdImage|false
 {
     return match ($ext) {
         'jpg', 'jpeg' => @imagecreatefromjpeg($path),
@@ -11,8 +17,15 @@ function gd_load(string $path, string $ext)
     };
 }
 
-/** Schreibt ein GD-Image passend zur Endung $ext (jpg/jpeg/png/webp) nach $path. */
-function gd_save($image, string $path, string $ext): bool
+/**
+ * Schreibt ein GD-Image passend zur Endung $ext (jpg/jpeg/png/webp) nach $path.
+ *
+ * @param GdImage $image Das zu speichernde Bild
+ * @param string $path Zielpfad
+ * @param string $ext Dateiendung in Kleinbuchstaben (bestimmt das Format)
+ * @return bool true bei Erfolg
+ */
+function gd_save(GdImage $image, string $path, string $ext): bool
 {
     return match ($ext) {
         'jpg', 'jpeg' => imagejpeg($image, $path, 85),
@@ -25,6 +38,13 @@ function gd_save($image, string $path, string $ext): bool
 /**
  * Erzeugt aus $srcPath ein auf $width x $height zentriert zugeschnittenes Thumbnail
  * unter $destPath. Behält die Bildendung (und damit das Format) von $srcPath bei.
+ *
+ * @param string $srcPath Pfad des Originalbilds
+ * @param string $destPath Zielpfad des Thumbnails
+ * @param string $ext Dateiendung in Kleinbuchstaben (jpg/jpeg/png/webp)
+ * @param int $width Zielbreite in Pixeln
+ * @param int $height Zielhöhe in Pixeln
+ * @return bool true bei Erfolg; false, wenn das Original nicht geladen oder das Thumbnail nicht gespeichert werden konnte
  */
 function generate_thumbnail(string $srcPath, string $destPath, string $ext, int $width, int $height): bool
 {
@@ -67,6 +87,10 @@ function generate_thumbnail(string $srcPath, string $destPath, string $ext, int 
  * Stellt sicher, dass für den Film in $movieDir ein Thumbnail existiert.
  * Fehlt es (z. B. nach manuellem Kopieren eines Posters), wird es aus dem Poster nachgeneriert
  * und movie.json aktualisiert. Gibt das (ggf. aktualisierte) Movie-Array zurück.
+ *
+ * @param string $movieDir Absoluter Pfad des Filmordners
+ * @param array $movie Inhalt von movie.json
+ * @return array Der (ggf. um thumb ergänzte) Eintrag
  */
 function ensure_thumbnail(string $movieDir, array $movie): array
 {

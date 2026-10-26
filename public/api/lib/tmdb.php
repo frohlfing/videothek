@@ -11,26 +11,49 @@ require_once __DIR__ . '/crud.php'; // TYPE_MOVIE / TYPE_SERIES
 require_once __DIR__ . '/fetch.php';
 require_once __DIR__ . '/youtube.php';
 
+/**
+ * Basis-URL der TMDB-API (Version 3).
+ *
+ * @var string
+ */
 const TMDB_API_URL = 'https://api.themoviedb.org/3/';
 
-// Kodi holt die Bild-Basis-URL über /configuration und cached sie 30 Tage; sie ist seit Jahren
-// unverändert, daher hier fest verdrahtet. Größen siehe https://developer.themoviedb.org/docs/image-basics
+/**
+ * Basis-URL für Bilder. Kodi holt sie über /configuration und cached sie 30 Tage; sie ist seit Jahren
+ * unverändert, daher hier fest verdrahtet. Größen siehe https://developer.themoviedb.org/docs/image-basics
+ *
+ * @var string
+ */
 const TMDB_IMAGE_URL = 'https://image.tmdb.org/t/p/';
 
-/** "de-DE" -> "de" (Sprache für Bilder/Videos, die TMDB nur ohne Region kennt). */
+/**
+ * "de-DE" -> "de" (Sprache für Bilder/Videos, die TMDB nur ohne Region kennt).
+ *
+ * @return string Der zweistellige Sprachcode, z. B. "de"
+ */
 function tmdb_language_code(): string
 {
     return strtolower(explode('-', TMDB_LANGUAGE)[0]);
 }
 
-/** "de-DE" -> "DE" (Land für die Altersfreigabe). */
+/**
+ * "de-DE" -> "DE" (Land für die Altersfreigabe).
+ *
+ * @return string Der Ländercode, z. B. "DE"
+ */
 function tmdb_country_code(): string
 {
     $parts = explode('-', TMDB_LANGUAGE);
     return strtoupper($parts[1] ?? $parts[0]);
 }
 
-/** Bild-URL in der gewünschten TMDB-Größe (z. B. "w185", "w780", "original"). */
+/**
+ * Bild-URL in der gewünschten TMDB-Größe (z. B. "w185", "w780", "original").
+ *
+ * @param string $path Bildpfad aus der TMDB-Antwort (mit führendem "/")
+ * @param string $size TMDB-Bildgröße
+ * @return string Die vollständige URL
+ */
 function tmdb_image_url(string $path, string $size): string
 {
     return TMDB_IMAGE_URL . $size . $path;
@@ -38,6 +61,10 @@ function tmdb_image_url(string $path, string $size): string
 
 /**
  * GET auf einen TMDB-Endpunkt, dekodiertes JSON.
+ *
+ * @param string $path Endpunkt relativ zu TMDB_API_URL
+ * @param array $params Zusätzliche Query-Parameter (der API-Key wird ergänzt)
+ * @return array Die dekodierte JSON-Antwort
  * @throws RuntimeException bei Netzwerk-/HTTP-Fehler oder ungültigem JSON
  */
 function tmdb_get(string $path, array $params = []): array
@@ -63,6 +90,8 @@ function tmdb_get(string $path, array $params = []): array
  * aufgelöst, sonst Titelsuche in beiden Katalogen (optional auf ein Jahr eingeschränkt, bei Serien das Jahr
  * der Erstausstrahlung).
  *
+ * @param string $query Titel oder IMDb-ID
+ * @param int|null $year Optionales Jahr zur Einschränkung der Titelsuche
  * @return array<array{type: string, tmdb: int, title: string, originalTitle: ?string, year: ?int, overview: ?string, poster: ?string}>
  */
 function tmdb_search(string $query, ?int $year = null): array
@@ -113,6 +142,8 @@ function tmdb_search(string $query, ?int $year = null): array
  * Lädt alle Details eines Films und bringt sie in unser movie.json-Format (ohne slug/created/Bilder).
  * Zusätzlich: poster_url/fanart_url zum Herunterladen.
  *
+ * @param int $tmdbId TMDB-ID des Films
+ * @return array Der Film im movie.json-Format, zusätzlich mit poster_url und fanart_url
  * @throws RuntimeException
  */
 function tmdb_movie(int $tmdbId): array
@@ -172,7 +203,9 @@ function tmdb_movie(int $tmdbId): array
 
 /**
  * Reihe eines Films aus den TMDB-Details (belongs_to_collection), sonst null. Den Zusatz "Filmreihe", den TMDB an
- * fast jeden Namen hängt ("Millennium Filmreihe"), lassen wir weg: Reihe "Millennium".
+ * fast jedem Namen hängt ("Millennium Filmreihe"), lassen wir weg: Reihe "Millennium".
+ *
+ * @param array $details TMDB-Details eines Films
  * @return ?array{name: string, tmdb: string}
  */
 function tmdb_collection(array $details): ?array
@@ -188,13 +221,23 @@ function tmdb_collection(array $details): ?array
 /**
  * Darsteller einer Serie, höchstens so viele (die Hauptbesetzung zuerst). Lange Serien haben über die Staffeln
  * hinweg Hunderte Gastdarsteller (Breaking Bad: 348), deren Fotos niemand braucht.
+ *
+ * @var int
  */
 const TMDB_SERIES_CAST_LIMIT = 50;
 
-/** TMDB erlaubt höchstens 20 Anhänge pro Abruf (append_to_response), die Staffeln werden daher gestückelt. */
+/**
+ * TMDB erlaubt höchstens 20 Anhänge pro Abruf (append_to_response), die Staffeln werden daher gestückelt.
+ *
+ * @var int
+ */
 const TMDB_APPEND_LIMIT = 20;
 
-/** Titel, den TMDB bei fehlender Übersetzung einer Folge einsetzt ("Folge 3", englisch "Episode 3"). */
+/**
+ * Titel, den TMDB bei fehlender Übersetzung einer Folge einsetzt ("Folge 3", englisch "Episode 3").
+ *
+ * @var string Regulärer Ausdruck
+ */
 const TMDB_PLACEHOLDER_EPISODE_TITLE = '/^(Folge|Episode|Épisode|Episodio|Aflevering) \d+$/u';
 
 /**
@@ -204,6 +247,7 @@ const TMDB_PLACEHOLDER_EPISODE_TITLE = '/^(Folge|Episode|Épisode|Episodio|Aflev
  * Genres, Freigabe, Idee, Darsteller und Trailer sind die der Serie. Je Staffel zusätzlich poster_url/fanart_url
  * zum Herunterladen.
  *
+ * @param int $tmdbId TMDB-ID der Serie
  * @param ?int[] $only nur diese Staffeln laden und liefern (null = alle); unbekannte Nummern fehlen im Ergebnis
  * @return array{series: array{name: string, tmdb: string}, seasons: array[]}
  * @throws RuntimeException
@@ -340,7 +384,9 @@ function tmdb_series(int $tmdbId, ?array $only = null): array
 
 /**
  * Alle regulären Staffeln einer Serie laut TMDB (ohne Specials) für data/series.json, aus der Antwort von
- * tv/{id}, die tmdb_series() ohnehin abruft (kein zusätzlicher Abruf). date leer bzw. in der Zukunft = angekündigt.
+ * tv/{id}, die tmdb_series() ohnehin abruft (kein zusätzlicher Abruf). `date` leer bzw. in der Zukunft = angekündigt.
+ *
+ * @param array $t Antwort von tv/{id}
  * @return array{name: string, seasons: array<array{season: int, title: ?string, year: ?int, date: ?string, episodes: ?int}>}
  */
 function tmdb_series_catalog(array $t): array
@@ -365,7 +411,9 @@ function tmdb_series_catalog(array $t): array
 
 /**
  * Alle Filme einer TMDB-Reihe (collection/{id}) für data/collections.json, nach Erscheinungsdatum (ohne Datum ans
- * Ende). date leer bzw. in der Zukunft = angekündigt.
+ * Ende). `date` leer bzw. in der Zukunft = angekündigt.
+ *
+ * @param int $collectionId TMDB-ID der Reihe
  * @return array{name: string, parts: array<array{tmdb: string, title: string, year: ?int, date: ?string}>}
  * @throws RuntimeException
  */
@@ -386,7 +434,10 @@ function tmdb_collection_catalog(int $collectionId): array
 /**
  * Staffeldetails (inkl. Folgen) einer Serie in $language, je Abruf bis zu TMDB_APPEND_LIMIT Staffeln als
  * "season/<n>" angehängt statt eines Abrufs pro Staffel.
+ *
+ * @param int $tmdbId TMDB-ID der Serie
  * @param int[] $numbers Staffelnummern
+ * @param string $language Sprachcode der Abfrage (z. B. "de-DE")
  * @return array<int, array> Staffelnummer => TMDB-Staffelobjekt (leer, falls TMDB es nicht liefert)
  */
 function tmdb_series_seasons(int $tmdbId, array $numbers, string $language): array
@@ -404,7 +455,12 @@ function tmdb_series_seasons(int $tmdbId, array $numbers, string $language): arr
     return $result;
 }
 
-/** Altersfreigabe einer Serie für das aus TMDB_LANGUAGE abgeleitete Land (DE -> FSK). */
+/**
+ * Altersfreigabe einer Serie für das aus TMDB_LANGUAGE abgeleitete Land (DE -> FSK).
+ *
+ * @param array $contentRatings content_ratings.results einer Serie
+ * @return string|null Die Freigabe (z. B. "FSK 16"); null, wenn es keine gibt
+ */
 function tmdb_tv_rating(array $contentRatings): ?string
 {
     foreach ($contentRatings as $r) {
@@ -415,12 +471,23 @@ function tmdb_tv_rating(array $contentRatings): ?string
     return null;
 }
 
+/**
+ * Jahr eines TMDB-Datums.
+ *
+ * @param string|null $date Datum im Format "YYYY-MM-DD"
+ * @return int|null Das Jahr; null, wenn das Datum fehlt oder ungültig ist
+ */
 function tmdb_year(?string $date): ?int
 {
     return ($date && preg_match('/^(\d{4})/', $date, $m)) ? (int) $m[1] : null;
 }
 
-/** Erste nicht-leere Altersfreigabe für das aus TMDB_LANGUAGE abgeleitete Land (DE -> FSK). */
+/**
+ * Erste nicht-leere Altersfreigabe für das aus TMDB_LANGUAGE abgeleitete Land (DE -> FSK).
+ *
+ * @param array $releaseDates release_dates.results eines Films
+ * @return string|null Die Freigabe (z. B. "16"); null, wenn es keine gibt
+ */
 function tmdb_certification(array $releaseDates): ?string
 {
     foreach ($releaseDates as $country) {
@@ -440,6 +507,8 @@ function tmdb_certification(array $releaseDates): ?string
 /**
  * YouTube-Trailer als URLs, beste zuerst: bevorzugt in TMDB_LANGUAGE, sonst englisch; "Trailer" vor
  * "Teaser"; innerhalb gleicher Priorität der offizielle bzw. zuerst gelistete.
+ *
+ * @param array $videos videos.results des Films bzw. der Serie
  * @return string[]
  */
 function tmdb_trailer_candidates(array $videos): array
@@ -461,13 +530,24 @@ function tmdb_trailer_candidates(array $videos): array
 /**
  * Bester Trailer, der laut YouTube auch tatsächlich abspielbar ist (TMDB listet oft längst gelöschte
  * Videos). Null, wenn keiner verfügbar ist.
+ *
+ * @param array $videos videos.results des Films bzw. der Serie
+ * @return string|null Die URL des Trailers; null, wenn keiner verfügbar ist
  */
 function tmdb_trailer(array $videos): ?string
 {
     return youtube_first_available(tmdb_trailer_candidates($videos));
 }
 
-/** Erstes Bild in der Reihenfolge der gewünschten Sprachen (null = ohne Text), sonst $fallbackPath. */
+/**
+ * Erstes Bild in der Reihenfolge der gewünschten Sprachen (null = ohne Text), sonst $fallbackPath.
+ *
+ * @param array $images Bildobjekte aus der TMDB-Antwort (mit iso_639_1 und file_path)
+ * @param array $languages Sprachcodes in Vorzugsreihenfolge (null = ohne Text)
+ * @param string|null $fallbackPath Bildpfad, falls kein passendes Bild gefunden wird
+ * @param string $size TMDB-Bildgröße
+ * @return string|null Die Bild-URL; null, wenn es weder ein passendes Bild noch einen Fallback gibt
+ */
 function tmdb_pick_image(array $images, array $languages, ?string $fallbackPath, string $size): ?string
 {
     foreach ($languages as $lang) {

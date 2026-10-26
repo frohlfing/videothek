@@ -11,22 +11,42 @@
 
 require_once __DIR__ . '/jsonfile.php';
 
-// -1 schlecht/nicht sehenswert, 0 neutral/Zeitvertreib, 1 gut/sehenswert, 2 sehr gut/muss man sehen
-// (wie RATING_STEPS in app.js).
+/**
+ * Erlaubte Bewertungswerte: -1 schlecht/nicht sehenswert, 0 neutral/Zeitvertreib, 1 gut/sehenswert,
+ * 2 sehr gut/muss man sehen (wie RATING_STEPS in app.js).
+ *
+ * @var int[]
+ */
 const RATING_VALUES = [-1, 0, 1, 2];
 
+/**
+ * Pfad der Bewertungsdatei.
+ *
+ * @return string Absoluter Pfad von data/ratings.json
+ */
 function ratings_file(): string
 {
     return DATA_DIR . '/ratings.json';
 }
 
-/** @return array<string, array<string, int>> */
+/**
+ * Alle Bewertungen.
+ *
+ * @return array<string, array<string, int>>
+ */
 function read_ratings(): array
 {
     return read_json_file(ratings_file());
 }
 
-/** Setzt die Bewertung von $user für $slug (aus RATING_VALUES; null = entfernen). Liefert die Bewertungen des Eintrags. */
+/**
+ * Setzt die Bewertung von $user für $slug (aus RATING_VALUES; null = entfernen). Liefert die Bewertungen des Eintrags.
+ *
+ * @param string $slug Ordnername des Eintrags unter MOVIES_DIR
+ * @param string $user Login des Benutzers
+ * @param int|null $value Wert aus RATING_VALUES; null entfernt die Bewertung
+ * @return array Die Bewertungen des Eintrags (Login => Wert)
+ */
 function set_rating(string $slug, string $user, ?int $value): array
 {
     $data = update_json_file(ratings_file(), function (array $data) use ($slug, $user, $value) {
@@ -40,7 +60,13 @@ function set_rating(string $slug, string $user, ?int $value): array
     return $data[$slug] ?? [];
 }
 
-/** Nach dem Speichern bzw. Löschen eines Eintrags: Bewertungen auf den neuen Slug umziehen ($newSlug null = gelöscht). */
+/**
+ * Nach dem Speichern bzw. Löschen eines Eintrags: Bewertungen auf den neuen Slug umziehen ($newSlug null = gelöscht).
+ *
+ * @param string $oldSlug Bisheriger Slug
+ * @param string|null $newSlug Neuer Slug; null, wenn der Eintrag gelöscht wurde
+ * @return void
+ */
 function move_ratings(string $oldSlug, ?string $newSlug): void
 {
     if ($oldSlug === $newSlug || !is_file(ratings_file())) {
@@ -56,7 +82,12 @@ function move_ratings(string $oldSlug, ?string $newSlug): void
     });
 }
 
-/** Entfernt alle Bewertungen eines Benutzers (beim Entfernen seines Zugangs). */
+/**
+ * Entfernt alle Bewertungen eines Benutzers (beim Entfernen seines Zugangs).
+ *
+ * @param string $login Login des entfernten Benutzers
+ * @return void
+ */
 function remove_user_ratings(string $login): void
 {
     if (is_file(ratings_file())) {

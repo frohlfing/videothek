@@ -1,20 +1,20 @@
 # Videothek
 
-Eine private Familien-Videothek: die Sammlung an Filmen und Serien (DVD, Blu-ray, USB, ...) als kleine
-PHP/JSON-API mit einer statischen One-Page-Frontend-App. Mehrere Freunde können ihre Sammlungen gemeinsam pflegen:
-Jedes Exemplar hat einen Eigentümer und bei DVDs und Blu-rays steht, wer sie gerade ausgeliehen hat. Jeder User kann
-Filme auf seine Wunschliste setzen und in vier Stufen von "nicht sehenswert" bis "muss man sehen" bewerten.
+Eine private Familien-Videothek: die Sammlung an Filmen und Serien (DVD, Blu-ray, USB, ...) als kleine PHP/JSON-API
+mit einer statischen One-Page-Frontend-App. Mehrere Freunde können ihre Sammlungen gemeinsam pflegen: Jedes Exemplar
+hat einen Eigentümer und bei DVDs und Blu-rays steht, wer sie gerade ausgeliehen hat. Jeder User kann Filme auf seine
+Wunschliste setzen und in vier Stufen von "nicht sehenswert" bis "muss man sehen" bewerten.
 
 ## Voraussetzungen
 
 - PHP 8.5+ mit aktivierter **GD**-Extension (für Thumbnails)
 - Ein Webserver mit `public/` als Document Root
-- Kein Datenbankserver nötig – alle Daten liegen als Dateien unter `data/`, bewusst außerhalb des Document Root 
+- Kein Datenbankserver nötig – alle Daten liegen als Dateien unter `data/`, bewusst außerhalb des Document Root
   (Zugriff nur über `api/movies.php` bzw. `api/image.php`, nicht direkt per URL)
 
 ## Setup
 
-1. `config.example.php` nach `config.php` kopieren (liegt im Projekt-Root, **nicht** unter `public/`, damit es 
+1. `config.example.php` nach `config.php` kopieren (liegt im Projekt-Root, **nicht** unter `public/`, damit es
    außerhalb des Document Root und damit nicht direkt aufrufbar ist).
 
 2. In `config.php` ein echtes `API_TOKEN` eintragen, z. B.:
@@ -22,14 +22,13 @@ Filme auf seine Wunschliste setzen und in vier Stufen von "nicht sehenswert" bis
    php -r "echo bin2hex(random_bytes(32));"
    ```
    Für den Film-Import außerdem `TMDB_API_KEY` und `TMDB_LANGUAGE` prüfen (siehe Abschnitt "Import-Funktion").
-   Vorbelegt ist vorläufig der API-Key aus dem Kodi-Scraper; ein eigener ist kostenlos (themoviedb.org →
-   Einstellungen → API).
-   Die Suche per Barcode läuft ohne Eintrag über DuckDuckGo; optional `EAN_SEARCH_PROVIDER`/`EAN_SEARCH_API_KEY`
-   (siehe "Barcode scannen").
+   Vorbelegt ist vorläufig der API-Key aus dem Kodi-Scraper; ein eigener ist kostenlos (themoviedb.org → Einstellungen
+   → API). Die Suche per Barcode läuft ohne Eintrag über DuckDuckGo; optional
+   `EAN_SEARCH_PROVIDER`/`EAN_SEARCH_API_KEY` (siehe "Barcode scannen").
 
 3. Webserver mit Document Root `public/` auf ein Verzeichnis zeigen lassen (z. B. XAMPP-vHost).
 
-4. GD-Extension für PHP aktivieren. Zur Prüfung gibt es `public/dev/info.php` (ruft `phpinfo()` auf, im Browser 
+4. GD-Extension für PHP aktivieren. Zur Prüfung gibt es `public/dev/info.php` (ruft `phpinfo()` auf, im Browser
    aufrufen und nach "gd" suchen) – siehe auch Abschnitt "Admin-/Dev-Skripte" unter Projektstruktur.
 
    Unter XAMPP:
@@ -39,19 +38,19 @@ Filme auf seine Wunschliste setzen und in vier Stufen von "nicht sehenswert" bis
    Unter Hetzner-Webspace:
    - GD ist standardmäßig aktiviert. Falls nicht, kann dies per KonsoleH eingerichtet werden.
 
-5. **HTTP Basic Auth einrichten** (schützt zusätzlich zum API-Token auch die statische `index.html` selbst – ohne 
+5. **HTTP Basic Auth einrichten** (schützt zusätzlich zum API-Token auch die statische `index.html` selbst – ohne
    diese Auth wäre die leere Seiten-Hülle trotz Token-Schutz der API weiterhin für jeden abrufbar):
    ```
    C:\xampp\apache\bin\htpasswd -bcB .htpasswd <benutzername> <passwort>
    ```
-   Die `.htpasswd`-Datei liegt im Projekt-Root (außerhalb des Document Root, neben `config.php`). Danach 
-   `public/.htaccess.example` nach `public/.htaccess` kopieren und den `AuthUserFile`-Pfad auf den tatsächlichen 
-   absoluten Pfad zur `.htpasswd` auf diesem Server anpassen. Beide Dateien (`.htpasswd`, `public/.htaccess`) sind 
+   Die `.htpasswd`-Datei liegt im Projekt-Root (außerhalb des Document Root, neben `config.php`). Danach
+   `public/.htaccess.example` nach `public/.htaccess` kopieren und den `AuthUserFile`-Pfad auf den tatsächlichen
+   absoluten Pfad zur `.htpasswd` auf diesem Server anpassen. Beide Dateien (`.htpasswd`, `public/.htaccess`) sind
    gitignored und müssen auf jedem Rechner/Server separat eingerichtet werden.
 
    Jeder Benutzer der `.htpasswd` ist zugleich Benutzer der App (Eigentümer von Medien, "eingetragen von" bei
-   Ausleihen). Weitere Benutzer legt `php bin/account.php --add` an, siehe "Benutzer verwalten".
-   Für Änderungen braucht jeder User zusätzlich das API-Token.
+   Ausleihen). Weitere Benutzer legt `php bin/account.php --add` an, siehe "Benutzer verwalten". Für Änderungen
+   braucht jeder User zusätzlich das API-Token.
 
 ## Lokalen Testserver unter XAMPP (Windows) einrichten
 
@@ -115,7 +114,7 @@ Filme auf seine Wunschliste setzen und in vier Stufen von "nicht sehenswert" bis
 
 4. SSL-Zertifikat in den Browser-Zertifikatsspeicher importieren:
 
-    Damit der Browser dem selbstsignierten Zertifikat vertraut, muss es in den Browser-Zertifikatsspeicher importiert 
+    Damit der Browser dem selbstsignierten Zertifikat vertraut, muss es in den Browser-Zertifikatsspeicher importiert
     werden:
     - Doppelklick auf `C:\xampp\apache\conf\ssl.crt\videothek.test.crt`
         - Zertifikat installieren...,
@@ -137,10 +136,10 @@ Filme auf seine Wunschliste setzen und in vier Stufen von "nicht sehenswert" bis
 ## Abgleich mit dem Server
 
 Auf dem Server (Hetzner-Webspace) gibt es kein Terminal. Die Skripte in `bin/` laufen deshalb lokal; `bin/remote.php`
-spricht den Server über `dev/sync.php` an (Token nötig, auch zum Lesen). Wer das Token kennt, könnte darüber alle Daten
-lesen und überschreiben und Zugänge anlegen. Deshalb liegt `sync.php` unter `public/dev/` und kommt
-**nur zum Abgleichen** auf den Server: Vorher den Ordner `dev/` per FTP hochladen, danach dort wieder löschen.
-`remote.php` erinnert am Ende daran; fehlt `dev/sync.php` auf dem Server, sagt es das.
+spricht den Server über `dev/sync.php` an (Token nötig, auch zum Lesen). Wer das Token kennt, könnte darüber alle
+Daten lesen und überschreiben und Zugänge anlegen. Deshalb liegt `sync.php` unter `public/dev/` und kommt **nur zum
+Abgleichen** auf den Server: Vorher den Ordner `dev/` per FTP hochladen, danach dort wieder löschen. `remote.php`
+erinnert am Ende daran; fehlt `dev/sync.php` auf dem Server, sagt es das.
 
 | Aufruf                                                   | Zweck                                                                                                            |
 |----------------------------------------------------------|------------------------------------------------------------------------------------------------------------------|
@@ -148,8 +147,8 @@ lesen und überschreiben und Zugänge anlegen. Deshalb liegt `sync.php` unter `p
 | `php bin/remote.php --upload-data --password=…`          | Lädt nach `data/` auf dem Server, was dort fehlt oder lokal neuer ist; auf dem Server wird nichts gelöscht       |
 | `php bin/remote.php --upload-account lilie --password=…` | Überträgt einen Benutzer auf den Server (`.htpasswd` und `users.json` dort)                                      |
 
-**Zugang zum Server:** `--password` ist das Basic-Auth-Passwort auf dem Server, `--user` der Benutzer (Vorgabe `frank`).
-Als Token dient `API_TOKEN` aus der lokalen `config.php`.
+**Zugang zum Server:** `--password` ist das Basic-Auth-Passwort auf dem Server, `--user` der Benutzer (Vorgabe
+`frank`). Als Token dient `API_TOKEN` aus der lokalen `config.php`.
 
 **Download und Upload** vergleichen jede Datei über ihren Inhalt (MD5); die Kopie bekommt danach die Änderungszeit des
 Originals, damit der nächste Vergleich stimmt. Der **Download** übernimmt den Stand des Servers vollständig: Er
@@ -247,18 +246,18 @@ videothek/                            # Projektroot
 ### Admin-/Dev-Skripte (`public/dev/`)
 
 Einmalige Wartungs- und Diagnose-Skripte, die (anders als die eigentliche App) direkt im Browser aufgerufen werden.
-Auf Hetzner-Shared-Webspace gibt es keinen Terminalzugriff, ein CLI-Pendant entfällt daher bewusst. 
+Auf Hetzner-Shared-Webspace gibt es keinen Terminalzugriff, ein CLI-Pendant entfällt daher bewusst.
 
-**Wichtig:** `public/dev/` gehört **nicht dauerhaft** auf den Produktivserver. Nach Gebrauch dort löschen – ein 
-Server-Interna preisgebender `phpinfo()`-Endpunkt und ein Token im URL-Query (landet in Server-Logs/Browser-Verlauf) 
+**Wichtig:** `public/dev/` gehört **nicht dauerhaft** auf den Produktivserver. Nach Gebrauch dort löschen – ein
+Server-Interna preisgebender `phpinfo()`-Endpunkt und ein Token im URL-Query (landet in Server-Logs/Browser-Verlauf)
 sollen keine Dauereinrichtung sein.
 
 ## API
 
-Alle schreibenden Endpunkte (`POST`/`PUT`/`DELETE`) erwarten den Header `X-API-Token: <token>`, sonst `401`. 
-Lesende Endpunkte (`GET`) sind ohne eigenes Token offen — Schutz vor öffentlichem Zugriff übernimmt stattdessen 
-die HTTP Basic Auth vor der gesamten `public/`-Domain (siehe Setup, Schritt 5), die auch die statische `index.html` 
-selbst mit abdeckt. Ausnahme: `dev/sync.php` verlangt das Token auch zum Lesen.
+Alle schreibenden Endpunkte (`POST`/`PUT`/`DELETE`) erwarten den Header `X-API-Token: <token>`, sonst `401`. Lesende
+Endpunkte (`GET`) sind ohne eigenes Token offen — Schutz vor öffentlichem Zugriff übernimmt stattdessen die HTTP Basic
+Auth vor der gesamten `public/`-Domain (siehe Setup, Schritt 5), die auch die statische `index.html` selbst mit
+abdeckt. Ausnahme: `dev/sync.php` verlangt das Token auch zum Lesen.
 
 | Methode      | Endpunkt                                             | Beschreibung                                                                                                                                                                       |
 |--------------|------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
@@ -319,10 +318,9 @@ selbst mit abdeckt. Ausnahme: `dev/sync.php` verlangt das Token auch zum Lesen.
 }
 ```
 
-Eine **Staffel** einer Serie (`"type": "season"`) ist ein Eintrag wie ein Film, mit eigenem Cover, Medien,
-Handlung und Darstellern. Statt `collection` und `director` hat sie `series` (die Serie, aufgebaut wie die Reihe
-eines Films, siehe "Filmreihen und Serien"), `season` (Nummer, `0` = Specials), `creator` ("Idee") und `episodes`
-(gekürzt):
+Eine **Staffel** einer Serie (`"type": "season"`) ist ein Eintrag wie ein Film, mit eigenem Cover, Medien, Handlung
+und Darstellern. Statt `collection` und `director` hat sie `series` (die Serie, aufgebaut wie die Reihe eines Films,
+siehe "Filmreihen und Serien"), `season` (Nummer, `0` = Specials), `creator` ("Idee") und `episodes` (gekürzt):
 
 ```json
 {
@@ -349,8 +347,8 @@ eines Films, siehe "Filmreihen und Serien"), `season` (Nummer, `0` = Specials), 
 }
 ```
 
-Regeln zu den einzelnen Feldern (Pflichtfelder, Wertebereiche, Dateien, Erkennung doppelter Einträge, ältere
-Formate) stehen bei den Funktionen in `public/api/lib/crud.php`.
+Regeln zu den einzelnen Feldern (Pflichtfelder, Wertebereiche, Dateien, Erkennung doppelter Einträge, ältere Formate)
+stehen bei den Funktionen in `public/api/lib/crud.php`.
 
 ## Frontend / Arbeitsweise
 
@@ -362,11 +360,11 @@ Beim Aufruf von `index.html` laufen die Requests in dieser Reihenfolge:
    Ende von `<body>`, lädt/läuft also erst nach dem übrigen HTML).
 2. Sobald `app.js` ausgeführt wird, startet sofort `init()` (kein Warten auf `DOMContentLoaded` nötig, da das Script
    ohnehin erst am Body-Ende geladen wird):
-    - **`GET api/movies.php`** lädt die komplette Filmliste als JSON. Das ist der einzige zwingende Request beim Start;
-      schlägt er fehl, wird eine Fehlermeldung angezeigt und die Initialisierung bricht ab.
+    - **`GET api/movies.php`** lädt die komplette Filmliste als JSON. Das ist der einzige zwingende Request beim
+      Start; schlägt er fehl, wird eine Fehlermeldung angezeigt und die Initialisierung bricht ab.
     - Gleichzeitig laden `api/catalog.php` (Teile je Reihe), `api/users.php` (wer angemeldet ist, Anzeigenamen),
-      `api/locations.php` (Standorte der Scheiben), `api/wishes.php` (Wunschlisten) und `api/ratings.php` (Bewertungen).
-      Fehlt einer davon, fehlen nur die Hinweise bzw. Namen.
+      `api/locations.php` (Standorte der Scheiben), `api/wishes.php` (Wunschlisten) und `api/ratings.php`
+      (Bewertungen). Fehlt einer davon, fehlen nur die Hinweise bzw. Namen.
     - Beim Rendern des Kartenrasters bekommt jeder Film mit Poster ein
       `<img src="api/image.php?slug=…&type=thumb" loading="lazy">`. Dadurch fordert der Browser die Thumbnails an,
       aber wegen `loading="lazy"` nur die Thumbnails, die tatsächlich (nahe) im sichtbaren Viewport liegen; der Rest
@@ -378,20 +376,19 @@ Löschen/Importieren/Ausleihen/Wunschliste/Bewerten) aufgerufen, siehe "Token-Au
 
 ### Token-Authentifizierung
 
-Für Änderungen (Film anlegen/bearbeiten/löschen, Bild-Upload, Ausleihe) fragt das Frontend beim ersten
-Schreibversuch per `prompt()` nach dem API-Token und legt es danach in `localStorage` unter dem Schlüssel
-`videothek_api_token` ab. Jeder weitere Schreibversuch liest das gespeicherte Token wieder aus und fragt nicht erneut 
-nach.
+Für Änderungen (Film anlegen/bearbeiten/löschen, Bild-Upload, Ausleihe) fragt das Frontend beim ersten Schreibversuch
+per `prompt()` nach dem API-Token und legt es danach in `localStorage` unter dem Schlüssel `videothek_api_token` ab.
+Jeder weitere Schreibversuch liest das gespeicherte Token wieder aus und fragt nicht erneut nach.
 
 Es wird nur dann wieder nachgefragt, wenn
 a) der Server das gespeicherte Token ablehnt (401) – dann wird es automatisch aus `localStorage` gelöscht, oder
-b) du es manuell löschst, z. B. in den Browser-DevTools mit `localStorage.removeItem('videothek_api_token')` oder
-über "Website-Daten löschen".
+b) du es manuell löschst, z. B. in den Browser-DevTools mit `localStorage.removeItem('videothek_api_token')` oder über
+   "Website-Daten löschen".
 
-Lesezugriffe (Filmliste, Bilder) brauchen kein App-Token — Schutz vor öffentlichem Zugriff übernimmt die
-HTTP Basic Auth vor der gesamten `public/`-Domain (siehe Setup, Schritt 5). Die Anmeldung bestimmt nur, wer man
-ist (Eigentümer beim Import, "eingetragen von" bei Ausleihen); unter CGI/FastCGI (Hetzner) kommt der Benutzername aus
-`REMOTE_USER` statt `PHP_AUTH_USER` (`current_user()` in `lib/users.php`).
+Lesezugriffe (Filmliste, Bilder) brauchen kein App-Token — Schutz vor öffentlichem Zugriff übernimmt die HTTP Basic
+Auth vor der gesamten `public/`-Domain (siehe Setup, Schritt 5). Die Anmeldung bestimmt nur, wer man ist (Eigentümer
+beim Import, "eingetragen von" bei Ausleihen); unter CGI/FastCGI (Hetzner) kommt der Benutzername aus `REMOTE_USER`
+statt `PHP_AUTH_USER` (`current_user()` in `lib/users.php`).
 
 ### Gemeinsame Sammlung
 
@@ -407,7 +404,7 @@ Verliehen wird an den Haushalt ("Feldmann hat von Rohlfing"); Wunschliste und Be
 
 ### Wunschliste und Bewertungen
 
-Der Link "**möchte ich sehen**" in der Detailansicht setzt den Eintrag auf die eigene Wunschliste (grünes Häkchen auf 
+Der Link "**möchte ich sehen**" in der Detailansicht setzt den Eintrag auf die eigene Wunschliste (grünes Häkchen auf
 der Karte). Bewertet wird in vier Stufen; ein zweiter Klick auf dieselbe Stufe nimmt die Bewertung zurück. Die erste
 Bewertung nimmt den Eintrag von der Wunschliste (gesehen).
 
@@ -422,14 +419,14 @@ Die Karten zeigen den Durchschnitt ("+1,3"). Wunschliste und Bewertungen gibt es
 
 ### Trailer
 
-Ist ein Trailer bei YouTube verschwunden, findet der Link "Trailer auf YouTube suchen" im Bearbeitungsformular einen 
+Ist ein Trailer bei YouTube verschwunden, findet der Link "Trailer auf YouTube suchen" im Bearbeitungsformular einen
 neuen; dessen URL trägt man selbst ein.
 
 ### Abspielen (Medium USB)
 
-Die Filmdateien liegen unter dem **USB-Ordner** (Vorgabe `USB_ROOT` in `config.php`, z. B. `D:\Videos`). Im Medium
-USB stehen ihre Pfade relativ zu diesem Ordner, die Struktur ist frei. Beim Erfassen schlägt die App vor (der Slug ist
-der Name des Eintrags in der Datenbank, z. B. `hangover-2009`):
+Die Filmdateien liegen unter dem **USB-Ordner** (Vorgabe `USB_ROOT` in `config.php`, z. B. `D:\Videos`). Im Medium USB
+stehen ihre Pfade relativ zu diesem Ordner, die Struktur ist frei. Beim Erfassen schlägt die App vor (der Slug ist der
+Name des Eintrags in der Datenbank, z. B. `hangover-2009`):
 
 | Eintrag          | Pfad                                            | Beispiel                                                                                   |
 |------------------|-------------------------------------------------|--------------------------------------------------------------------------------------------|
@@ -443,8 +440,9 @@ Film es geht. Das ist wichtig, weil VLC und Mediaserver (z. B. FRITZ!Box) oft nu
 Titel, Jahr oder Reihe, bleiben die Pfade unverändert.
 
 In der Detailansicht steht bei einer Datei Auflösung und Urteil, z. B. "SD 640×272 (so lala)" (gut, so lala, schlecht
-wie im Medium-Filter). Der Tooltip nennt die Gründe, Codec, Bitrate und den Ton (Sprache, Kanäle, Codec, Bitrate). Die Angaben (`video` und `audio` am Medium) misst
-`bin/convert.php` an der MP4-Datei selbst; die Umwandlung mit CRF 18 gibt ihr so viele Bits, wie die Vorlage braucht. Zwei Kriterien, das schlechtere zählt (`videoQuality()` in `app.js`):
+wie im Medium-Filter). Der Tooltip nennt die Gründe, Codec, Bitrate und den Ton (Sprache, Kanäle, Codec, Bitrate). Die
+Angaben (`video` und `audio` am Medium) misst `bin/convert.php` an der MP4-Datei selbst; die Umwandlung mit CRF 18
+gibt ihr so viele Bits, wie die Vorlage braucht. Zwei Kriterien, das schlechtere zählt (`videoQuality()` in `app.js`):
 
 | Kriterium                                                                                       | gut                             | mittel                         | schlecht                 |
 |-------------------------------------------------------------------------------------------------|---------------------------------|--------------------------------|--------------------------|
@@ -452,13 +450,13 @@ wie im Medium-Filter). Der Tooltip nennt die Gründe, Codec, Bitrate und den Ton
 | Kompression: Bits je Bildpunkt und Bild, umgerechnet auf H.264 (z. B. XviD ÷ 1,5, MPEG-2 ÷ 2,5) | ab 0,08                         | ab 0,05                        | darunter                 |
 
 SD (Standard Definition) ist Fernsehauflösung bis DVD (720×576), HD 1280×720, Full HD 1920×1080, UHD 3840×2160; als
-Full HD gilt ab 1,3 Mio. Bildpunkten (1920×800), als UHD ab 5 Mio. Gezählt werden die Bildpunkte, nicht die Breite: Bei
-gleicher Breite wirkt ein flacheres Bild schlechter (Hangover 592×240 schlecht, Gamer 592×320 mittel). Ohne
+Full HD gilt ab 1,3 Mio. Bildpunkten (1920×800), als UHD ab 5 Mio. Gezählt werden die Bildpunkte, nicht die Breite:
+Bei gleicher Breite wirkt ein flacheres Bild schlechter (Hangover 592×240 schlecht, Gamer 592×320 mittel). Ohne
 Bitrate zählt nur die Auflösung. Fast quadratische Pixel (weniger als 1 % Abweichung, z. B. 1215:1216) gelten als
 quadratisch.
 
-Im Medium-Filter stehen unter "USB" die Stufen "USB (Qualität gut)", "USB (Qualität so lala)" (= mittel) und
-"USB (Qualität schlecht)", jeweils nur, wenn es Einträge dazu gibt.
+Im Medium-Filter stehen unter "USB" die Stufen "USB (Qualität gut)", "USB (Qualität so lala)" (= mittel) und "USB
+(Qualität schlecht)", jeweils nur, wenn es Einträge dazu gibt.
 
 Passt die automatische Beurteilung nicht (z. B. wirkt ein Trickfilm in SD oft gut), lässt sie sich im
 Bearbeitungsformular beim Medium unter "Bildqualität" überschreiben: "automatisch (…)" zeigt, was die Regel ergibt,
@@ -466,22 +464,23 @@ Bearbeitungsformular beim Medium unter "Bildqualität" überschreiben: "automati
 Medium. Sie gilt in Detailansicht und Medium-Filter; der Tooltip nennt dann zusätzlich das automatische Urteil.
 
 Mit Chrome oder Edge am Rechner laufen `.mp4`- und `.m4v`-Dateien in einem Player-Fenster im Browser. Beim ersten Mal
-erscheint der Dialog "Videothek-Ordner": Aus Sicherheitsgründen muss man den Ordner (z. B. `D:\Videos`) einmal 
-selbst auswählen. Der Browser merkt ihn sich (IndexedDB `videothek`) und fragt nach einem Neustart nur kurz nach der 
-Erlaubnis. Ist der Ordner nicht erreichbar (USB-Speicher nicht angeschlossen, umbenannt) oder fehlt die Datei darin, 
-kommt der Dialog wieder. 
+erscheint der Dialog "Videothek-Ordner": Aus Sicherheitsgründen muss man den Ordner (z. B. `D:\Videos`) einmal selbst
+auswählen. Der Browser merkt ihn sich (IndexedDB `videothek`) und fragt nach einem Neustart nur kurz nach der
+Erlaubnis. Ist der Ordner nicht erreichbar (USB-Speicher nicht angeschlossen, umbenannt) oder fehlt die Datei darin,
+kommt der Dialog wieder.
 
 In allen anderen Fällen (`.avi`, `.mkv`, Firefox, Safari, Handy) gibt es keinen Play-Button. Dafür steht bei jeder
 Datei (USB) der Pfad auf diesem Gerät, z. B. `D:\Videos\bruchreif\bruchreif-2009.mp4`, bei Staffeln der Ordner, mit
 einem Knopf zum Kopieren. In die Adresszeile des Explorers eingefügt, öffnet Windows die Datei im installierten Player
-bzw. den Ordner. Der Stift daneben ändert den USB-Ordner für dieses Gerät (gemerkt im Browser). Vorgabe ist `USB_ROOT`,
-unter Android "Interner Speicher/Videos" (so angezeigt; kopiert wird der echte Pfad `/storage/emulated/0/Videos/…`).
-Scheitert ein MP4 im Browser-Player (z. B. unbekannter Codec), geht es ebenso über den Pfad.
+bzw. den Ordner. Der Stift daneben ändert den USB-Ordner für dieses Gerät (gemerkt im Browser). Vorgabe ist
+`USB_ROOT`, unter Android "Interner Speicher/Videos" (so angezeigt; kopiert wird der echte Pfad
+`/storage/emulated/0/Videos/…`). Scheitert ein MP4 im Browser-Player (z. B. unbekannter Codec), geht es ebenso über
+den Pfad.
 
 ### Import-Funktion
 
 Der Import holt die Daten von Filmen und Serien aus **TMDB (The Movie Database)**, wie der Kodi-Scraper "The Movie
-Database Python" (xbmc-Repo: `addons/metadata.themoviedb.org.python`). 
+Database Python" (xbmc-Repo: `addons/metadata.themoviedb.org.python`).
 
 Zuordnung (`tmdb_movie()` in `api/lib/tmdb.php`):
 
@@ -535,14 +534,14 @@ als Fallback.
 
 Im Import-Dialog öffnet "Barcode scannen" die Rückkamera des Smartphones; eine EAN lässt sich auch eintippen. TMDB
 kennt keine Barcodes, deshalb sucht der Server die Nummer im Web und leitet aus den Angebotstiteln den Filmtitel ab
-("Barcode 4012909509665 → The Transporter"). Findet er keinen Eintrag, tippt man den Titel. Die Kamera gibt der Browser 
-nur über HTTPS frei, gescannt wird deshalb auf dem Produktivserver.
+("Barcode 4012909509665 → The Transporter"). Findet er keinen Eintrag, tippt man den Titel. Die Kamera gibt der
+Browser nur über HTTPS frei, gescannt wird deshalb auf dem Produktivserver.
 
 Die Websuche, eingestellt in `config.php`:
 
 - `EAN_SEARCH_PROVIDER`:
-  - `duckduckgo` (Voreinstellung): ohne Schlüssel, braucht aber **curl** (ohne curl, z. B. unter XAMPP, zeigt 
-    DuckDuckGo nur eine Bot-Prüfung). Bei mehreren Scans kurz hintereinander blockiert DuckDuckGo vorübergehend; im 
+  - `duckduckgo` (Voreinstellung): ohne Schlüssel, braucht aber **curl** (ohne curl, z. B. unter XAMPP, zeigt
+    DuckDuckGo nur eine Bot-Prüfung). Bei mehreren Scans kurz hintereinander blockiert DuckDuckGo vorübergehend; im
     Abstand von etwa 20 s klappt es.
   - `serpapi`: Google-Ergebnisse über [SerpApi](https://serpapi.com), kostenloses Monatskontingent, Schlüssel nötig.
   - `brave`: [Brave Search API](https://brave.com/search/api/), monatliches Freiguthaben, Kreditkarte nötig.
@@ -556,27 +555,27 @@ Handy. "Als PDF speichern" im Druckdialog ergibt eine PDF-Datei.
 
 ## Videos aufnehmen
 
-Neue Filme einer Platte kommen mit `bin/convert.php` Film für Film in die Videothek. Das Skript arbeitet direkt
-mit dem Server (Vorgabe `https://videothek.frank-rohlfing.de`, Zugang wie `bin/remote.php`: `--password` bzw.
+Neue Filme einer Platte kommen mit `bin/convert.php` Film für Film in die Videothek. Das Skript arbeitet direkt mit
+dem Server (Vorgabe `https://videothek.frank-rohlfing.de`, Zugang wie `bin/remote.php`: `--password` bzw.
 Umgebungsvariable `VIDEOTHEK_PASSWORD`, dazu das API-Token per `--api-token` bzw. `VIDEOTHEK_API_TOKEN`, sonst
 `API_TOKEN` aus `config.php`); `data/movies` wird nicht gebraucht. Ein falsches Token oder ein fehlendes
 `api/media.php` auf dem Server meldet das Skript gleich zu Beginn.
 
 1. Alle Filme bzw. Staffeln über die Import-Funktion der App importieren, Medium "USB" des Eigentümers der Platte.
    Beim USB-Medium unter "Dateien" den Dateinamen der Quelle relativ zum Quellordner eintragen (z. B.
-   `Kick Ass (2010)/kickass.avi`; bei Staffeln eine Zeile je Folge, bei Mehrteilern alle Teile). Fehlt er,
-   sucht das Skript über den Namen: Titel oder Originaltitel als ganze Wörter im Pfad, passendes Jahr; bei Staffeln
-   Serie, Staffelnummer und Folgennummer wie `S01E05`.
-2. `php bin/convert.php --owner=rohlfing --src=D:\Filme --password=… --dry-run` zeigt, welche Datei zu welchem
-   Eintrag gehört. Was nicht eindeutig ist, steht am Ende unter "Ohne Quelle" bzw. "Videos ohne Eintrag"; dafür den
-   Dateinamen in der App nachtragen.
+   `Kick Ass (2010)/kickass.avi`; bei Staffeln eine Zeile je Folge, bei Mehrteilern alle Teile). Fehlt er, sucht das
+   Skript über den Namen: Titel oder Originaltitel als ganze Wörter im Pfad, passendes Jahr; bei Staffeln Serie,
+   Staffelnummer und Folgennummer wie `S01E05`.
+2. `php bin/convert.php --owner=rohlfing --src=D:\Filme --password=… --dry-run` zeigt, welche Datei zu welchem Eintrag
+   gehört. Was nicht eindeutig ist, steht am Ende unter "Ohne Quelle" bzw. "Videos ohne Eintrag"; dafür den Dateinamen
+   in der App nachtragen.
 3. Ohne `--dry-run` wandelt das Skript je Eintrag um (Mehrteiler zusammengefügt, H.264 + AAC/MP3, eine Tonspur),
    schreibt Titel, Handlung und das Poster als Cover mit in die MP4, legt sie unter dem Pfad nach der Regel oben in
    den USB-Ordner (`--to`, Vorgabe `USB_ROOT`), misst Bild und Ton und trägt Pfade, Bild und Ton über
    `PUT /api/media.php` auf dem Server ein. Die Quelle bleibt unverändert. Abbruch mit Strg+C; ein erneuter Start
    setzt fort (`convert-log.jsonl` im USB-Ordner).
 
-`--owner` ist Pflicht: Nur USB-Medien dieses Eigentümers werden bearbeitet. 
+`--owner` ist Pflicht: Nur USB-Medien dieses Eigentümers werden bearbeitet.
 
 Eine portable Version kann mit `bin\build_convert_portable.cmd` erstellt werden.
 
@@ -587,7 +586,8 @@ Eine portable Version kann mit `bin\build_convert_portable.cmd` erstellt werden.
 - ✅ JSON-API (CRUD + Poster-Upload mit automatischem Thumbnail im Plakatformat)
 - ✅ Frontend inkl. Anlegen/Bearbeiten/Löschen, Suche, Genre- und Medium-Filter, Sortierung nach Jahr
 - ✅ Druckansicht (`@media print`, Trailer als QR-Code, erste 6 Darsteller)
-- ✅ Film-Import aus TMDB wie bei Kodi (deutsche Titel/Handlung, FSK, Poster, Hintergrundbild, Darstellerfotos, Trailer)
+- ✅ Film-Import aus TMDB wie bei Kodi (deutsche Titel/Handlung, FSK, Poster, Hintergrundbild, Darstellerfotos,
+  Trailer)
 - ✅ Trailer als eingebetteter Player
 - ✅ Mehrere Medien pro Film (z. B. DVD und USB)
 - ✅ Mehrere Benutzer: Eigentümer je Medium, Ausleihe mit einem Klick (`locations.json`), eigener USB-Ordner je Gerät
