@@ -54,7 +54,10 @@ function import_media(string $medium): array
     return $medium !== IMPORT_WISH && $user !== null ? [['owner' => owner_of($user), 'type' => $medium]] : [];
 }
 
-/** Bei IMPORT_WISH: die neuen Einträge auf die Wunschliste des angemeldeten Benutzers. @param string[] $slugs */
+/**
+ * Bei IMPORT_WISH: die neuen Einträge auf die Wunschliste des angemeldeten Benutzers.
+ * @param string[] $slugs
+ */
 function import_wishes(string $medium, array $slugs): void
 {
     $user = current_user();
