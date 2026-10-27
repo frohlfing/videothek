@@ -52,6 +52,15 @@ Wunschliste setzen und in vier Stufen von "nicht sehenswert" bis "muss man sehen
    Ausleihen). Weitere Benutzer legt `php bin/account.php --add` an, siehe "Benutzer verwalten". Für Änderungen
    braucht jeder User zusätzlich das API-Token.
 
+6. **ffmpeg installieren** (nur für `bin/convert.php`, den Import von Platten – die Web-App selbst braucht es nicht):
+   `ffmpeg` und `ffprobe` müssen im `PATH` des Rechners liegen, auf dem das Skript läuft (unter Windows z. B. von
+   ffmpeg.org bzw. gyan.dev, Ordner `bin` zum `PATH` hinzufügen). Zur Prüfung:
+   ```
+   ffmpeg -version
+   ffprobe -version
+   ```
+   Siehe Abschnitt "Videos aufnehmen"; die portable Version (`bin\build_convert_portable.cmd`) bringt ffmpeg bereits mit.
+
 ## Lokalen Testserver unter XAMPP (Windows) einrichten
 
 1. URL in die Hosts-Datei eintragen
